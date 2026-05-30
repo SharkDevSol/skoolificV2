@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Socket.IO Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background: #f8f9fa;
+            padding: 10px;
+            margin: 5px 0;
+            border-left: 3px solid #007bff;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 Socket.IO Connection Test</h1>
+    
+    <div id="status" class="status disconnected">
+        ❌ Disconnected
+    </div>
+    
+    <button onclick="testEmit()">Test Emit Event</button>
+    
+    <h2>Received Events:</h2>
+    <div id="logs"></div>
+    
+    <script>
+        const socket = io('http://localhost:5000', {
+            transports: ['websocket', 'polling']
+        });
+        
+        const statusDiv = document.getElementById('status');
+        const logsDiv = document.getElementById('logs');
+        
+        socket.on('connect', () => {
+            console.log('✅ Connected! Socket ID:', socket.id);
+            statusDiv.className = 'status connected';
+            statusDiv.textContent = `✅ Connected (ID: ${socket.id})`;
+            addLog('Connected to server');
+        });
+        
+        socket.on('connect_error', (error) => {
+            console.error('❌ Connection error:', error);
+            addLog('Connection error: ' + error.message, 'error');
+        });
+        
+        socket.on('disconnect', (reason) => {
+            console.log('❌ Disconnected:', reason);
+            statusDiv.className = 'status disconnected';
+            statusDiv.textContent = '❌ Disconnected';
+            addLog('Disconnected: ' + reason);
+        });
+        
+        socket.on('new-attendance', (data) => {
+            console.log('📊 NEW ATTENDANCE:', data);
+            addLog('NEW ATTENDANCE: ' + JSON.stringify(data, null, 2));
+        });
+        
+        function addLog(message, type = 'info') {
+            const logDiv = document.createElement('div');
+            logDiv.className = 'log';
+            logDiv.textContent = new Date().toLocaleTimeString() + ' - ' + message;
+            logsDiv.insertBefore(logDiv, logsDiv.firstChild);
+        }
+        
+        function testEmit() {
+            socket.emit('test-event', { message: 'Hello from browser!' });
+            addLog('Sent test event to server');
+        }
+    </script>
+</body>
+</html>

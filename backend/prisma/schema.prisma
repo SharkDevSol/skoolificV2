@@ -1,0 +1,1045 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String
+  role             Role
+  username         String?   @unique
+  sentRequests     Request[] @relation("SentRequests")
+  receivedRequests Request[] @relation("ReceivedRequests")
+  sentLogs         ChatLog[] @relation("SentLogs")
+  students         Student[]
+  taughtClasses    Class[]
+}
+
+enum Role {
+  director
+  teacher
+  guardian
+}
+
+model Student {
+  id          String @id @default(uuid()) @db.Uuid
+  studentName String
+  classId     String @db.Uuid
+  guardianId  String @db.Uuid
+
+  guardian User  @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+  class    Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+}
+
+model Class {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  teacherId String?   @db.Uuid
+  students  Student[]
+
+  teacher User? @relation(fields: [teacherId], references: [id])
+}
+
+model Request {
+  id          String        @id @default(uuid()) @db.Uuid
+  senderId    String        @db.Uuid
+  recipientId String        @db.Uuid
+  questions   Json
+  responses   Json?
+  status      RequestStatus
+  createdAt   DateTime      @default(now()) @db.Timestamptz
+  expiresAt   DateTime?     @db.Timestamptz
+
+  sender    User      @relation("SentRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User      @relation("ReceivedRequests", fields: [recipientId], references: [id], onDelete: Cascade)
+  logs      ChatLog[]
+
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([status])
+}
+
+enum RequestStatus {
+  pending
+  responded
+  expired
+}
+
+model ChatLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  requestId String   @db.Uuid
+  action    String
+  actorId   String   @db.Uuid
+  timestamp DateTime @default(now()) @db.Timestamptz
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User    @relation("SentLogs", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([actorId])
+}
+
+
+// ============================================================================
+// FINANCE MANAGEMENT MODULE
+// ============================================================================
+
+// Chart of Accounts
+model Account {
+  id        String      @id @default(uuid()) @db.Uuid
+  code      String      @unique
+  name      String
+  type      AccountType
+  parentId  String?     @db.Uuid
+  campusId  String?     @db.Uuid
+  isActive  Boolean     @default(true)
+  isLeaf    Boolean     @default(true)
+  createdAt DateTime    @default(now()) @db.Timestamptz
+  updatedAt DateTime    @updatedAt @db.Timestamptz
+  createdBy String      @db.Uuid
+
+  parent             Account?            @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children           Account[]           @relation("AccountHierarchy")
+  feeStructureItems  FeeStructureItem[]
+  invoiceItems       InvoiceItem[]
+  salaryComponents   SalaryComponent[]
+  payrollItemDetails PayrollItemDetail[]
+  expenses           Expense[]
+  budgetLines        BudgetLine[]
+  transactionLines   TransactionLine[]
+  salaries           Salary[]
+  deductionTypes     DeductionType[]
+  allowanceTypes     AllowanceType[]
+  retentionBenefitTypes RetentionBenefitType[]
+
+  @@index([code])
+  @@index([type])
+  @@index([campusId])
+  @@index([isActive])
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+}
+
+// Fee Management
+model FeeStructure {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  academicYearId  String   @db.Uuid
+  termId          String?  @db.Uuid
+  gradeLevel      String?
+  campusId        String?  @db.Uuid
+  studentCategory String?
+  description     String?  // Stores months data as JSON
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  items FeeStructureItem[]
+
+  @@index([academicYearId])
+  @@index([campusId])
+  @@index([isActive])
+}
+
+model FeeStructureItem {
+  id               String      @id @default(uuid()) @db.Uuid
+  feeStructureId   String      @db.Uuid
+  feeCategory      String
+  amount           Decimal     @db.Decimal(15, 2)
+  accountId        String      @db.Uuid
+  paymentType      PaymentType
+  dueDate          DateTime?   @db.Timestamptz
+  installmentCount Int?
+  description      String?
+
+  feeStructure FeeStructure @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id])
+
+  @@index([feeStructureId])
+  @@index([feeCategory])
+}
+
+enum PaymentType {
+  ONE_TIME
+  RECURRING
+  INSTALLMENT
+}
+
+model Discount {
+  id                      String       @id @default(uuid()) @db.Uuid
+  name                    String
+  type                    DiscountType
+  value                   Decimal      @db.Decimal(15, 2)
+  applicableFeeCategories Json
+  startDate               DateTime     @db.Timestamptz
+  endDate                 DateTime?    @db.Timestamptz
+  requiresApproval        Boolean      @default(false)
+  isActive                Boolean      @default(true)
+  createdAt               DateTime     @default(now()) @db.Timestamptz
+  updatedAt               DateTime     @updatedAt @db.Timestamptz
+
+  scholarships Scholarship[]
+
+  @@index([isActive])
+  @@index([startDate, endDate])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model Scholarship {
+  id                  String   @id @default(uuid()) @db.Uuid
+  name                String
+  discountId          String   @db.Uuid
+  eligibilityCriteria Json
+  maxRecipients       Int?
+  academicYearId      String   @db.Uuid
+  approvalWorkflowId  String?  @db.Uuid
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now()) @db.Timestamptz
+  updatedAt           DateTime @updatedAt @db.Timestamptz
+
+  discount         Discount          @relation(fields: [discountId], references: [id])
+  approvalWorkflow ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
+
+  @@index([academicYearId])
+  @@index([isActive])
+}
+
+model LateFeeRule {
+  id                      String       @id @default(uuid()) @db.Uuid
+  name                    String
+  type                    DiscountType
+  value                   Decimal      @db.Decimal(15, 2)
+  gracePeriodDays         Int
+  applicableFeeCategories Json
+  campusId                String?      @db.Uuid
+  isActive                Boolean      @default(true)
+  createdAt               DateTime     @default(now()) @db.Timestamptz
+  updatedAt               DateTime     @updatedAt @db.Timestamptz
+
+  @@index([campusId])
+  @@index([isActive])
+}
+
+
+// Billing
+model Invoice {
+  id             String        @id @default(uuid()) @db.Uuid
+  invoiceNumber  String        @unique
+  receiptNumber  String?       @unique  // Permanent receipt number for paid invoices
+  studentId      String        @db.Uuid
+  academicYearId String        @db.Uuid
+  termId         String?       @db.Uuid
+  feeStructureId String?       @db.Uuid  // Link to fee structure
+  issueDate      DateTime      @db.Timestamptz
+  dueDate        DateTime      @db.Timestamptz
+  totalAmount    Decimal       @db.Decimal(15, 2)
+  discountAmount Decimal       @db.Decimal(15, 2) @default(0)
+  lateFeeAmount  Decimal       @db.Decimal(15, 2) @default(0)
+  netAmount      Decimal       @db.Decimal(15, 2)
+  paidAmount     Decimal       @db.Decimal(15, 2) @default(0)
+  status         InvoiceStatus
+  metadata       Json?         // Store month info and other data
+  campusId       String        @db.Uuid
+  createdAt      DateTime      @default(now()) @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @db.Timestamptz
+  createdBy      String        @db.Uuid
+
+  items              InvoiceItem[]
+  paymentAllocations PaymentAllocation[]
+
+  @@index([invoiceNumber])
+  @@index([receiptNumber])
+  @@index([studentId])
+  @@index([feeStructureId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([campusId])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid()) @db.Uuid
+  invoiceId   String  @db.Uuid
+  feeCategory String
+  description String
+  amount      Decimal @db.Decimal(15, 2)
+  accountId   String  @db.Uuid
+  quantity    Int     @default(1)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([invoiceId])
+}
+
+// Payment
+model Payment {
+  id              String        @id @default(uuid()) @db.Uuid
+  receiptNumber   String        @unique
+  studentId       String        @db.Uuid
+  amount          Decimal       @db.Decimal(15, 2)
+  paymentMethod   PaymentMethod
+  paymentDate     DateTime      @db.Timestamptz
+  referenceNumber String?
+  screenshot      String?       // Optional screenshot/receipt image path
+  status          PaymentStatus
+  campusId        String        @db.Uuid
+  createdAt       DateTime      @default(now()) @db.Timestamptz
+  createdBy       String        @db.Uuid
+
+  allocations PaymentAllocation[]
+
+  @@index([receiptNumber])
+  @@index([studentId])
+  @@index([status])
+  @@index([paymentDate])
+  @@index([campusId])
+}
+
+enum PaymentMethod {
+  CASH
+  CBE
+  ABAY
+  ABYSSINIA
+  EBIRR
+  MOBILE_MONEY
+  ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model PaymentAllocation {
+  id        String   @id @default(uuid()) @db.Uuid
+  paymentId String   @db.Uuid
+  invoiceId String   @db.Uuid
+  amount    Decimal  @db.Decimal(15, 2)
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([invoiceId])
+}
+
+model Refund {
+  id             String       @id @default(uuid()) @db.Uuid
+  refundNumber   String       @unique
+  studentId      String       @db.Uuid
+  amount         Decimal      @db.Decimal(15, 2)
+  reason         String
+  status         RefundStatus
+  requestedBy    String       @db.Uuid
+  approvedBy     String?      @db.Uuid
+  requestDate    DateTime     @db.Timestamptz
+  approvalDate   DateTime?    @db.Timestamptz
+  completionDate DateTime?    @db.Timestamptz
+  createdAt      DateTime     @default(now()) @db.Timestamptz
+  updatedAt      DateTime     @updatedAt @db.Timestamptz
+
+  @@index([refundNumber])
+  @@index([studentId])
+  @@index([status])
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+
+// Expense Management
+model Expense {
+  id                 String              @id @default(uuid()) @db.Uuid
+  expenseNumber      String              @unique
+  category           String
+  description        String
+  amount             Decimal             @db.Decimal(15, 2)
+  expenseDate        DateTime            @db.Timestamptz
+  vendorId           String?             @db.Uuid
+  accountId          String              @db.Uuid
+  departmentId       String?             @db.Uuid
+  campusId           String              @db.Uuid
+  status             ExpenseStatus
+  isRecurring        Boolean             @default(false)
+  recurringFrequency RecurringFrequency?
+  budgetId           String?             @db.Uuid
+  createdAt          DateTime            @default(now()) @db.Timestamptz
+  updatedAt          DateTime            @updatedAt @db.Timestamptz
+  createdBy          String              @db.Uuid
+
+  vendor      Vendor?             @relation(fields: [vendorId], references: [id])
+  account     Account             @relation(fields: [accountId], references: [id])
+  budget      Budget?             @relation(fields: [budgetId], references: [id])
+  attachments ExpenseAttachment[]
+
+  @@index([expenseNumber])
+  @@index([category])
+  @@index([status])
+  @@index([vendorId])
+  @@index([campusId])
+  @@index([expenseDate])
+}
+
+enum ExpenseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum RecurringFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+model ExpenseAttachment {
+  id         String   @id @default(uuid()) @db.Uuid
+  expenseId  String   @db.Uuid
+  fileName   String
+  filePath   String
+  fileType   String
+  fileSize   Int
+  uploadedAt DateTime @default(now()) @db.Timestamptz
+  uploadedBy String   @db.Uuid
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+}
+
+model Vendor {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  taxId         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+
+  expenses Expense[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Budget Management
+model Budget {
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String
+  fiscalYear   Int
+  startDate    DateTime     @db.Timestamptz
+  endDate      DateTime     @db.Timestamptz
+  totalAmount  Decimal      @db.Decimal(15, 2)
+  status       BudgetStatus
+  campusId     String?      @db.Uuid
+  approvedBy   String?      @db.Uuid
+  approvalDate DateTime?    @db.Timestamptz
+  createdAt    DateTime     @default(now()) @db.Timestamptz
+  updatedAt    DateTime     @updatedAt @db.Timestamptz
+  createdBy    String       @db.Uuid
+
+  lines    BudgetLine[]
+  expenses Expense[]
+
+  @@index([fiscalYear])
+  @@index([status])
+  @@index([campusId])
+}
+
+enum BudgetStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  CLOSED
+}
+
+model BudgetLine {
+  id              String  @id @default(uuid()) @db.Uuid
+  budgetId        String  @db.Uuid
+  category        String
+  accountId       String  @db.Uuid
+  departmentId    String? @db.Uuid
+  allocatedAmount Decimal @db.Decimal(15, 2)
+  spentAmount     Decimal @db.Decimal(15, 2) @default(0)
+  remainingAmount Decimal @db.Decimal(15, 2)
+  alertThreshold  Decimal @db.Decimal(5, 2)  @default(80)
+
+  budget  Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([budgetId])
+  @@index([category])
+}
+
+
+// Payroll Management
+model SalaryStructure {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  staffCategory String
+  baseSalary    Decimal  @db.Decimal(15, 2)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+
+  components   SalaryComponent[]
+  payrollItems PayrollItem[]
+
+  @@index([staffCategory])
+  @@index([isActive])
+}
+
+model SalaryComponent {
+  id                String          @id @default(uuid()) @db.Uuid
+  salaryStructureId String          @db.Uuid
+  componentType     ComponentType
+  name              String
+  calculationType   CalculationType
+  value             Decimal         @db.Decimal(15, 2)
+  accountId         String          @db.Uuid
+
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+  account         Account         @relation(fields: [accountId], references: [id])
+
+  @@index([salaryStructureId])
+}
+
+enum ComponentType {
+  ALLOWANCE
+  DEDUCTION
+}
+
+enum CalculationType {
+  FIXED
+  PERCENTAGE
+}
+
+model Payroll {
+  id               String        @id @default(uuid()) @db.Uuid
+  payrollNumber    String        @unique
+  month            Int
+  year             Int
+  status           PayrollStatus
+  totalGrossSalary Decimal       @db.Decimal(15, 2)
+  totalDeductions  Decimal       @db.Decimal(15, 2)
+  totalNetSalary   Decimal       @db.Decimal(15, 2)
+  approvedBy       String?       @db.Uuid
+  approvalDate     DateTime?     @db.Timestamptz
+  paymentDate      DateTime?     @db.Timestamptz
+  createdAt        DateTime      @default(now()) @db.Timestamptz
+  updatedAt        DateTime      @updatedAt @db.Timestamptz
+  createdBy        String        @db.Uuid
+
+  items PayrollItem[]
+
+  @@unique([month, year])
+  @@index([payrollNumber])
+  @@index([status])
+}
+
+enum PayrollStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+}
+
+model PayrollItem {
+  id                String   @id @default(uuid()) @db.Uuid
+  payrollId         String   @db.Uuid
+  staffId           String   @db.Uuid
+  salaryStructureId String   @db.Uuid
+  baseSalary        Decimal  @db.Decimal(15, 2)
+  totalAllowances   Decimal  @db.Decimal(15, 2)
+  totalDeductions   Decimal  @db.Decimal(15, 2)
+  netSalary         Decimal  @db.Decimal(15, 2)
+  payslipGenerated  Boolean  @default(false)
+  payslipPath       String?
+
+  payroll         Payroll             @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  staff           Staff               @relation(fields: [staffId], references: [id])
+  salaryStructure SalaryStructure     @relation(fields: [salaryStructureId], references: [id])
+  details         PayrollItemDetail[]
+
+  @@index([payrollId])
+  @@index([staffId])
+}
+
+model PayrollItemDetail {
+  id            String        @id @default(uuid()) @db.Uuid
+  payrollItemId String        @db.Uuid
+  componentType ComponentType
+  componentName String
+  amount        Decimal       @db.Decimal(15, 2)
+  accountId     String        @db.Uuid
+
+  payrollItem PayrollItem @relation(fields: [payrollItemId], references: [id], onDelete: Cascade)
+  account     Account     @relation(fields: [accountId], references: [id])
+
+  @@index([payrollItemId])
+}
+
+
+// Approval Workflow
+model ApprovalWorkflow {
+  id         String     @id @default(uuid()) @db.Uuid
+  name       String
+  entityType EntityType
+  isActive   Boolean    @default(true)
+  createdAt  DateTime   @default(now()) @db.Timestamptz
+  updatedAt  DateTime   @updatedAt @db.Timestamptz
+
+  steps        ApprovalStep[]
+  requests     ApprovalRequest[]
+  scholarships Scholarship[]
+
+  @@index([entityType])
+  @@index([isActive])
+}
+
+enum EntityType {
+  EXPENSE
+  REFUND
+  BUDGET
+  PAYROLL
+  SCHOLARSHIP
+}
+
+model ApprovalStep {
+  id           String   @id @default(uuid()) @db.Uuid
+  workflowId   String   @db.Uuid
+  stepOrder    Int
+  approverRole String
+  minAmount    Decimal? @db.Decimal(15, 2)
+  maxAmount    Decimal? @db.Decimal(15, 2)
+  isRequired   Boolean  @default(true)
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@index([stepOrder])
+}
+
+model ApprovalRequest {
+  id               String         @id @default(uuid()) @db.Uuid
+  workflowId       String         @db.Uuid
+  entityType       EntityType
+  entityId         String         @db.Uuid
+  currentStepOrder Int
+  status           ApprovalStatus
+  requestedBy      String         @db.Uuid
+  requestDate      DateTime       @db.Timestamptz
+  completionDate   DateTime?      @db.Timestamptz
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  actions  ApprovalAction[]
+
+  @@index([entityType, entityId])
+  @@index([status])
+  @@index([requestedBy])
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ApprovalAction {
+  id                String                @id @default(uuid()) @db.Uuid
+  approvalRequestId String                @db.Uuid
+  stepOrder         Int
+  approverUserId    String                @db.Uuid
+  action            ApprovalAction_Action
+  comments          String?
+  actionDate        DateTime              @db.Timestamptz
+
+  approvalRequest ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+
+  @@index([approvalRequestId])
+}
+
+enum ApprovalAction_Action {
+  APPROVED
+  REJECTED
+}
+
+// Audit Trail
+model AuditLog {
+  id         String      @id @default(uuid()) @db.Uuid
+  entityType String
+  entityId   String      @db.Uuid
+  action     AuditAction
+  userId     String      @db.Uuid
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  timestamp  DateTime    @default(now()) @db.Timestamptz
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([timestamp])
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+}
+
+// Double-Entry Accounting
+model Transaction {
+  id                String            @id @default(uuid()) @db.Uuid
+  transactionNumber String            @unique
+  transactionDate   DateTime          @db.Timestamptz
+  description       String
+  sourceType        TransactionSource
+  sourceId          String            @db.Uuid
+  status            TransactionStatus
+  postedBy          String?           @db.Uuid
+  postedAt          DateTime?         @db.Timestamptz
+  createdAt         DateTime          @default(now()) @db.Timestamptz
+
+  lines TransactionLine[]
+
+  @@index([transactionNumber])
+  @@index([sourceType, sourceId])
+  @@index([status])
+  @@index([transactionDate])
+}
+
+enum TransactionSource {
+  INVOICE
+  PAYMENT
+  EXPENSE
+  PAYROLL
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  POSTED
+  REVERSED
+}
+
+model TransactionLine {
+  id            String  @id @default(uuid()) @db.Uuid
+  transactionId String  @db.Uuid
+  accountId     String  @db.Uuid
+  debitAmount   Decimal @db.Decimal(15, 2) @default(0)
+  creditAmount  Decimal @db.Decimal(15, 2) @default(0)
+  description   String?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account     Account     @relation(fields: [accountId], references: [id])
+
+  @@index([transactionId])
+  @@index([accountId])
+}
+
+
+// ============================================================================
+// HR & STAFF SALARY MANAGEMENT MODULE
+// ============================================================================
+
+// Staff Master Record
+model Staff {
+  id                String   @id @default(uuid()) @db.Uuid
+  employeeNumber    String   @unique
+  machineId         Int?     @unique  // AI06 Device User ID for attendance
+  firstName         String
+  lastName          String
+  email             String   @unique
+  phone             String
+  staffType         StaffType
+  dateOfBirth       DateTime @db.Date
+  gender            Gender
+  address           String?
+  emergencyContact  Json?    // {name, relationship, phone, email}
+  hireDate          DateTime @db.Date
+  contractType      ContractType
+  status            StaffStatus @default(ACTIVE)
+  profilePhotoUrl   String?
+  createdAt         DateTime @default(now()) @db.Timestamptz
+  updatedAt         DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  salaries          Salary[]
+  deductions        StaffDeduction[]
+  allowances        StaffAllowance[]
+  retentionBenefits StaffRetention[]
+  payrollItems      PayrollItem[]
+  attendanceLogs    StaffAttendanceLog[]
+
+  @@index([employeeNumber])
+  @@index([machineId])
+  @@index([staffType])
+  @@index([status])
+}
+
+enum StaffType {
+  TEACHER
+  SUPPORTIVE
+  ADMINISTRATIVE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ContractType {
+  PERMANENT
+  CONTRACT
+  PART_TIME
+  TEMPORARY
+}
+
+enum StaffStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  EXITED
+}
+
+// Staff Attendance Log from AI06 Device
+model StaffAttendanceLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffId         String   @db.Uuid
+  machineId       Int
+  scanTime        DateTime @db.Timestamptz
+  date            DateTime @db.Date
+  status          AttendanceStatus
+  minutesLate     Int?
+  inout           Int      // 0=Check In, 1=Check Out
+  mode            Int      // Authentication mode from device
+  createdAt       DateTime @default(now()) @db.Timestamptz
+
+  // Relations
+  staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId])
+  @@index([machineId])
+  @@index([date])
+  @@index([status])
+}
+
+enum AttendanceStatus {
+  ON_TIME
+  LATE
+  EARLY
+  ABSENT
+}
+
+// Attendance Time Settings
+model AttendanceTimeSetting {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   // e.g., "Default Work Hours"
+  workStartTime   String   // e.g., "08:00"
+  lateThreshold   Int      // Minutes after start time (e.g., 15)
+  workEndTime     String   // e.g., "17:00"
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  @@index([isActive])
+}
+
+// Salary Structure
+model Salary {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffId         String   @db.Uuid
+  accountId       String   @db.Uuid
+  baseSalary      Decimal  @db.Decimal(15, 2)
+  effectiveFrom   DateTime @db.Date
+  effectiveTo     DateTime? @db.Date
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  account         Account  @relation(fields: [accountId], references: [id])
+
+  @@index([staffId])
+  @@index([isActive])
+}
+
+// Deduction Types (Tax, Pension, Service, Credit)
+model DeductionType {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  description     String?
+  calculationType CalculationType
+  defaultValue    Decimal  @db.Decimal(15, 2)
+  accountId       String   @db.Uuid
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  account         Account  @relation(fields: [accountId], references: [id])
+  staffDeductions StaffDeduction[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Staff-specific Deductions
+model StaffDeduction {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffId         String   @db.Uuid
+  deductionTypeId String   @db.Uuid
+  amount          Decimal  @db.Decimal(15, 2)
+  calculationType CalculationType
+  effectiveFrom   DateTime @db.Date
+  effectiveTo     DateTime? @db.Date
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff           Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  deductionType   DeductionType  @relation(fields: [deductionTypeId], references: [id])
+
+  @@index([staffId])
+  @@index([deductionTypeId])
+  @@index([isActive])
+}
+
+// Allowance Types
+model AllowanceType {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  description     String?
+  calculationType CalculationType
+  defaultValue    Decimal  @db.Decimal(15, 2)
+  accountId       String   @db.Uuid
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  account         Account  @relation(fields: [accountId], references: [id])
+  staffAllowances StaffAllowance[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Staff-specific Allowances
+model StaffAllowance {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffId         String   @db.Uuid
+  allowanceTypeId String   @db.Uuid
+  amount          Decimal  @db.Decimal(15, 2)
+  calculationType CalculationType
+  effectiveFrom   DateTime @db.Date
+  effectiveTo     DateTime? @db.Date
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff           Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  allowanceType   AllowanceType  @relation(fields: [allowanceTypeId], references: [id])
+
+  @@index([staffId])
+  @@index([allowanceTypeId])
+  @@index([isActive])
+}
+
+// Staff Retention Benefits (Tuition Waivers and Merit Pay)
+model RetentionBenefitType {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  type            RetentionType
+  description     String?
+  calculationType CalculationType
+  defaultValue    Decimal  @db.Decimal(15, 2)
+  accountId       String   @db.Uuid
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  account         Account  @relation(fields: [accountId], references: [id])
+  staffRetentions StaffRetention[]
+
+  @@index([name])
+  @@index([type])
+  @@index([isActive])
+}
+
+enum RetentionType {
+  TUITION_WAIVER
+  MERIT_PAY
+}
+
+// Staff-specific Retention Benefits
+model StaffRetention {
+  id                      String   @id @default(uuid()) @db.Uuid
+  staffId                 String   @db.Uuid
+  retentionBenefitTypeId  String   @db.Uuid
+  amount                  Decimal  @db.Decimal(15, 2)
+  calculationType         CalculationType
+  effectiveFrom           DateTime @db.Date
+  effectiveTo             DateTime? @db.Date
+  isActive                Boolean  @default(true)
+  notes                   String?
+  createdAt               DateTime @default(now()) @db.Timestamptz
+  updatedAt               DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff                   Staff                  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  retentionBenefitType    RetentionBenefitType   @relation(fields: [retentionBenefitTypeId], references: [id])
+
+  @@index([staffId])
+  @@index([retentionBenefitTypeId])
+  @@index([isActive])
+}

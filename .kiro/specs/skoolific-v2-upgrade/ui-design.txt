@@ -1,0 +1,11 @@
+# UI/UX Design System for Skoolific V2
+
+## Overview
+This document outlines the comprehensive UI/UX design system for Skoolific V2, including modern design principles, dark mode support, and multi-language capabilities.
+
+## Design Principles
+1. Simple and Professional
+2. Clean and Modern
+3. Accessible and Inclusive
+4. Responsive and Adaptive
+5. Consistent and Predictable

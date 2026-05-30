@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Live Attendance Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .log { background: #f8f9fa; padding: 10px; margin: 5px 0; border-left: 3px solid #007bff; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Simple Live Attendance Test</h1>
+    
+    <div id="status" class="status disconnected">❌ Disconnected</div>
+    
+    <button onclick="triggerTest()">Trigger Test Event</button>
+    <button onclick="clearLogs()">Clear Logs</button>
+    
+    <h2>Console Logs:</h2>
+    <div id="console"></div>
+    
+    <h2>Received Attendance:</h2>
+    <div id="logs"></div>
+    
+    <script>
+        const statusDiv = document.getElementById('status');
+        const logsDiv = document.getElementById('logs');
+        const consoleDiv = document.getElementById('console');
+        
+        function addConsoleLog(message, type = 'info') {
+            const logDiv = document.createElement('div');
+            logDiv.className = 'log';
+            logDiv.textContent = new Date().toLocaleTimeString() + ' - ' + message;
+            consoleDiv.insertBefore(logDiv, consoleDiv.firstChild);
+            console.log(message);
+        }
+        
+        function addAttendanceLog(data) {
+            const logDiv = document.createElement('div');
+            logDiv.className = 'log';
+            logDiv.innerHTML = `
+                <strong>User ${data.userId}</strong> - ${data.name || 'Unknown'}<br>
+                Time: ${data.time}<br>
+                Mode: ${data.mode} | In/Out: ${data.inout}
+            `;
+            logsDiv.insertBefore(logDiv, logsDiv.firstChild);
+        }
+        
+        function clearLogs() {
+            logsDiv.innerHTML = '';
+            consoleDiv.innerHTML = '';
+        }
+        
+        async function triggerTest() {
+            addConsoleLog('Triggering test endpoint...');
+            try {
+                const response = await fetch('http://localhost:5000/api/test-attendance');
+                const data = await response.json();
+                addConsoleLog('Test response: ' + JSON.stringify(data));
+            } catch (error) {
+                addConsoleLog('Error: ' + error.message);
+            }
+        }
+        
+        addConsoleLog('Connecting to Socket.IO...');
+        
+        const socket = io('http://localhost:5000', {
+            transports: ['polling', 'websocket'],
+            reconnection: true,
+            timeout: 20000
+        });
+        
+        socket.on('connect', () => {
+            addConsoleLog('✅ Connected! Socket ID: ' + socket.id);
+            statusDiv.className = 'status connected';
+            statusDiv.textContent = '✅ Connected (ID: ' + socket.id + ')';
+            
+            // Send ping
+            socket.emit('ping', { timestamp: Date.now() });
+            addConsoleLog('Sent ping to server');
+        });
+        
+        socket.on('pong', (data) => {
+            addConsoleLog('📡 Pong received from server');
+        });
+        
+        socket.on('connect_error', (error) => {
+            addConsoleLog('❌ Connection error: ' + error.message);
+        });
+        
+        socket.on('disconnect', (reason) => {
+            addConsoleLog('❌ Disconnected: ' + reason);
+            statusDiv.className = 'status disconnected';
+            statusDiv.textContent = '❌ Disconnected';
+        });
+        
+        socket.on('new-attendance', (data) => {
+            addConsoleLog('📊 NEW ATTENDANCE RECEIVED: ' + JSON.stringify(data));
+            addAttendanceLog(data);
+        });
+        
+        // Log all events
+        socket.onAny((eventName, ...args) => {
+            addConsoleLog('Event received: ' + eventName + ' - ' + JSON.stringify(args));
+        });
+    </script>
+</body>
+</html>

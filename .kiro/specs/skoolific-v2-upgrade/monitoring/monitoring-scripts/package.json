@@ -1,0 +1,27 @@
+{
+  "name": "skoolific-v2-monitoring-scripts",
+  "version": "1.0.0",
+  "description": "Automated monitoring scripts for Skoolific V2 school rollout",
+  "main": "performance-monitor.js",
+  "scripts": {
+    "health-check": "bash system-health-check.sh",
+    "performance": "node performance-monitor.js",
+    "test": "echo \"No tests configured\" && exit 0"
+  },
+  "keywords": [
+    "monitoring",
+    "skoolific",
+    "performance",
+    "health-check"
+  ],
+  "author": "Skoolific Team",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "pg": "^8.11.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

@@ -1,0 +1,223 @@
+// ============================================================================
+// HR & STAFF SALARY MANAGEMENT MODULE
+// ============================================================================
+
+// Staff Master Record
+model Staff {
+  id                String   @id @default(uuid()) @db.Uuid
+  employeeNumber    String   @unique
+  firstName         String
+  lastName          String
+  email             String   @unique
+  phone             String
+  staffType         StaffType
+  dateOfBirth       DateTime @db.Date
+  gender            Gender
+  address           String?
+  emergencyContact  Json?    // {name, relationship, phone, email}
+  hireDate          DateTime @db.Date
+  contractType      ContractType
+  status            StaffStatus @default(ACTIVE)
+  profilePhotoUrl   String?
+  createdAt         DateTime @default(now()) @db.Timestamptz
+  updatedAt         DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  salaries          Salary[]
+  deductions        StaffDeduction[]
+  allowances        StaffAllowance[]
+  retentionBenefits StaffRetention[]
+  payrollItems      PayrollItem[]
+
+  @@index([employeeNumber])
+  @@index([staffType])
+  @@index([status])
+}
+
+enum StaffType {
+  TEACHER
+  SUPPORTIVE
+  ADMINISTRATIVE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ContractType {
+  PERMANENT
+  CONTRACT
+  PART_TIME
+  TEMPORARY
+}
+
+enum StaffStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  EXITED
+}
+
+// Salary Structure
+model Salary {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffId         String   @db.Uuid
+  accountId       String   @db.Uuid
+  baseSalary      Decimal  @db.Decimal(15, 2)
+  effectiveFrom   DateTime @db.Date
+  effectiveTo     DateTime? @db.Date
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  account         Account  @relation(fields: [accountId], references: [id])
+
+  @@index([staffId])
+  @@index([isActive])
+}
+
+// Deduction Types (Tax, Pension, Service, Credit)
+model DeductionType {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  description     String?
+  calculationType CalculationType
+  defaultValue    Decimal  @db.Decimal(15, 2)
+  accountId       String   @db.Uuid
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  account         Account  @relation(fields: [accountId], references: [id])
+  staffDeductions StaffDeduction[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Staff-specific Deductions
+model StaffDeduction {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffId         String   @db.Uuid
+  deductionTypeId String   @db.Uuid
+  amount          Decimal  @db.Decimal(15, 2)
+  calculationType CalculationType
+  effectiveFrom   DateTime @db.Date
+  effectiveTo     DateTime? @db.Date
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff           Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  deductionType   DeductionType  @relation(fields: [deductionTypeId], references: [id])
+
+  @@index([staffId])
+  @@index([deductionTypeId])
+  @@index([isActive])
+}
+
+// Allowance Types
+model AllowanceType {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  description     String?
+  calculationType CalculationType
+  defaultValue    Decimal  @db.Decimal(15, 2)
+  accountId       String   @db.Uuid
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  account         Account  @relation(fields: [accountId], references: [id])
+  staffAllowances StaffAllowance[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Staff-specific Allowances
+model StaffAllowance {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffId         String   @db.Uuid
+  allowanceTypeId String   @db.Uuid
+  amount          Decimal  @db.Decimal(15, 2)
+  calculationType CalculationType
+  effectiveFrom   DateTime @db.Date
+  effectiveTo     DateTime? @db.Date
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff           Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  allowanceType   AllowanceType  @relation(fields: [allowanceTypeId], references: [id])
+
+  @@index([staffId])
+  @@index([allowanceTypeId])
+  @@index([isActive])
+}
+
+// Staff Retention Benefits (Tuition Waivers and Merit Pay)
+model RetentionBenefitType {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  type            RetentionType
+  description     String?
+  calculationType CalculationType
+  defaultValue    Decimal  @db.Decimal(15, 2)
+  accountId       String   @db.Uuid
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  account         Account  @relation(fields: [accountId], references: [id])
+  staffRetentions StaffRetention[]
+
+  @@index([name])
+  @@index([type])
+  @@index([isActive])
+}
+
+enum RetentionType {
+  TUITION_WAIVER
+  MERIT_PAY
+}
+
+// Staff-specific Retention Benefits
+model StaffRetention {
+  id                      String   @id @default(uuid()) @db.Uuid
+  staffId                 String   @db.Uuid
+  retentionBenefitTypeId  String   @db.Uuid
+  amount                  Decimal  @db.Decimal(15, 2)
+  calculationType         CalculationType
+  effectiveFrom           DateTime @db.Date
+  effectiveTo             DateTime? @db.Date
+  isActive                Boolean  @default(true)
+  notes                   String?
+  createdAt               DateTime @default(now()) @db.Timestamptz
+  updatedAt               DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  staff                   Staff                  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  retentionBenefitType    RetentionBenefitType   @relation(fields: [retentionBenefitTypeId], references: [id])
+
+  @@index([staffId])
+  @@index([retentionBenefitTypeId])
+  @@index([isActive])
+}
+
+enum CalculationType {
+  FIXED
+  PERCENTAGE
+}
