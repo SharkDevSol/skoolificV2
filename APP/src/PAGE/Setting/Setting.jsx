@@ -13,7 +13,7 @@ import PermissionSelector from '../../COMPONENTS/PermissionSelector';
 
 const AdminSubAccountsPanel = lazy(() => import('../AdminSubAccounts/AdminSubAccounts'));
 
-const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://iqrab3.skoolific.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://v2.skoolific.com';
 
 const Setting = () => {
   const { theme, updateTheme, language, updateLanguage, profile, updateProfile, websiteName, updateWebsiteName, t: appT } = useApp();

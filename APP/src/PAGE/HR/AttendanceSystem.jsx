@@ -7,7 +7,7 @@ import Button from '../../COMPONENTS/Button/Button';
 import Card from '../../COMPONENTS/Card/Card';
 import { getCurrentEthiopianMonth, getEthiopianMonthName, ethiopianToGregorian } from '../../utils/ethiopianCalendar';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com';
+const API_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com';
 
 const ethiopianMonths = [
   'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',

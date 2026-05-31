@@ -29,7 +29,7 @@ const AdminChat = () => {
 
   useEffect(() => {
     // Initialize Socket.IO
-    socketRef.current = io('https://iqrab3.skoolific.com');
+    socketRef.current = io('https://v2.skoolific.com');
     socketRef.current.emit('join', currentUserId);
 
     // Listen for new messages
@@ -88,7 +88,7 @@ const AdminChat = () => {
 
   const fetchGuardians = async () => {
     try {
-      const res = await axios.get('https://iqrab3.skoolific.com/api/chats/contacts/guardians');
+      const res = await axios.get('https://v2.skoolific.com/api/chats/contacts/guardians');
       setGuardians(Array.isArray(res.data) ? res.data : []);
     } catch (error) {
       console.error('Error fetching guardians:', error);
@@ -99,7 +99,7 @@ const AdminChat = () => {
 
   const fetchConversations = async () => {
     try {
-      const res = await axios.get(`https://iqrab3.skoolific.com/api/chats/conversations?userId=${currentUserId}`);
+      const res = await axios.get(`https://v2.skoolific.com/api/chats/conversations?userId=${currentUserId}`);
       const data = Array.isArray(res.data) ? res.data : [];
       setConversations(data.map(c => ({ ...c, currentUserId })));
     } catch (error) {
@@ -112,11 +112,11 @@ const AdminChat = () => {
       setMessagesLoading(true);
     }
     try {
-      const res = await axios.get(`https://iqrab3.skoolific.com/api/chats/conversations/${conversationId}/messages`);
+      const res = await axios.get(`https://v2.skoolific.com/api/chats/conversations/${conversationId}/messages`);
       setMessages(res.data);
       
       // Mark as read
-      await axios.put('https://iqrab3.skoolific.com/api/chats/messages/read', {
+      await axios.put('https://v2.skoolific.com/api/chats/messages/read', {
         conversationId,
         userId: currentUserId
       });
@@ -153,7 +153,7 @@ const AdminChat = () => {
     
     try {
       // Create or get conversation
-      const res = await axios.post('https://iqrab3.skoolific.com/api/chats/conversations', {
+      const res = await axios.post('https://v2.skoolific.com/api/chats/conversations', {
         type: 'admin_guardian',
         participants: [
           { user_id: currentUserId, user_type: 'admin', user_name: currentUserName },
@@ -165,7 +165,7 @@ const AdminChat = () => {
       const convId = res.data.id;
       
       // Fetch full conversation details
-      const convRes = await axios.get(`https://iqrab3.skoolific.com/api/chats/conversations/${convId}`);
+      const convRes = await axios.get(`https://v2.skoolific.com/api/chats/conversations/${convId}`);
       console.log('Full conversation:', convRes.data);
       setActiveConversation(convRes.data);
       
@@ -191,7 +191,7 @@ const AdminChat = () => {
   const handleSendMessage = async (formData) => {
     try {
       const res = await axios.post(
-        `https://iqrab3.skoolific.com/api/chats/conversations/${activeConversation.id}/messages`,
+        `https://v2.skoolific.com/api/chats/conversations/${activeConversation.id}/messages`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );

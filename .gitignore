@@ -48,9 +48,27 @@ yarn-error.log*
 *.swp
 *.swo
 
-# Uploads (user-generated content)
+# Uploads (user-generated content) - case-sensitive, cover both
 backend/Uploads/
 backend/uploads/
+backend/routes/Uploads/
+backend/routes/uploads/
+Uploads/
+uploads/
+
+# Large vendor SDK / build artifacts (do not commit)
+backend/c#cloud sdk-2512/
+**/*.exe
+**/*.pdb
+**/*.dll
+**/*.suo
+**/*.mdb
+**/bin/
+**/obj/
+
+# Large media
+*.mp4
+*.mov
 
 # SSL certificates
 backend/ssl/

@@ -258,7 +258,7 @@ const MonthlyPaymentsNew = () => {
   const fetchSchoolInfo = async () => {
     try {
       const response = await api.get('/settings/branding');
-      const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://iqrab3.skoolific.com';
+      const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://v2.skoolific.com';
       setSchoolInfo({
         logo: response.data.logo ? `${API_BASE}${response.data.logo}` : null,
         nameEn: response.data.schoolName || 'Dugsiga Barbaarinta Caruurta, Hoose, Dhexe & Sare Ee Iqra',
@@ -1949,7 +1949,7 @@ ${index + 1}. ${student.studentName || 'Unknown'}
                   {payment.screenshot && (
                     <div style={{ marginBottom: '10px' }}>
                       <strong>Screenshot:</strong>{' '}
-                      <a href={`${import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://iqrab3.skoolific.com'}${payment.screenshot}`} target="_blank" rel="noopener noreferrer">
+                      <a href={`${import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://v2.skoolific.com'}${payment.screenshot}`} target="_blank" rel="noopener noreferrer">
                         View Receipt
                       </a>
                     </div>

@@ -36,8 +36,8 @@ const BASE_URLS = {
     frontend: import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173'
   },
   production: {
-    backend: import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://almarkaz.skoolific.com',
-    frontend: import.meta.env.VITE_FRONTEND_URL || 'https://almarkaz.skoolific.com'
+    backend: import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://v2.skoolific.com',
+    frontend: import.meta.env.VITE_FRONTEND_URL || 'https://v2.skoolific.com'
   },
   test: {
     backend: import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5052',

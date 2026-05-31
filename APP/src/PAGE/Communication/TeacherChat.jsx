@@ -30,7 +30,7 @@ const TeacherChat = () => {
 
   useEffect(() => {
     // Initialize Socket.IO
-    socketRef.current = io('https://iqrab3.skoolific.com');
+    socketRef.current = io('https://v2.skoolific.com');
     socketRef.current.emit('join', currentUserId);
 
     // Listen for new messages
@@ -50,7 +50,7 @@ const TeacherChat = () => {
 
   const fetchConversations = async () => {
     try {
-      const res = await axios.get(`https://iqrab3.skoolific.com/api/chats/conversations?userId=${currentUserId}`);
+      const res = await axios.get(`https://v2.skoolific.com/api/chats/conversations?userId=${currentUserId}`);
       const data = Array.isArray(res.data) ? res.data : [];
       setConversations(data.map(c => ({ ...c, currentUserId })));
     } catch (error) {
@@ -63,7 +63,7 @@ const TeacherChat = () => {
   const fetchGuardians = async () => {
     setGuardiansLoading(true);
     try {
-      const res = await axios.get('https://iqrab3.skoolific.com/api/chats/contacts/guardians');
+      const res = await axios.get('https://v2.skoolific.com/api/chats/contacts/guardians');
       console.log('Guardians fetched:', res.data);
       setGuardians(Array.isArray(res.data) ? res.data : []);
     } catch (error) {
@@ -77,11 +77,11 @@ const TeacherChat = () => {
   const fetchMessages = async (conversationId) => {
     setMessagesLoading(true);
     try {
-      const res = await axios.get(`https://iqrab3.skoolific.com/api/chats/conversations/${conversationId}/messages`);
+      const res = await axios.get(`https://v2.skoolific.com/api/chats/conversations/${conversationId}/messages`);
       setMessages(res.data);
       
       // Mark as read
-      await axios.put('https://iqrab3.skoolific.com/api/chats/messages/read', {
+      await axios.put('https://v2.skoolific.com/api/chats/messages/read', {
         conversationId,
         userId: currentUserId
       });
@@ -102,7 +102,7 @@ const TeacherChat = () => {
   const handleSendMessage = async (formData) => {
     try {
       const res = await axios.post(
-        `https://iqrab3.skoolific.com/api/chats/conversations/${activeConversation.id}/messages`,
+        `https://v2.skoolific.com/api/chats/conversations/${activeConversation.id}/messages`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
@@ -134,7 +134,7 @@ const TeacherChat = () => {
     try {
       console.log('Starting conversation with guardian:', guardian);
       
-      const res = await axios.post('https://iqrab3.skoolific.com/api/chats/conversations', {
+      const res = await axios.post('https://v2.skoolific.com/api/chats/conversations', {
         type: 'direct',
         participants: [
           { user_id: currentUserId, user_name: currentUserName, user_type: currentUserType },
@@ -153,11 +153,11 @@ const TeacherChat = () => {
       
       // If conversation already exists, we need to fetch its full details
       if (newConv.existing) {
-        const convDetails = await axios.get(`https://iqrab3.skoolific.com/api/chats/conversations/${newConv.id}`);
+        const convDetails = await axios.get(`https://v2.skoolific.com/api/chats/conversations/${newConv.id}`);
         setActiveConversation(convDetails.data);
       } else {
         // For new conversations, we need to add participants info
-        const convDetails = await axios.get(`https://iqrab3.skoolific.com/api/chats/conversations/${newConv.id}`);
+        const convDetails = await axios.get(`https://v2.skoolific.com/api/chats/conversations/${newConv.id}`);
         setActiveConversation(convDetails.data);
       }
       

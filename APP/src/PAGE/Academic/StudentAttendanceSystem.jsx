@@ -26,7 +26,7 @@ import { useToast } from '../../COMPONENTS/Toast/useToast';
 import ToastContainer from '../../COMPONENTS/Toast/ToastContainer';
 
 // API base URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 
 const ATTENDANCE_STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'LEAVE'];
 

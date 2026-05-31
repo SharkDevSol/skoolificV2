@@ -27,7 +27,7 @@ const GuardianNotifications = () => {
   const fetchStatus = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://iqrab3.skoolific.com/api/guardian-notifications/status', {
+      const response = await axios.get('https://v2.skoolific.com/api/guardian-notifications/status', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setStatus(response.data.status);
@@ -39,7 +39,7 @@ const GuardianNotifications = () => {
   const fetchGuardians = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://iqrab3.skoolific.com/api/guardian-list/guardians', {
+      const response = await axios.get('https://v2.skoolific.com/api/guardian-list/guardians', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGuardians(response.data);
@@ -54,7 +54,7 @@ const GuardianNotifications = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'https://iqrab3.skoolific.com/api/guardian-notifications/send-attendance',
+        'https://v2.skoolific.com/api/guardian-notifications/send-attendance',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -72,7 +72,7 @@ const GuardianNotifications = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'https://iqrab3.skoolific.com/api/guardian-notifications/send-payments',
+        'https://v2.skoolific.com/api/guardian-notifications/send-payments',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -95,7 +95,7 @@ const GuardianNotifications = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'https://iqrab3.skoolific.com/api/guardian-notifications/test-email',
+        'https://v2.skoolific.com/api/guardian-notifications/test-email',
         { email: testEmail },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -119,8 +119,8 @@ const GuardianNotifications = () => {
     try {
       const token = localStorage.getItem('token');
       const endpoint = type === 'attendance' 
-        ? `https://iqrab3.skoolific.com/api/guardian-notifications/preview-attendance/${selectedGuardian}`
-        : `https://iqrab3.skoolific.com/api/guardian-notifications/preview-payment/${selectedGuardian}`;
+        ? `https://v2.skoolific.com/api/guardian-notifications/preview-attendance/${selectedGuardian}`
+        : `https://v2.skoolific.com/api/guardian-notifications/preview-payment/${selectedGuardian}`;
       
       const response = await axios.get(endpoint, {
         headers: { Authorization: `Bearer ${token}` }

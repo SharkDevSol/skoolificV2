@@ -13,7 +13,7 @@ import AddRetentionModal from './components/AddRetentionModal';
 import StaffDeductionsAllowancesModal from './components/StaffDeductionsAllowancesModal';
 import { getCurrentEthiopianMonth } from '../../utils/ethiopianCalendar';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com';
+const API_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com';
 
 const SalaryManagement = () => {
   const { t } = useTranslation();

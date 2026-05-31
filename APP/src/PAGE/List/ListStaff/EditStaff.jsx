@@ -5,7 +5,7 @@ import axios from 'axios';
 import { FiArrowLeft, FiSave, FiX } from 'react-icons/fi';
 import styles from './EditStaff.module.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 
 const EditStaff = () => {
   const { staffType, className, uniqueId } = useParams();

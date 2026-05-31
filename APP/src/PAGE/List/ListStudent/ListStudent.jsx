@@ -20,7 +20,7 @@ import Select from '../../../components/Select/Select';
 import Button from '../../../components/Button/Button';
 
 // API base URL - use environment variable or fallback to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 
 const ListStudent = () => {
   const { t: tApp } = useApp();

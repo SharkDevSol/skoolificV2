@@ -8,7 +8,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import styles from './ClassTeacherAssignment.module.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 
 const ClassTeacherAssignment = () => {
   const { t } = useApp();

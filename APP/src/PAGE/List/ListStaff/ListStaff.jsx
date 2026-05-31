@@ -19,7 +19,7 @@ import Input from '../../../components/Input/Input';
 import Select from '../../../components/Select/Select';
 import Button from '../../../components/Button/Button';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 const ListStaff = () => {
   const { t: tApp } = useApp();
   const { t: ti18n } = useTranslation();

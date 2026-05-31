@@ -11,7 +11,7 @@ import Input from '../../COMPONENTS/Input/Input';
 import Table from '../../components/Table/Table';
 import Badge from '../../COMPONENTS/Badge/Badge';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com';
+const API_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com';
 
 const LeaveManagement = () => {
   const { t } = useTranslation();

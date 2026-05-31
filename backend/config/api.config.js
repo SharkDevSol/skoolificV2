@@ -35,8 +35,8 @@ const BASE_URLS = {
     frontend: process.env.FRONTEND_URL || 'http://localhost:5173'
   },
   production: {
-    backend: process.env.BACKEND_URL || 'https://almarkaz.skoolific.com',
-    frontend: process.env.FRONTEND_URL || 'https://almarkaz.skoolific.com'
+    backend: process.env.BACKEND_URL || 'https://v2.skoolific.com',
+    frontend: process.env.FRONTEND_URL || 'https://v2.skoolific.com'
   },
   test: {
     backend: process.env.BACKEND_URL || 'http://localhost:5052',

@@ -24,7 +24,7 @@ import { useToast } from '../../../COMPONENTS/Toast/useToast';
 import ToastContainer from '../../../COMPONENTS/Toast/ToastContainer';
 import StaffForm from './StaffForm';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 
 const STAFF_TYPES = [
   { id: 'Supportive Staff', labelKey: 'supportive', icon: Briefcase },

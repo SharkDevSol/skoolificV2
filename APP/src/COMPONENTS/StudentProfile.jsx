@@ -40,7 +40,7 @@ const StudentProfile = () => {
 
   const fetchProfile = useCallback(async () => {
     try {
-      const response = await axios.get(`https://iqrab3.skoolific.com/api/students/profile/${username}`);
+      const response = await axios.get(`https://v2.skoolific.com/api/students/profile/${username}`);
       setStudent(response.data.student);
       setError('');
     } catch (err) {
@@ -53,7 +53,7 @@ const StudentProfile = () => {
 
   const fetchProfilePosts = useCallback(async (schoolId) => {
     try {
-      const response = await axios.get(`https://iqrab3.skoolific.com/api/posts/profile/student/${schoolId}`);
+      const response = await axios.get(`https://v2.skoolific.com/api/posts/profile/student/${schoolId}`);
       setProfilePosts(response.data.map(post => ({ ...post, localLikes: post.likes || 0 })));
     } catch (err) {
       console.error('Error fetching profile posts:', err);
@@ -80,7 +80,7 @@ const StudentProfile = () => {
     setMarkListLoading(true);
     try {
       const response = await axios.get(
-        `https://iqrab3.skoolific.com/api/mark-list/student-marks/${student.school_id}/${encodeURIComponent(student.class)}`
+        `https://v2.skoolific.com/api/mark-list/student-marks/${student.school_id}/${encodeURIComponent(student.class)}`
       );
       setMarkListData(response.data.marks || []);
     } catch (err) {
@@ -108,7 +108,7 @@ const StudentProfile = () => {
 
   const handleLike = async (postId) => {
     try {
-      await axios.put(`https://iqrab3.skoolific.com/api/posts/${postId}/like`);
+      await axios.put(`https://v2.skoolific.com/api/posts/${postId}/like`);
       setProfilePosts(prev => 
         prev.map(post => 
           post.id === postId 
@@ -148,7 +148,7 @@ const StudentProfile = () => {
     if (!imagePath) return null;
     // Remove leading slash and any 'uploads/' or 'Uploads/' prefix
     const cleanPath = imagePath.replace(/^\/?(uploads|Uploads)\//i, '');
-    return `https://iqrab3.skoolific.com/uploads/${cleanPath}`;
+    return `https://v2.skoolific.com/uploads/${cleanPath}`;
   };
 
   const renderProfileTab = () => (

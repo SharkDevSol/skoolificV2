@@ -10,7 +10,7 @@ import Select from '../../COMPONENTS/Select/Select';
 import DatePicker from '../../COMPONENTS/DatePicker/DatePicker';
 import styles from './ExamCreationStaff.module.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 
 const EXAM_TYPES = [
   { value: 'midterm', labelKey: 'academic.examCreation.types.midterm' },
