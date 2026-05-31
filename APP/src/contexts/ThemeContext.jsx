@@ -24,8 +24,12 @@ export const ThemeProvider = ({ children }) => {
   
   useEffect(() => {
     const start = performance.now();
+    // Apply theme as a class (used by theme.css `.dark` selectors)
     document.documentElement.classList.remove('light', 'dark');
     document.documentElement.classList.add(theme);
+    // Also apply theme as a data attribute (used by component CSS
+    // `[data-theme="dark"]` selectors such as Sidebar, Header, SearchBar, etc.)
+    document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
 
     requestAnimationFrame(() => {
