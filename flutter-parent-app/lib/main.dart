@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/push_service.dart';
 import 'core/theme/app_theme.dart';
+import 'core/l10n/app_localizations.dart';
 import 'app/app_provider.dart';
 import 'app/app_shell.dart';
 import 'screens/login/login_screen.dart';
-import 'screens/splash/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,9 +34,17 @@ class MyApp extends StatelessWidget {
             darkTheme: AppTheme.dark,
             themeMode: appProvider.themeMode,
             locale: appProvider.locale,
-            // You can add localization delegates here if needed later
+            // FIX 9: declare supported locales so Localizations resolves them —
+            // without this, Localizations.maybeLocaleOf returned null => always English
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: const [
+              ...GlobalMaterialLocalizations.delegates,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             navigatorKey: GlobalKey<NavigatorState>(),
-            home: const SplashScreen(),
+            // FIX 1: no splash screen — go straight to app/login
+            home: StorageService.isLoggedIn ? const AppShell() : const LoginScreen(),
           );
         },
       ),

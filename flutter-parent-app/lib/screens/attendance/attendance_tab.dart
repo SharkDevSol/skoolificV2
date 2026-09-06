@@ -27,18 +27,29 @@ class _AttendanceTabState extends State<AttendanceTab> {
     'Hamle', 'Nehase', 'Pagume'
   ];
 
-  // Ethiopian date today (approx conversion for default selection)
-  static int get _ethYear => DateTime.now().year - 7;
+  // Ethiopian date today (correct conversion).
+  // Ethiopian year: Meskerem 1 = Sep 11 Gregorian.
+  // Gregorian month -> Ethiopian month (for days AFTER the 10th):
+  // Sep->1, Oct->2, Nov->3, Dec->4, Jan->5, Feb->6, Mar->7,
+  // Apr->8, May->9, Jun->10, Jul->11, Aug->12
+  // Days 1-10 of a month belong to the PREVIOUS Ethiopian month.
+  static int get _ethYear {
+    final g = DateTime.now();
+    final afterNewYear = g.month > 9 || (g.month == 9 && g.day >= 11);
+    return afterNewYear ? g.year - 7 : g.year - 8; // FIX 4
+  }
+
   static int get _ethMonth {
     final g = DateTime.now();
-    // Ethiopian new year starts Sep 11 (Meskerem 1)
-    const newYearMonth = 9;
-    const newYearDay = 11;
-    if (g.month > newYearMonth ||
-        (g.month == newYearMonth && g.day >= newYearDay)) {
-      return g.month - newYearMonth + 1; // Sep->1, Oct->2 ...
+    // map gregorian month -> ethiopian month starting on the 11th
+    const startMap = {9: 1, 10: 2, 11: 3, 12: 4, 1: 5, 2: 6, 3: 7, 4: 8, 5: 9, 6: 10, 7: 11, 8: 12};
+    final m = startMap[g.month]!;
+    if (g.day >= 11) {
+      return m; // 11th onwards = this ethiopian month
     }
-    return g.month + 4; // Jan->5 ... Aug->12
+    // days 1-10 belong to previous ethiopian month (e.g. Sep 1-10 = Pagume 13)
+    final prev = m - 1;
+    return prev < 1 ? 13 : prev; // FIX 4: Sep 1-10 -> Pagume (13)
   }
 
   @override

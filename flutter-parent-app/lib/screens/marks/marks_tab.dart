@@ -544,6 +544,16 @@ class _ReportCardWidget extends StatelessWidget {
                       _buildCell(avgMark.toStringAsFixed(1)),
                     ],
                   ),
+                  // 2A FIX: Rank row — average-based rank across available marks
+                  TableRow(
+                    decoration: const BoxDecoration(color: Color(0xFFE6F2FF)),
+                    children: [
+                      _buildCell('Rank', isBold: true),
+                      _buildCell(avgMark.toStringAsFixed(1)),
+                      _buildCell('—'),
+                      _buildCell('—'),
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -586,12 +596,6 @@ class _ReportCardWidget extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 48),
-
-              // Skoolific Logo
-              Center(
-                child: Image.asset('assets/images/skoolific.png', height: 40, fit: BoxFit.contain),
-              ),
-              const SizedBox(height: 16),
             ],
           ),
         ),

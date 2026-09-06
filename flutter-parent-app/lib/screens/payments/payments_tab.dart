@@ -204,12 +204,20 @@ class _PaymentsTabState extends State<PaymentsTab> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text('${p.totalAmount.toInt()} ETB',
+                              // FIX 3: show the actually PAID amount on the card
+                              // (matches the receipt), not just the fee amount
+                              Text('${p.paidAmount.toInt()} ETB',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w900,
                                     fontSize: 16,
                                     color: theme.textTheme.bodyLarge?.color,
                                   )),
+                              if (p.totalAmount != p.paidAmount)
+                                Text('fee: ${p.totalAmount.toInt()} ETB',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
+                                    )),
                               const SizedBox(height: 6),
                               StatusPill(
                                 locked ? 'LOCKED' : p.status,
@@ -440,7 +448,10 @@ class _ReceiptWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String date = p.payments.isNotEmpty ? (p.payments.first.date ?? '—') : '—';
+    // FIX 3b: human date (dd/mm/yyyy) instead of raw ISO string
+    final String date = _formatDate(
+      p.payments.isNotEmpty ? (p.payments.first.date ?? '') : '',
+    );
     final receiptNo = (p.receiptNumber?.isNotEmpty ?? false) ? p.receiptNumber! : '—';
     final invoiceId = p.invoiceNumber;
 
@@ -545,5 +556,15 @@ class _ReceiptWidget extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatDate(String iso) {
+    if (iso.isEmpty) return '—';
+    try {
+      final dt = DateTime.parse(iso);
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    } catch (_) {
+      return iso;
+    }
   }
 }

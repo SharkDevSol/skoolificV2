@@ -39,16 +39,23 @@ class StorageService {
     }
   }
 
-  // 1.4: Remember Me — keep user signed in / remember username
+  // 1.4: Remember Me — keep user signed in / remember username + password
   static bool get rememberMe => _prefs.getBool('rememberMe') ?? false;
   static String? get rememberedUsername => _prefs.getString('rememberedUsername');
+  // FIX 8: password too (device-local only)
+  static String? get rememberedPassword => _prefs.getString('rememberedPassword');
 
-  static Future<void> setRememberMe(bool value, {String? username}) async {
+  static Future<void> setRememberMe(bool value,
+      {String? username, String? password}) async {
     await _prefs.setBool('rememberMe', value);
     if (value && username != null && username.isNotEmpty) {
       await _prefs.setString('rememberedUsername', username);
+      if (password != null && password.isNotEmpty) {
+        await _prefs.setString('rememberedPassword', password);
+      }
     } else if (!value) {
       await _prefs.remove('rememberedUsername');
+      await _prefs.remove('rememberedPassword');
     }
   }
 

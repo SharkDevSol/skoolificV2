@@ -29,9 +29,13 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> _load() async {
-    loading = true;
+    // FIX 1: silent loading — keep showing existing data while refreshing.
+    // Only show the full-screen loading state on very first app start
+    // (when there is nothing to show yet).
+    final firstLoad = wards.isEmpty && marks.isEmpty && _allPosts.isEmpty;
+    if (firstLoad) loading = true;
     error = null;
-    notifyListeners();
+    if (firstLoad) notifyListeners();
     try {
       // Load saved theme
       final savedTheme = StorageService.theme;
@@ -145,16 +149,21 @@ class AppProvider extends ChangeNotifier {
   }
 
   void toggleTheme() {
-    setThemeMode(themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light);
+    // FIX 1: theme change must NOT trigger data reload — just notify
+    themeMode = themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+    StorageService.setTheme(themeMode == ThemeMode.dark ? 'dark' : 'light');
+    notifyListeners();
   }
 
   void setThemeMode(ThemeMode mode) {
+    // FIX 1: no _load() call — theme is instant, no data refetch
     themeMode = mode;
     StorageService.setTheme(mode == ThemeMode.dark ? 'dark' : (mode == ThemeMode.light ? 'light' : 'system'));
     notifyListeners();
   }
 
   void setLocale(Locale loc) {
+    // FIX 9: locale change is instant, no data refetch
     locale = loc;
     StorageService.setLocale(loc.languageCode);
     notifyListeners();

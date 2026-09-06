@@ -1,7 +1,9 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_floating_bottom_bar/flutter_floating_bottom_bar.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core/theme/app_theme.dart';
+import '../core/services/update_service.dart';
 import 'app_provider.dart';
 import '../../screens/marks/marks_tab.dart';
 import '../../screens/payments/payments_tab.dart';
@@ -10,10 +12,9 @@ import '../../screens/attendance/attendance_tab.dart';
 import '../../screens/settings/settings_tab.dart';
 import '../../screens/discipline/discipline_tab.dart';
 import '../../screens/messages/messages_tab.dart';
-// Placeholders for missing tabs
-class MessagesTab extends StatelessWidget { const MessagesTab({super.key}); @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Messages'))); }
+import '../../screens/notifications/notifications_tab.dart';
+// FIX 5: NotificationsTab now lives in its own file (real page, not a placeholder)
 class EvalBookTab extends StatelessWidget { const EvalBookTab({super.key}); @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Eval Book'))); }
-class NotificationsTab extends StatelessWidget { const NotificationsTab({super.key}); @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Notifications'))); }
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -90,6 +91,60 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     });
   }
 
+  // FIX 10: check server for update; if newer, offer download
+  Future<void> _checkForUpdate() async {
+    final update = await UpdateService.checkForUpdate();
+    if (!mounted) return;
+    if (update == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You are up to date ✓'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final url = update['url']?.toString() ?? '';
+    final notes = update['notes']?.toString() ?? '';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Update available — v${update['version']}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (notes.isNotEmpty) ...[
+              Text(notes, style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 12),
+            ],
+            const Text(
+              'Tap Download to get the new version. '
+              'It will open in your browser — then install it over this app.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              if (url.isNotEmpty) {
+                launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+              }
+            },
+            child: const Text('Download'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -136,6 +191,16 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                     ),
                   ),
 
+                  const SizedBox(width: 8),
+                  // FIX 10: update button — checks server for new APK
+                  GestureDetector(
+                    onTap: _checkForUpdate,
+                    child: const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: AppColors.primaryLight,
+                      child: Icon(Icons.system_update, size: 20, color: AppColors.primary),
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   // 6.1: notification bell next to profile icon, always visible
                   GestureDetector(
@@ -326,9 +391,7 @@ class _ExpandableMenu extends StatelessWidget {
               _MenuTile('Messages', Icons.chat_bubble_outline, AppColors.info, () => _nav(context, const MessagesTab())),
               _MenuTile('Eval Book', Icons.menu_book_outlined, Colors.teal, () => _nav(context, const EvalBookTab())),
               _MenuTile('Discipline', Icons.gavel_outlined, Colors.deepPurple, () => _nav(context, const DisciplineTab())),
-              
-              _MenuTile('Notifications', Icons.notifications_active_outlined, Colors.redAccent, () => _nav(context, const NotificationsTab())),
-
+              // FIX 5: Notifications REMOVED from menu — it lives in the header bell now
             ],
           ),
           const SizedBox(height: 8),

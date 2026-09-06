@@ -1,7 +1,14 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
-/// Simple key-based localization for English and Somali.
+/// Key-based localization for English, Somali, Amharic, Arabic.
 class AppLocalizations {
+  static const supportedLocales = [
+    Locale('en'),
+    Locale('so'),
+    Locale('am'),
+    Locale('ar'),
+  ];
   static const Map<String, Map<String, String>> _translations = {
     'en': {
       'marks': 'Marks',

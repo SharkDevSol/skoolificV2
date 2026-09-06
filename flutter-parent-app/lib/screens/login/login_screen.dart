@@ -8,6 +8,7 @@ import 'package:loading_animation_widget/loading_animation_widget.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/storage_service.dart' as storage;
 import '../../core/services/api_service.dart' as api_svc;
+import '../../core/services/push_service.dart';
 import '../../app/app_provider.dart';
 import '../../app/app_shell.dart';
 import '../../models/models.dart';
@@ -37,14 +38,20 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _remember = storage.StorageService.rememberMe;
-    final savedBranch = storage.StorageService.branchCode;
+    // FIX 9: branch code ALWAYS prefilled after first login
+    final savedBranch = storage.StorageService.savedBranchCode;
     if (savedBranch != null && savedBranch.isNotEmpty) {
-      _branchCtrl.text = savedBranch; // 1.7: never type branch again
+      _branchCtrl.text = savedBranch;
     }
     if (_remember) {
+      // FIX 8: username AND password restored
       final savedUser = storage.StorageService.rememberedUsername;
       if (savedUser != null && savedUser.isNotEmpty) {
         _usernameCtrl.text = savedUser;
+      }
+      final savedPass = storage.StorageService.rememberedPassword;
+      if (savedPass != null && savedPass.isNotEmpty) {
+        _passwordCtrl.text = savedPass;
       }
     }
   }
@@ -130,10 +137,11 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (res['success']) {
-        // 1.4: persist Remember Me preference
+        // 1.4/8: persist Remember Me preference (username AND password)
         await storage.StorageService.setRememberMe(
           _remember,
           username: _remember ? username : null,
+          password: _remember ? password : null,
         );
         // 1.7: always save branch code so it's prefilled next time
         await storage.StorageService.saveSession(
@@ -141,6 +149,12 @@ class _LoginScreenState extends State<LoginScreen> {
           user: jsonEncode(res['user'] ?? {}),
           branchCode: branch,
         );
+        // FIX 6: re-register FCM token NOW that we know the username,
+        // so backend pushes reach this phone
+        final fcmToken = storage.StorageService.fcmToken;
+        if (fcmToken != null && fcmToken.isNotEmpty) {
+          await PushService.registerToken(fcmToken);
+        }
         if (mounted) {
           context.read<AppProvider>().user = User.fromJson(
             res['user'] as Map<String, dynamic>,
