@@ -295,7 +295,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     await channel.invokeMethod('openNotificationSettings');
                   } catch (_) {
                     await launchUrl(
-                      Uri.parse('package:com.example.iqra_parent'),
+                      Uri.parse('package:com.skoolific.guardian'),
                       mode: LaunchMode.externalApplication,
                     );
                   }

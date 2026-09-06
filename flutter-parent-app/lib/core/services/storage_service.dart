@@ -96,4 +96,9 @@ class StorageService {
   }
 
   static String? getOfflineCache(String key) => _prefs.getString('offline_$key');
+
+  // 6.2: FCM device token
+  static Future<void> setFcmToken(String token) async =>
+      _prefs.setString('fcmToken', token);
+  static String? get fcmToken => _prefs.getString('fcmToken');
 }

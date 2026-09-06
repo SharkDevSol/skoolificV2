@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/services/storage_service.dart';
+import 'core/services/push_service.dart';
 import 'core/theme/app_theme.dart';
 import 'app/app_provider.dart';
 import 'app/app_shell.dart';
@@ -11,6 +12,8 @@ import 'screens/splash/splash_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await StorageService.init();
+  // 6.2: start FCM push notifications (system tray, works with app closed)
+  await PushService.init();
   runApp(const MyApp());
 }
 
