@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
 import '../../app/app_provider.dart';
 import '../../widgets/app_widgets.dart';
+import '../../widgets/ward_selector.dart';
 import '../../models/models.dart';
 import '../../core/l10n/app_localizations.dart';
 
@@ -98,34 +99,7 @@ class _DisciplineTabState extends State<DisciplineTab> {
                 children: [
                   // Ward selector
                   if (app.wards.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: isDark ? Colors.transparent : AppColors.border),
-                        boxShadow: isDark ? [] : [softShadow],
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<Ward>(
-                          value: app.selectedWard,
-                          isExpanded: true,
-                          icon: Icon(Icons.expand_more, color: theme.primaryColor),
-                          dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                          items: app.wards.map((w) => DropdownMenuItem(
-                            value: w,
-                            child: Text(w.studentName, style: theme.textTheme.titleMedium),
-                          )).toList(),
-                          onChanged: (w) {
-                            if (w != null) {
-                              app.selectWard(w);
-                              _fetch();
-                            }
-                          },
-                        ),
-                      ),
-                    ),
+                    const WardSelector(),
 
                   if (_loading)
                     const Column(children: [
@@ -189,7 +163,7 @@ class _DisciplineTabState extends State<DisciplineTab> {
                                     const SizedBox(width: 4),
                                     Expanded(
                                       child: Text(
-                                        'Reported by: ${f.reportedBy}',
+                                        tr(context, 'reported_by') + ': ${f.reportedBy}',
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: isDark ? Colors.white38 : AppColors.textMuted,
@@ -219,7 +193,7 @@ class _DisciplineTabState extends State<DisciplineTab> {
                                       const SizedBox(width: 4),
                                       Expanded(
                                         child: Text(
-                                          'Action: ${f.actionTaken}',
+                                          tr(context, 'action') + ': ${f.actionTaken}',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: isDark ? Colors.white54 : AppColors.success,

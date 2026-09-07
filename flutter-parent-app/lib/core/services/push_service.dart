@@ -52,8 +52,22 @@ class PushService {
   // Send token to OUR backend -> stored against guardian username
   static Future<void> registerToken(String token) async {
     try {
-      final username = StorageService.rememberedUsername ?? '';
+      // FIX: use the LOGGED-IN user (falls back to remembered) + saved branch.
+      // rememberedUsername is only set when Remember Me is checked — that's why
+      // some users never registered and got no pushes.
+      String username = '';
+      try {
+        final u = StorageService.user;
+        if (StorageService.isLoggedIn && u != null) {
+          username = jsonDecode(u)['username']?.toString() ?? '';
+        }
+      } catch (_) {}
+      username = username.isNotEmpty ? username : (StorageService.rememberedUsername ?? '');
       final branch = StorageService.branchCode ?? StorageService.savedBranchCode ?? '';
+      if (username.isEmpty || branch.isEmpty) {
+        await StorageService.setFcmToken(token); // save for retry after login
+        return;
+      }
       final body = jsonEncode({
         'username': username,
         'fcm_token': token,
@@ -72,6 +86,15 @@ class PushService {
     } catch (_) {
       await StorageService.setFcmToken(token);
     }
+  }
+
+  /// FIX: re-register on every app start (token may rotate / user may have
+  /// logged in from another account). Safe to call repeatedly.
+  static Future<void> ensureRegistered() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) await registerToken(token);
+    } catch (_) {}
   }
 
   static void _storeLocal(RemoteMessage msg) {

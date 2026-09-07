@@ -179,6 +179,37 @@ class ApiService {
     return [];
   }
 
+  /// FIX 3: real class ranking from server — GET /api/mark-list/full-ranking/:className
+  /// Returns {termNumber: {rank, rankDisplay, average}} for ONE student.
+  Future<Map<int, Map<String, dynamic>>> studentRanking(
+      String className, String studentName) async {
+    final res = await http.get(
+      Uri.parse('${ApiConstants.baseUrl}/api/mark-list/full-ranking/$className'),
+      headers: _headers(),
+    );
+    if (res.statusCode != 200) return {};
+    final data = jsonDecode(res.body);
+    final terms = data['terms'] as List? ?? [];
+    final target = studentName.trim().toLowerCase();
+    final out = <int, Map<String, dynamic>>{};
+    for (final t in terms) {
+      final rankings = (t['rankings'] as List?) ?? [];
+      for (final r in rankings) {
+        final name = (r['studentName'] ?? '').toString().trim().toLowerCase();
+        if (name == target) {
+          out[t['termNumber'] as int] = {
+            'rank': r['rank'],
+            'rankDisplay': r['rankDisplay'],
+            'average': r['average'],
+            'total': rankings.length, // students in class
+          };
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
   // 8.1: chat conversations — GET /api/chats/conversations?userId=
   Future<List<ChatConversation>> conversations(String userId) async {
     final res = await http.get(

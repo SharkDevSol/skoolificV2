@@ -19,6 +19,8 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
   String? _error;
   late TabController _tabController;
   final TransformationController _zoomController = TransformationController();
+  // FIX 3: real rank from server — {termNumber: {rank, rankDisplay, average}}
+  Map<int, Map<String, dynamic>> _ranking = {};
 
   @override
   void initState() {
@@ -57,6 +59,20 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
           _error = null;
           _loading = _marks.isEmpty; // keep skeleton only if truly nothing
         });
+      }
+      // FIX 3: fetch REAL rank from server ranking endpoint (never block UI)
+      final ward = app.selectedWard;
+      if (ward != null && (ward.className ?? '').isNotEmpty) {
+        try {
+          final ranking = await ApiService()
+              .studentRanking(ward.className!, ward.studentName);
+          if (mounted && ranking.isNotEmpty) {
+            setState(() {
+              _ranking = ranking;
+              _rankTotal = ranking[1]?['total'] ?? ranking[2]?['total'];
+            });
+          }
+        } catch (_) {/* rank stays hidden on failure */}
       }
     } catch (e) {
       if (mounted) {
@@ -133,6 +149,14 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
 
   Widget _buildWardSelector(AppProvider app, bool isDark, ThemeData theme) {
     if (app.wards.isEmpty) return const SizedBox();
+    // FIX 2A: match by name — object identity breaks after provider rebuilds
+    Ward selected = app.wards.first;
+    for (final w in app.wards) {
+      if (w.studentName == app.selectedWard?.studentName) {
+        selected = w;
+        break;
+      }
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
@@ -143,7 +167,7 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<Ward>(
-          value: app.selectedWard,
+          value: selected,
           isExpanded: true,
           icon: Icon(Icons.expand_more, color: theme.primaryColor),
           dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
@@ -197,6 +221,9 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
     );
   }
 
+  // total ranked students in the ward's class (server ranking size)
+  int? _rankTotal;
+
   Widget _buildReportCardPreview(AppProvider app, ThemeData theme, bool isDark) {
     final ward = app.selectedWard;
     // 2.3: strictly the selected ward's marks
@@ -225,7 +252,7 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
                 alignment: Alignment.topCenter,
                 child: SizedBox(
                   width: 800,
-                  child: _ReportCardWidget(ward: ward, marks: marks),
+                  child: _ReportCardWidget(ward: ward, marks: marks, ranking: _ranking, rankTotal: _rankTotal),
                 ),
               ),
             ),
@@ -391,8 +418,16 @@ class _SubjectCard extends StatelessWidget {
 class _ReportCardWidget extends StatelessWidget {
   final Ward ward;
   final List<Mark> marks;
+  // FIX 3: real ranking from server — {termNumber: {rank, rankDisplay, ...}}
+  final Map<int, Map<String, dynamic>> ranking;
+  final int? rankTotal;
 
-  const _ReportCardWidget({required this.ward, required this.marks});
+  const _ReportCardWidget({
+    required this.ward,
+    required this.marks,
+    this.ranking = const {},
+    this.rankTotal,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -544,14 +579,18 @@ class _ReportCardWidget extends StatelessWidget {
                       _buildCell(avgMark.toStringAsFixed(1)),
                     ],
                   ),
-                  // 2A FIX: Rank row — average-based rank across available marks
+                  // FIX 3: Rank row — REAL rank from server's class ranking
                   TableRow(
                     decoration: const BoxDecoration(color: Color(0xFFE6F2FF)),
                     children: [
-                      _buildCell('Rank', isBold: true),
-                      _buildCell(avgMark.toStringAsFixed(1)),
-                      _buildCell('—'),
-                      _buildCell('—'),
+                      _buildCell(tr(context, 'rank'), isBold: true),
+                      _buildCell(ranking[1]?['rankDisplay']?.toString() ?? '—'),
+                      _buildCell(ranking[2]?['rankDisplay']?.toString() ?? '—'),
+                      _buildCell(
+                        (ranking.isNotEmpty && (ranking[1] != null || ranking[2] != null))
+                            ? 'of ${rankTotal ?? ''}'
+                            : '—',
+                      ),
                     ],
                   ),
                 ],

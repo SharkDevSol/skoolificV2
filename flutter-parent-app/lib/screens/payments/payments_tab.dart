@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
 import '../../app/app_provider.dart';
 import '../../widgets/app_widgets.dart';
+import '../../widgets/ward_selector.dart';
 import '../../models/models.dart';
 import '../../core/l10n/app_localizations.dart';
 
@@ -55,6 +56,14 @@ class _PaymentsTabState extends State<PaymentsTab> {
     }
   }
 
+
+  // FIX 4: the standard monthly tuition fee (most common invoice total)
+  double _monthlyFeeOf(List<MonthlyPayment> all) {
+    if (all.isEmpty) return 0;
+    final totals = all.map((p) => p.totalAmount).toList()..sort();
+    return totals[totals.length ~/ 2]; // median fee
+  }
+
   WardPayment? _getWardPayment(Ward? selectedWard) {
     if (_response == null || selectedWard == null) return null;
     try {
@@ -87,38 +96,19 @@ class _PaymentsTabState extends State<PaymentsTab> {
           children: [
             SectionTitle(AppLocalizations.tr(context, 'monthly_payments')),
             if (app.wards.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 24),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isDark ? Colors.transparent : AppColors.border),
-                  boxShadow: isDark ? [] : [softShadow],
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<Ward>(
-                    value: app.selectedWard,
-                    isExpanded: true,
-                    icon: Icon(Icons.expand_more, color: theme.primaryColor),
-                    dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                    items: app.wards.map((w) => DropdownMenuItem(
-                      value: w,
-                      child: Text(w.studentName, style: theme.textTheme.titleMedium),
-                    )).toList(),
-                    onChanged: (w) {
-                      if (w != null) app.selectWard(w);
-                    },
-                  ),
-                ),
-              ),
+              const WardSelector(),
 
             if (_loading)
               const SkeletonCard(height: 100)
-            else if (unpaid > 0)
-              _UnpaidBanner(unpaid: unpaid, balance: summary?.totalBalance ?? 0)
             else if (summary != null && summary.totalInvoices > 0)
-              _PaidBanner(totalPaid: summary.totalPaid)
+              // FIX 4: ONE summary card — all payment data in one place
+              _SummaryCard(
+                monthsPaid: summary.paidInvoices,
+                monthsUnpaid: summary.unpaidInvoices,
+                totalPaid: summary.totalPaid,
+                totalUnpaid: summary.totalBalance,
+                monthlyFee: _monthlyFeeOf(allPayments),
+              )
             else if (summary != null)
               // 3.4: no invoices at all — likely fee-exempt (free) ward
               _FreeBanner(),
@@ -138,7 +128,7 @@ class _PaymentsTabState extends State<PaymentsTab> {
                         color: AppColors.primary,
                       ),
                       label: Text(
-                        _showAllMonths ? 'Hide locked months' : 'Show all months',
+                        _showAllMonths ? tr(context, 'hide_locked_months') : tr(context, 'show_all_months'),
                         style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                       style: TextButton.styleFrom(
@@ -302,7 +292,7 @@ class _FreeBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Fee exempt',
+                  tr(context, 'fee_exempt'),
                   style: TextStyle(
                     color: isDark ? Colors.lightBlue.shade200 : const Color(0xFF1D4ED8),
                     fontWeight: FontWeight.w800,
@@ -327,118 +317,7 @@ class _FreeBanner extends StatelessWidget {
   }
 }
 
-class _UnpaidBanner extends StatelessWidget {
-  final int unpaid;
-  final double balance;
-  const _UnpaidBanner({required this.unpaid, required this.balance});
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 24),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.danger.withOpacity(0.1) : AppColors.dangerSoft,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.danger.withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.danger.withOpacity(0.2) : Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$unpaid ${AppLocalizations.tr(context, 'unpaid_invoices')}',
-                  style: const TextStyle(
-                    color: AppColors.danger,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${AppLocalizations.tr(context, 'total_balance')}: ${balance.toInt()} ETB',
-                  style: TextStyle(
-                    color: AppColors.danger.withOpacity(0.8),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaidBanner extends StatelessWidget {
-  final double totalPaid;
-  const _PaidBanner({required this.totalPaid});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 24),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.success.withOpacity(0.1) : AppColors.successSoft,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.success.withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.success.withOpacity(0.2) : Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.check_circle_outline, color: AppColors.success),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppLocalizations.tr(context, 'all_paid'),
-                  style: const TextStyle(
-                    color: AppColors.success,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${AppLocalizations.tr(context, 'total_paid')}: ${totalPaid.toInt()} ETB',
-                  style: TextStyle(
-                    color: AppColors.success.withOpacity(0.8),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _ReceiptWidget extends StatelessWidget {
   final MonthlyPayment p;
@@ -480,11 +359,11 @@ class _ReceiptWidget extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  const Text('Cash Receipt Voucher', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF8B0000), fontFamily: 'serif')),
+                  Text(tr(context, 'cash_receipt'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF8B0000), fontFamily: 'serif')),
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Text('DATE ', style: TextStyle(fontSize: 12, color: Color(0xFF5A3A22))),
+                      Text('DATE ', style: TextStyle(fontSize: 12, color: Color(0xFF5A3A22))),
                       Container(
                         padding: const EdgeInsets.only(bottom: 2),
                         decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFF5A3A22)))),
@@ -516,12 +395,12 @@ class _ReceiptWidget extends StatelessWidget {
                     const Text('From', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22))),
                     Text('Guardian Name / ${ward.studentName}', style: const TextStyle(fontSize: 16, color: Colors.black)),
                     const SizedBox(height: 16),
-                    const Text('Purpose of Payment', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22))),
+                    Text(tr(context, 'purpose_of_payment'), style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22))),
                     Text('Monthly Tuition Fee - ${p.month}', style: const TextStyle(fontSize: 16, color: Colors.black)),
                     const SizedBox(height: 4),
                     Text(invoiceId, style: const TextStyle(fontSize: 14, color: Colors.black54)),
                     const SizedBox(height: 16),
-                    const Text('Remainder', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22))),
+                    Text('Remainder', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22))),
                   ],
                 ),
               ),
@@ -531,10 +410,10 @@ class _ReceiptWidget extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Amount in Words', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22))),
-                    const Text('Total Paid Value Only', style: TextStyle(fontSize: 16, color: Colors.black)),
+                    Text(tr(context, 'amount_in_words'), style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22))),
+                    Text(tr(context, 'total_paid_value_only'), style: TextStyle(fontSize: 16, color: Colors.black)),
                     const SizedBox(height: 16),
-                    const Align(alignment: Alignment.centerRight, child: Text('Payment in Figures', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22)))),
+                    Align(alignment: Alignment.centerRight, child: Text(tr(context, 'payment_in_figures'), style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF5A3A22)))),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
@@ -566,5 +445,101 @@ class _ReceiptWidget extends StatelessWidget {
     } catch (_) {
       return iso;
     }
+  }
+}
+
+
+/// FIX 4: one card with ALL payment totals in one place
+class _SummaryCard extends StatelessWidget {
+  final int monthsPaid;
+  final int monthsUnpaid;
+  final double totalPaid;
+  final double totalUnpaid;
+  final double monthlyFee;
+
+  const _SummaryCard({
+    required this.monthsPaid,
+    required this.monthsUnpaid,
+    required this.totalPaid,
+    required this.totalUnpaid,
+    required this.monthlyFee,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final allClear = monthsUnpaid == 0;
+
+    Widget stat(IconData icon, Color color, String label, String value, {Color? bg}) {
+      return Expanded(
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: bg ?? color.withOpacity(0.12), shape: BoxShape.circle),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(height: 8),
+            Text(value,
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, fontSize: 15)),
+            const SizedBox(height: 2),
+            Text(label,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
+          ],
+        ),
+      );
+    }
+
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.receipt_long, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(tr(context, 'monthly_payments'),
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+              const Spacer(),
+              if (monthlyFee > 0)
+                Text('${tr(context, 'monthly_fee')}: ${monthlyFee.toInt()} ETB',
+                    style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              stat(Icons.calendar_today, AppColors.success, tr(context, 'months_paid'), '$monthsPaid'),
+              stat(Icons.event_busy, AppColors.danger, tr(context, 'months_unpaid'), '$monthsUnpaid'),
+            ],
+          ),
+          const Divider(height: 20),
+          Row(
+            children: [
+              stat(Icons.payments, AppColors.success, tr(context, 'total_paid_amount'),
+                  '${totalPaid.toInt()} ETB'),
+              stat(Icons.account_balance_wallet, allClear ? AppColors.success : AppColors.danger,
+                  tr(context, 'amount_unpaid'), '${totalUnpaid.toInt()} ETB'),
+            ],
+          ),
+          if (allClear)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle, color: AppColors.success, size: 14),
+                  const SizedBox(width: 4),
+                  Text(tr(context, 'all_paid'),
+                      style: TextStyle(color: AppColors.success, fontSize: 11, fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

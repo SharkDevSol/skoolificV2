@@ -1,6 +1,7 @@
 ﻿import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import '../../core/l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -107,23 +108,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
     // Validate branch code
     if (branch.isEmpty) {
-      setState(() => _branchError = 'Branch code is required');
+      setState(() => _branchError = tr(context, 'branch_required'));
       return;
     }
     if (branch.length < 2) {
-      setState(() => _branchError = 'Branch code too short');
+      setState(() => _branchError = tr(context, 'branch_too_short'));
       return;
     }
 
     // Validate username
     if (username.isEmpty) {
-      setState(() => _credentialError = 'Username is required');
+      setState(() => _credentialError = tr(context, 'username_required'));
       return;
     }
 
     // Validate password
     if (password.isEmpty) {
-      setState(() => _credentialError = 'Password is required');
+      setState(() => _credentialError = tr(context, 'password_required'));
       return;
     }
 
@@ -170,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
         // Invalid credentials
         setState(() {
           _loading = false;
-          _credentialError = res['message'] ?? 'Wrong username or password';
+          _credentialError = res['message'] ?? tr(context, 'wrong_credentials');
         });
       }
     } on api_svc.ApiException catch (e) {
@@ -278,7 +279,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Icon(Icons.notifications, color: AppColors.primary, size: 24),
             const SizedBox(width: 10),
             Text(
-              'Turn on notifications',
+              tr(context, 'turn_on_notifications'),
               style: TextStyle(
                 color: Theme.of(ctx).brightness == Brightness.dark ? Colors.white : AppColors.text,
                 fontWeight: FontWeight.bold,
@@ -555,7 +556,7 @@ class CircleLogo extends StatelessWidget {
       ),
       child: ClipOval(
         child: Image.asset(
-          'assets/images/logo.png',
+          'assets/images/skoolific.png', // FIX 4: Skoolific logo (was IQRA)
           width: 56,
           height: 56,
           fit: BoxFit.contain,
@@ -673,7 +674,7 @@ class _LoginCardState extends State<_LoginCard> {
                     ),
                     const SizedBox(width: 14),
                     Text(
-                      'Sign In',
+                      tr(context, 'sign_in_btn'),
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
@@ -697,8 +698,8 @@ class _LoginCardState extends State<_LoginCard> {
                 // Branch Code field (1.3 modern style)
                 _ModernField(
                   icon: Icons.account_balance_outlined,
-                  label: 'Branch Code',
-                  placeholder: 'Enter branch code',
+                  label: tr(context, 'branch_code'),
+                  placeholder: tr(context, 'enter_branch'),
                   controller: widget.branchCtrl,
                   onChanged: widget.onBranchChanged,
                   error: widget.branchError,
@@ -709,7 +710,7 @@ class _LoginCardState extends State<_LoginCard> {
                 _ModernField(
                   icon: Icons.person_outline,
                   label: 'Username',
-                  placeholder: 'Enter your username',
+                  placeholder: tr(context, 'enter_username'),
                   controller: widget.usernameCtrl,
                   onChanged: widget.onUsernameChanged,
                   error: widget.credentialError,
@@ -720,7 +721,7 @@ class _LoginCardState extends State<_LoginCard> {
                 _ModernField(
                   icon: Icons.lock_outline,
                   label: 'Password',
-                  placeholder: 'Enter your password',
+                  placeholder: tr(context, 'enter_password'),
                   controller: widget.passwordCtrl,
                   obscure: widget.obscure,
                   onToggle: widget.onToggleObscure,
@@ -1088,7 +1089,7 @@ class _RememberMe extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              'Remember me',
+              tr(context, 'remember_me'),
               style: TextStyle(
                 color: isDark ? Colors.grey.shade300 : const Color(0xFF6B6F8D),
                 fontSize: 13,
@@ -1146,7 +1147,7 @@ class _PrimaryButton extends StatelessWidget {
                 const Icon(Icons.login_rounded, color: Colors.white, size: 20),
               const SizedBox(width: 10),
               Text(
-                hasError ? 'Try Again' : 'Sign In',
+                hasError ? tr(context, 'try_again') : tr(context, 'sign_in_btn'),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -1193,7 +1194,7 @@ class _HelpFooter extends StatelessWidget {
               ),
             ),
             Text(
-              'Contact your school administrator',
+              tr(context, 'need_help_msg'),
               style: TextStyle(
                 color: isDark ? const Color(0xFFE8A87C) : AppColors.primary,
                 fontWeight: FontWeight.bold,

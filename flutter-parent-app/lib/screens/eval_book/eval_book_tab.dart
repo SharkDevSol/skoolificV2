@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/app_widgets.dart';
 
@@ -8,7 +9,7 @@ class EvalBookTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Evaluation Book')),
+      appBar: AppBar(title: Text(tr(context, 'eval_book'))),
       body: AppCard(
         child: Center(
           child: Column(

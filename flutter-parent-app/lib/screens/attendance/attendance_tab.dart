@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
 import '../../app/app_provider.dart';
 import '../../widgets/app_widgets.dart';
+import '../../widgets/ward_selector.dart';
 import '../../models/models.dart';
 import '../../core/l10n/app_localizations.dart';
 
@@ -139,34 +140,7 @@ class _AttendanceTabState extends State<AttendanceTab> {
           children: [
             SectionTitle(AppLocalizations.tr(context, 'student_attendance')),
             if (app.wards.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isDark ? Colors.transparent : AppColors.border),
-                  boxShadow: isDark ? [] : [softShadow],
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<Ward>(
-                    value: app.selectedWard,
-                    isExpanded: true,
-                    icon: Icon(Icons.expand_more, color: theme.primaryColor),
-                    dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                    items: app.wards.map((w) => DropdownMenuItem(
-                      value: w,
-                      child: Text(w.studentName, style: theme.textTheme.titleMedium),
-                    )).toList(),
-                    onChanged: (w) {
-                      if (w != null) {
-                        app.selectWard(w);
-                        _fetch();
-                      }
-                    },
-                  ),
-                ),
-              ),
+              const WardSelector(),
 
             Row(
               children: [
@@ -251,7 +225,7 @@ class _AttendanceTabState extends State<AttendanceTab> {
                       _fetch();
                     },
                     icon: const Icon(Icons.today, size: 16),
-                    label: const Text('This Month', style: TextStyle(fontSize: 12)),
+                    label: Text(tr(context, 'this_month'), style: TextStyle(fontSize: 12)),
                     style: TextButton.styleFrom(
                       foregroundColor: AppColors.primary,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -444,7 +418,7 @@ class _AttendanceTabState extends State<AttendanceTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Weekly Summary',
+            Text(tr(context, 'weekly_summary'),
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 14,

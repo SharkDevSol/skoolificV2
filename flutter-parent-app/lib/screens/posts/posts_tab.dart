@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import '../../core/l10n/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
@@ -103,7 +104,7 @@ class _PostsTabState extends State<PostsTab> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const SectionTitle('Posts'),
+          SectionTitle(tr(context, 'posts')),
           if (_loading)
             const Column(children: [
               SizedBox(height: 24),
@@ -112,7 +113,7 @@ class _PostsTabState extends State<PostsTab> {
               SkeletonCard(height: 200),
             ])
           else if (_posts.isEmpty)
-            const EmptyState(icon: Icons.article_outlined, message: 'No posts yet')
+            EmptyState(icon: Icons.article_outlined, message: tr(context, 'no_posts'))
           else
             ..._posts.map((p) {
               final liked = _likedIds.contains(p.id) || p.liked;

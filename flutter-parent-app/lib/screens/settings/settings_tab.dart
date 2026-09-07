@@ -72,7 +72,7 @@ class SettingsTab extends StatelessWidget {
                 const Divider(height: 1),
                 _SettingsRow(
                   Icons.password,
-                  'Change Password',
+                  tr(context, 'change_password'),
                   '',
                   onTap: () => _showChangePasswordDialog(context),
                 ),
@@ -185,13 +185,13 @@ class SettingsTab extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Change Password'),
+        title: Text(tr(context, 'change_password')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AppTextField(label: 'Old Password', isPassword: true),
+            AppTextField(label: tr(context, 'old_password'), isPassword: true),
             const SizedBox(height: 16),
-            AppTextField(label: 'New Password', isPassword: true),
+            AppTextField(label: tr(context, 'new_password'), isPassword: true),
           ],
         ),
         actions: [

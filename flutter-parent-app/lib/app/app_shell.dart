@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import '../core/l10n/app_localizations.dart';
 import 'package:flutter_floating_bottom_bar/flutter_floating_bottom_bar.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,7 +15,7 @@ import '../../screens/discipline/discipline_tab.dart';
 import '../../screens/messages/messages_tab.dart';
 import '../../screens/notifications/notifications_tab.dart';
 // FIX 5: NotificationsTab now lives in its own file (real page, not a placeholder)
-class EvalBookTab extends StatelessWidget { const EvalBookTab({super.key}); @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Eval Book'))); }
+class EvalBookTab extends StatelessWidget { const EvalBookTab({super.key}); @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text(tr(context, 'eval_book')))); }
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -97,8 +98,8 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     if (!mounted) return;
     if (update == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You are up to date ✓'),
+        SnackBar(
+          content: Text(tr(context, 'you_are_up_to_date')),
           duration: Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
         ),
@@ -110,7 +111,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Update available — v${update['version']}'),
+        title: Text(tr(context, 'update_available') + ' — v${update['version']}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,9 +120,8 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
               Text(notes, style: const TextStyle(fontSize: 13)),
               const SizedBox(height: 12),
             ],
-            const Text(
-              'Tap Download to get the new version. '
-              'It will open in your browser — then install it over this app.',
+            Text(
+              tr(context, 'update_tap_note'),
               style: TextStyle(fontSize: 13, color: Colors.grey),
             ),
           ],
@@ -129,7 +129,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Later'),
+            child: Text(tr(context, 'later')),
           ),
           ElevatedButton(
             onPressed: () {
@@ -138,7 +138,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                 launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
               }
             },
-            child: const Text('Download'),
+            child: Text(tr(context, 'download')),
           ),
         ],
       ),
@@ -277,10 +277,10 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildNavItem(Icons.article, 'Posts', 0, isDark),   // 4.2: Posts first
-                      _buildNavItem(Icons.assignment, 'Marks', 1, isDark),
-                      _buildNavItem(Icons.account_balance_wallet, 'Pay', 2, isDark),
-                      _buildNavItem(Icons.calendar_month, 'Attend', 3, isDark),
+                      _buildNavItem(Icons.article, tr(context, 'posts'), 0, isDark),   // 4.2: Posts first
+                      _buildNavItem(Icons.assignment, tr(context, 'marks'), 1, isDark),
+                      _buildNavItem(Icons.account_balance_wallet, tr(context, 'pay'), 2, isDark),
+                      _buildNavItem(Icons.calendar_month, tr(context, 'attend'), 3, isDark),
                       // 5th Item: Expandable FAB
                       GestureDetector(
                         onTap: () => _showExpandableMenu(context),
@@ -376,7 +376,7 @@ class _ExpandableMenu extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('More Options', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(tr(context, 'more_options'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               IconButton(icon: const Icon(Icons.close), onPressed: onClose),
             ],
           ),
@@ -389,7 +389,7 @@ class _ExpandableMenu extends StatelessWidget {
             crossAxisSpacing: 16,
             children: [
               _MenuTile('Messages', Icons.chat_bubble_outline, AppColors.info, () => _nav(context, const MessagesTab())),
-              _MenuTile('Eval Book', Icons.menu_book_outlined, Colors.teal, () => _nav(context, const EvalBookTab())),
+              _MenuTile(tr(context, 'eval_book'), Icons.menu_book_outlined, Colors.teal, () => _nav(context, const EvalBookTab())),
               _MenuTile('Discipline', Icons.gavel_outlined, Colors.deepPurple, () => _nav(context, const DisciplineTab())),
               // FIX 5: Notifications REMOVED from menu — it lives in the header bell now
             ],

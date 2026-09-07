@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -15,6 +16,9 @@ void main() async {
   await StorageService.init();
   // 6.2: start FCM push notifications (system tray, works with app closed)
   await PushService.init();
+  // FIX: re-register the FCM token on every app start — covers token rotation
+  // and users who logged in before this fix existed
+  unawaited(PushService.ensureRegistered());
   runApp(const MyApp());
 }
 
