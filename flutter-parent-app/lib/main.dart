@@ -22,6 +22,29 @@ void main() async {
   runApp(const MyApp());
 }
 
+/// FIX 9: ONE navigator key created once — a new key per rebuild remounts the
+/// whole navigator (app "reloaded" to Posts on every theme/ward/language change).
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
+/// FIX 8B: our own localization delegate. Flutter does NOT ship Somali/Amharic/
+/// Arabic material translations for everything, and a locale MaterialWidgets
+/// can't resolve makes buttons (dropdowns, +, tabs) silently die. This
+/// delegate loads our strings for any locale and falls back to English
+/// material texts, so every widget keeps working in all 4 languages.
+class _AppLocalizationsDelegate
+    extends LocalizationsDelegate<AppLocalizations> {
+  const _AppLocalizationsDelegate();
+
+  @override
+  bool isSupported(Locale locale) => true; // we handle any of our 4 languages
+
+  @override
+  Future<AppLocalizations> load(Locale locale) async => AppLocalizations();
+
+  @override
+  bool shouldReload(_AppLocalizationsDelegate old) => false;
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -37,18 +60,30 @@ class MyApp extends StatelessWidget {
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,
             themeMode: appProvider.themeMode,
+            // FIX 9: language switch only swaps OUR strings — the widget tree,
+            // locale resolution, and navigator stay mounted (no reload, no Posts jump)
             locale: appProvider.locale,
-            // FIX 9: declare supported locales so Localizations resolves them —
-            // without this, Localizations.maybeLocaleOf returned null => always English
             supportedLocales: AppLocalizations.supportedLocales,
             localizationsDelegates: const [
-              ...GlobalMaterialLocalizations.delegates,
+              _AppLocalizationsDelegate(),
+              GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,
             ],
-            navigatorKey: GlobalKey<NavigatorState>(),
-            // FIX 1: no splash screen — go straight to app/login
-            home: StorageService.isLoggedIn ? const AppShell() : const LoginScreen(),
+            navigatorKey: rootNavigatorKey,
+            // FIX 1: react to session ending. While the provider is loading,
+            // keep showing whatever the saved session implies (shell if a
+            // token exists). When the provider finishes and the user is null
+            // (expired JWT / logged out), switch to login.
+            home: Consumer<AppProvider>(
+              builder: (context, app, child) {
+                final hasToken = StorageService.isLoggedIn;
+                final loggedIn = app.loading
+                    ? hasToken // still deciding — keep current surface
+                    : (hasToken && app.user != null);
+                return loggedIn ? const AppShell() : const LoginScreen();
+              },
+            ),
           );
         },
       ),

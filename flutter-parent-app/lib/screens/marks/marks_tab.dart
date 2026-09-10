@@ -559,14 +559,15 @@ class _ReportCardWidget extends StatelessWidget {
                       ],
                     );
                   }),
-                  // Total
+                  // Total — per-term sums; Average column = average of the two
+                  // term totals (NOT the sum of every mark — that printed 529)
                   TableRow(
                     decoration: const BoxDecoration(color: Color(0xFFFAF0E6)),
                     children: [
                       _buildCell('Total', isBold: true),
                       _buildCell(_termTotal(marks, '1')),
                       _buildCell(_termTotal(marks, '2')),
-                      _buildCell(totalMarks.toStringAsFixed(1)),
+                      _buildCell(_overallTotal(marks)),
                     ],
                   ),
                   // Average
@@ -576,21 +577,18 @@ class _ReportCardWidget extends StatelessWidget {
                       _buildCell('Average', isBold: true),
                       _buildCell(_termAvg(marks, '1')),
                       _buildCell(_termAvg(marks, '2')),
-                      _buildCell(avgMark.toStringAsFixed(1)),
+                      _buildCell(_overallAvg(marks)),
                     ],
                   ),
-                  // FIX 3: Rank row — REAL rank from server's class ranking
+                  // FIX 3: Rank row — REAL rank from server's class ranking.
+                  // Last cell shows the overall rank with the class size, e.g. "2nd of 4".
                   TableRow(
                     decoration: const BoxDecoration(color: Color(0xFFE6F2FF)),
                     children: [
                       _buildCell(tr(context, 'rank'), isBold: true),
                       _buildCell(ranking[1]?['rankDisplay']?.toString() ?? '—'),
                       _buildCell(ranking[2]?['rankDisplay']?.toString() ?? '—'),
-                      _buildCell(
-                        (ranking.isNotEmpty && (ranking[1] != null || ranking[2] != null))
-                            ? 'of ${rankTotal ?? ''}'
-                            : '—',
-                      ),
+                      _buildCell(_overallRankLabel(ranking, rankTotal)),
                     ],
                   ),
                 ],
@@ -640,6 +638,41 @@ class _ReportCardWidget extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  // FIX 3: Average column math — average of the two term totals, not the
+  // grand sum of every mark (which printed e.g. 529 instead of ~264.5)
+  String _overallTotal(List<Mark> marks) {
+    final t1 = marks.where((m) => m.term == '1').toList();
+    final t2 = marks.where((m) => m.term == '2').toList();
+    if (t1.isEmpty && t2.isEmpty) return '';
+    final s1 = t1.fold<double>(0, (s, m) => s + m.total);
+    final s2 = t2.fold<double>(0, (s, m) => s + m.total);
+    if (t1.isEmpty) return s2.toStringAsFixed(1);
+    if (t2.isEmpty) return s1.toStringAsFixed(1);
+    return ((s1 + s2) / 2).toStringAsFixed(1);
+  }
+
+  String _overallAvg(List<Mark> marks) {
+    final t1 = marks.where((m) => m.term == '1').toList();
+    final t2 = marks.where((m) => m.term == '2').toList();
+    if (t1.isEmpty && t2.isEmpty) return '';
+    final a1 = t1.isNotEmpty ? t1.fold<double>(0, (s, m) => s + m.total) / t1.length : null;
+    final a2 = t2.isNotEmpty ? t2.fold<double>(0, (s, m) => s + m.total) / t2.length : null;
+    if (a1 == null) return a2!.toStringAsFixed(1);
+    if (a2 == null) return a1.toStringAsFixed(1);
+    return ((a1 + a2) / 2).toStringAsFixed(1);
+  }
+
+  /// Overall rank label for the last cell: "2nd of 4" (best of available terms)
+  String _overallRankLabel(Map<int, Map<String, dynamic>> ranking, int? rankTotal) {
+    final r1 = ranking[1]?['rank'];
+    final r2 = ranking[2]?['rank'];
+    if (r1 == null && r2 == null) return '—';
+    // use the term with marks; prefer the LATEST term that has a rank
+    final rank = r2 ?? r1;
+    final display = ranking[2]?['rankDisplay'] ?? ranking[1]?['rankDisplay'] ?? '$rank';
+    return rankTotal != null ? '$display of $rankTotal' : display.toString();
   }
 
   String _termTotal(List<Mark> marks, String term) {

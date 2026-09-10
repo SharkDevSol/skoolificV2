@@ -15,7 +15,7 @@ import '../../screens/discipline/discipline_tab.dart';
 import '../../screens/messages/messages_tab.dart';
 import '../../screens/notifications/notifications_tab.dart';
 // FIX 5: NotificationsTab now lives in its own file (real page, not a placeholder)
-class EvalBookTab extends StatelessWidget { const EvalBookTab({super.key}); @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text(tr(context, 'eval_book')))); }
+import '../../screens/eval_book/eval_book_tab.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -28,7 +28,9 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   int _currentIndex = 0;
   bool _isFabExpanded = false;
   late TabController _tabController;
-  bool _hasNotified = false;
+  // FIX 11: update availability — drives the red badge on the update button
+  bool _updateAvailable = false;
+  Map<String, dynamic>? _pendingUpdate;
 
   @override
   void initState() {
@@ -39,36 +41,19 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
         setState(() => _currentIndex = _tabController.index);
       }
     });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAndNotify();
-    });
+    // FIX 11: check silently on start — badge shows only if a NEWER version
+    // the user hasn't taken yet is available
+    _silentUpdateCheck();
   }
 
-  void _checkAndNotify() {
-    final app = Provider.of<AppProvider>(context, listen: false);
-    app.addListener(() {
-      if (app.wards.isNotEmpty && !_hasNotified) {
-        _hasNotified = true;
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.notifications_active, color: Colors.white),
-                  const SizedBox(width: 12),
-                  const Expanded(child: Text("You have new data for Attendance, Marks, and Payments!")),
-                ],
-              ),
-              backgroundColor: const Color(0xFF7B2D26),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
-      }
-    });
+  Future<void> _silentUpdateCheck() async {
+    final update = await UpdateService.checkForUpdate();
+    if (mounted) {
+      setState(() {
+        _pendingUpdate = update;
+        _updateAvailable = update != null;
+      });
+    }
   }
 
   @override
@@ -92,15 +77,16 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     });
   }
 
-  // FIX 10: check server for update; if newer, offer download
+  // FIX 10/11: check server for update; if newer, offer download
   Future<void> _checkForUpdate() async {
     final update = await UpdateService.checkForUpdate();
     if (!mounted) return;
     if (update == null) {
+      setState(() => _updateAvailable = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(tr(context, 'you_are_up_to_date')),
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -108,10 +94,11 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     }
     final url = update['url']?.toString() ?? '';
     final notes = update['notes']?.toString() ?? '';
+    final version = update['version']?.toString() ?? '';
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(tr(context, 'update_available') + ' — v${update['version']}'),
+        title: Text(tr(context, 'update_available') + ' — v$version'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -122,18 +109,27 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
             ],
             Text(
               tr(context, 'update_tap_note'),
-              style: TextStyle(fontSize: 13, color: Colors.grey),
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              Navigator.pop(ctx);
+              // FIX 11: "Later" also hides the badge for THIS version
+              UpdateService.markVersionSeen(version);
+              setState(() => _updateAvailable = false);
+            },
             child: Text(tr(context, 'later')),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
+              // FIX 11: remember this version is handled -> badge hides until
+              // the server publishes an even newer one
+              UpdateService.markVersionSeen(version);
+              setState(() => _updateAvailable = false);
               if (url.isNotEmpty) {
                 launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
               }
@@ -192,13 +188,33 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                   ),
 
                   const SizedBox(width: 8),
-                  // FIX 10: update button — checks server for new APK
+                  // FIX 10/11: update button — badge (red dot) shows ONLY when a
+                  // newer version the user hasn't taken is live on the server
                   GestureDetector(
                     onTap: _checkForUpdate,
-                    child: const CircleAvatar(
-                      radius: 16,
-                      backgroundColor: AppColors.primaryLight,
-                      child: Icon(Icons.system_update, size: 20, color: AppColors.primary),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        const CircleAvatar(
+                          radius: 16,
+                          backgroundColor: AppColors.primaryLight,
+                          child: Icon(Icons.system_update, size: 20, color: AppColors.primary),
+                        ),
+                        if (_updateAvailable)
+                          Positioned(
+                            right: -2,
+                            top: -2,
+                            child: Container(
+                              padding: const EdgeInsets.all(3),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.circle,
+                                  size: 5, color: Colors.white),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 8),

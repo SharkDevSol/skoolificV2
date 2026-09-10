@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
 import '../../app/app_provider.dart';
 import '../../widgets/app_widgets.dart';
+import '../../widgets/page_header.dart';
 import '../../models/models.dart';
 import '../../core/l10n/app_localizations.dart';
 
@@ -47,9 +48,17 @@ class _MessagesTabState extends State<MessagesTab> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return GradientBackground(
-      child: RefreshIndicator(
-        onRefresh: _fetch,
+    // FIX 7: app header on Messages page
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Column(
+          children: [
+            PageHeader(title: tr(context, 'messages'), icon: Icons.chat_bubble_outline),
+            Expanded(
+              child: GradientBackground(
+                child: RefreshIndicator(
+                  onRefresh: _fetch,
         child: ListView(
           padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
           children: [
@@ -124,11 +133,15 @@ class _MessagesTabState extends State<MessagesTab> {
                   )),
           ],
         ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
-
 class _ChatScreen extends StatefulWidget {
   final ChatConversation conversation;
   const _ChatScreen({required this.conversation});

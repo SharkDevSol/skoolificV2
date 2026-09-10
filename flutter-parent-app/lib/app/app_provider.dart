@@ -28,6 +28,27 @@ class AppProvider extends ChangeNotifier {
     _load();
   }
 
+  /// FIX 1: read the JWT expiry locally (no server call). Returns true when
+  /// the token is missing, malformed, or past its exp claim.
+  bool _tokenExpired() {
+    final token = StorageService.token;
+    if (token == null || token.isEmpty) return true;
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return true;
+      final payload = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      final exp = payload['exp'];
+      if (exp is int) {
+        return DateTime.fromMillisecondsSinceEpoch(exp * 1000)
+            .isBefore(DateTime.now());
+      }
+      return false; // no exp claim — treat as valid
+    } catch (_) {
+      return true; // can't parse -> force fresh login
+    }
+  }
+
   Future<void> _load() async {
     // FIX 1: silent loading — keep showing existing data while refreshing.
     // Only show the full-screen loading state on very first app start
@@ -51,6 +72,20 @@ class AppProvider extends ChangeNotifier {
       // Load saved locale
       final savedLocale = StorageService.locale;
       locale = Locale(savedLocale);
+
+      // FIX 1: session still valid? If the JWT expired (24h), log the user out
+      // instead of silently showing an app with no data.
+      if (!StorageService.isLoggedIn || _tokenExpired()) {
+        await StorageService.clear(); // clears token + user (keeps branch + Remember Me)
+        user = null;
+        wards = [];
+        marks = [];
+        payments = null;
+        _allPosts = [];
+        loading = false;
+        notifyListeners();
+        return; // user will be sent to login by main.dart
+      }
 
       final raw = StorageService.user;
       if (raw != null && raw.isNotEmpty) {

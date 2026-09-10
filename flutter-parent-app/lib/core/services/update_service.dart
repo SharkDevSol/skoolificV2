@@ -1,15 +1,18 @@
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
-/// FIX 10: in-app update system.
+/// FIX 11: in-app update system.
 /// The app checks a small version.json on the server:
-///   { "latestVersion": "4.2.0", "apkUrl": "https://...apk", "notes": "..." }
-/// If newer than the installed version -> user can download + install.
+///   { "latestVersion": "4.4.0", "apkUrl": "https://...apk", "notes": "..." }
+/// If newer than the installed version -> show the update BADGE on the button.
+/// Once the user taps it, we remember "dismissedVersion" so the badge hides
+/// until a NEWER version appears.
 class UpdateService {
   static const String versionEndpoint =
       'https://iqra.skoolific.com/downloads/parent-app/version.json';
 
-  static const String appVersion = '4.2.0'; // keep in sync with pubspec
+  static const String appVersion = '4.4.0'; // keep in sync with pubspec
 
   /// Returns null if up-to-date (or check fails => treated as up-to-date),
   /// otherwise a map {version, url, notes}.
@@ -22,6 +25,12 @@ class UpdateService {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final latest = data['latestVersion']?.toString() ?? '';
       if (latest.isEmpty) return null;
+
+      // FIX 11: user already saw/handled this exact version? Don't nag again.
+      final prefs = await SharedPreferences.getInstance();
+      final dismissed = prefs.getString('dismissedUpdateVersion') ?? '';
+      if (latest == dismissed) return null;
+
       if (_isNewer(latest, appVersion)) {
         return {
           'version': latest,
@@ -33,6 +42,13 @@ class UpdateService {
     } catch (_) {
       return null; // offline / server down => no nagging
     }
+  }
+
+  /// FIX 11: called when the user installs/downloads the update — hides the
+  /// badge until a NEWER version is published.
+  static Future<void> markVersionSeen(String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('dismissedUpdateVersion', version);
   }
 
   /// 4.2.0 > 4.1.9 style compare (numeric parts)

@@ -129,6 +129,10 @@ class AppLocalizations {
       'update_available': 'Update available',
       'you_are_up_to_date': 'You are up to date',
       'update_tap_note': 'Tap Download to get the new version. It will open in your browser, then install over this app.',
+      'action': 'Action taken',
+      'description': 'Details',
+      'logout': 'Log out',
+      'reported_by': 'Reported by',
     },
     'so': {
       'marks': 'Dhibcaha',
@@ -248,6 +252,10 @@ class AppLocalizations {
       'update_available': 'Cusboonaysiin ayaa diyaar ah',
       'you_are_up_to_date': 'Waad casri tahay',
       'update_tap_note': 'Taabo Soo Deji si aad u heshid version-ka cusub. Waxay furmayaan browser-kaaga, ka dibna ku rakib app-kan.',
+      'action': 'Tallaabo la qaadatay',
+      'description': 'Faahfaahin',
+      'logout': 'Ka bax',
+      'reported_by': 'Waxa cadeeyay',
     },
     'am': {
       'marks': 'ምልክቶች',
@@ -367,6 +375,10 @@ class AppLocalizations {
       'update_available': 'ዝማኔ አለ',
       'you_are_up_to_date': 'ወቅታዊ ነዎት',
       'update_tap_note': 'ዝማኔውን ለማግኘት አውርድ ይጫኑ። በአሳሽዎ ይከፈታል፣ ከዚያም ከዚህ መተግበሪያ ላይ ይጫናል።',
+      'action': 'የተወሰደ እርምጃ',
+      'description': 'ዝርዝር',
+      'logout': 'ውጣ',
+      'reported_by': 'ያሳወቀው',
     },
     'ar': {
       'marks': 'الدرجات',
@@ -486,6 +498,10 @@ class AppLocalizations {
       'update_available': 'تحديث متاح',
       'you_are_up_to_date': 'أنت محدّث',
       'update_tap_note': 'اضغط تنزيل للحصول على الإصدار الجديد. سيفتح في متصفحك ثم يثبّت فوق هذا التطبيق.',
+      'action': 'الإجراء المتخذ',
+      'description': 'التفاصيل',
+      'logout': 'تسجيل الخروج',
+      'reported_by': 'أبلغ عنه',
     },
   };
 

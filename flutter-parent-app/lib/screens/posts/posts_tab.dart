@@ -130,9 +130,13 @@ class _PostsTabState extends State<PostsTab> {
                   children: [
                     // 4.1: image with proper full URL + graceful fallback
                     if (p.image != null && p.image!.isNotEmpty)
+                      // FIX 4: tap image -> fullscreen zoomable viewer
                       ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                        child: _PostImage(url: p.image!),
+                        child: GestureDetector(
+                          onTap: () => _openImageFullscreen(context, p.image!),
+                          child: _PostImage(url: p.image!),
+                        ),
                       ),
                     Padding(
                       padding: const EdgeInsets.all(16),
@@ -238,6 +242,48 @@ class _PostImage extends StatelessWidget {
         color: isDark ? const Color(0xFF2A2A2A) : AppColors.surfaceAlt,
         child: Icon(Icons.image_not_supported_outlined,
             size: 40, color: isDark ? Colors.white24 : AppColors.textMuted),
+      ),
+    );
+  }
+}
+
+
+/// FIX 4: fullscreen image viewer with pinch-to-zoom + double-tap
+void _openImageFullscreen(BuildContext context, String imageUrl) {
+  final resolved =
+      imageUrl.startsWith('http') ? imageUrl : 'https://iqra.skoolific.com$imageUrl';
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => _FullscreenImage(url: resolved),
+    ),
+  );
+}
+
+class _FullscreenImage extends StatelessWidget {
+  final String url;
+  const _FullscreenImage({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5,
+          child: Image.network(
+            url,
+            fit: BoxFit.contain,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (_, __, ___) => const Icon(
+                Icons.broken_image_outlined, color: Colors.white38, size: 64),
+          ),
+        ),
       ),
     );
   }

@@ -1183,26 +1183,32 @@ class _HelpFooter extends StatelessWidget {
             width: 1,
           ),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Need help? ',
-              style: TextStyle(
-                color: isDark ? Colors.grey.shade300 : const Color(0xFF6B6F8D),
-                fontSize: 13,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            runAlignment: WrapAlignment.center,
+            children: [
+              Text(
+                tr(context, 'need_help'),
+                style: TextStyle(
+                  color: isDark ? Colors.grey.shade300 : const Color(0xFF6B6F8D),
+                  fontSize: 13,
+                ),
               ),
-            ),
-            Text(
-              tr(context, 'need_help_msg'),
-              style: TextStyle(
-                color: isDark ? const Color(0xFFE8A87C) : AppColors.primary,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                decoration: TextDecoration.underline,
+              Text(
+                tr(context, 'need_help_msg'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDark ? const Color(0xFFE8A87C) : AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
