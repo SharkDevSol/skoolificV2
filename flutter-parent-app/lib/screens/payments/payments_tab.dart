@@ -202,12 +202,8 @@ class _PaymentsTabState extends State<PaymentsTab> {
                                     fontSize: 16,
                                     color: theme.textTheme.bodyLarge?.color,
                                   )),
-                              if (p.totalAmount != p.paidAmount)
-                                Text('fee: ${p.totalAmount.toInt()} ETB',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
-                                    )),
+                              // T4: removed the confusing "fee: 100 ETB" label —
+                              // the paid amount above matches the receipt
                               const SizedBox(height: 6),
                               StatusPill(
                                 locked ? 'LOCKED' : p.status,
@@ -504,9 +500,6 @@ class _SummaryCard extends StatelessWidget {
               Text(tr(context, 'monthly_payments'),
                   style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
               const Spacer(),
-              if (monthlyFee > 0)
-                Text('${tr(context, 'monthly_fee')}: ${monthlyFee.toInt()} ETB',
-                    style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
             ],
           ),
           const SizedBox(height: 14),

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/theme/app_theme.dart';
 import '../core/services/update_service.dart';
+import '../widgets/first_launch_language.dart';
 import 'app_provider.dart';
 import '../../screens/marks/marks_tab.dart';
 import '../../screens/payments/payments_tab.dart';
@@ -44,6 +45,16 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     // FIX 11: check silently on start — badge shows only if a NEWER version
     // the user hasn't taken yet is available
     _silentUpdateCheck();
+    // T8: one-time language picker on first launch (after login)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (FirstLaunchLanguageDialog.shouldShow() && mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const FirstLaunchLanguageDialog(),
+        );
+      }
+    });
   }
 
   Future<void> _silentUpdateCheck() async {

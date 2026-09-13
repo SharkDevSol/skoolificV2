@@ -97,6 +97,13 @@ class StorageService {
 
   static String get locale => _prefs.getString('locale') ?? 'en';
 
+  // T8: one-time language selection — has the user picked a language yet?
+  static bool get hasChosenLanguage => _prefs.getBool('languageChosen') ?? false;
+
+  static Future<void> setLanguageChosen() async {
+    await _prefs.setBool('languageChosen', true);
+  }
+
   // 10.6: offline data cache (marks/payments/posts/attendance)
   static Future<void> setOfflineCache(String key, String json) async {
     await _prefs.setString('offline_$key', json);

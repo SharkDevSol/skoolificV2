@@ -581,7 +581,8 @@ class _ReportCardWidget extends StatelessWidget {
                     ],
                   ),
                   // FIX 3: Rank row — REAL rank from server's class ranking.
-                  // Last cell shows the overall rank with the class size, e.g. "2nd of 4".
+                  // Per-term rank + overall (best term with marks) + class size.
+                  // No redundant labels: term1/term2/overall each shown once.
                   TableRow(
                     decoration: const BoxDecoration(color: Color(0xFFE6F2FF)),
                     children: [

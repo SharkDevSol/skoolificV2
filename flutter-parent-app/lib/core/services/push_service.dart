@@ -72,6 +72,8 @@ class PushService {
         'username': username,
         'fcm_token': token,
         'platform': 'android',
+        // T10: push notifications arrive in the guardian's selected language
+        'language': StorageService.locale,
       });
       await http.post(
         Uri.parse('${ApiConstants.baseUrl}/api/guardians/register-device'),

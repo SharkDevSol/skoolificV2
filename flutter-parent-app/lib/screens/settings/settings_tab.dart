@@ -2,6 +2,7 @@
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/ethiopian_date.dart';
 import '../../app/app_provider.dart';
 import '../login/login_screen.dart';
 import '../../widgets/app_widgets.dart';
@@ -340,9 +341,14 @@ class _WardDetailsScreenState extends State<_WardDetailsScreen> {
     final app = Provider.of<AppProvider>(context, listen: false);
     if (app.user == null) return;
     try {
-      final now = DateTime.now();
-      // Fetch attendance
-      final att = await ApiService().monthlySummary(widget.ward.className ?? '', widget.ward.schoolId, year: now.year - 8, month: now.month);
+      // T5: use the SAME current Ethiopian month as the Attendance tab —
+      // this used Gregorian month with Ethiopian year => always 0 records => 0%
+      final att = await ApiService().monthlySummary(
+        widget.ward.className ?? '',
+        widget.ward.schoolId,
+        year: EthiopianDate.year,
+        month: EthiopianDate.month,
+      );
       _attendanceRate = att.percentage;
 
       // Fetch marks

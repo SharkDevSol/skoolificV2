@@ -382,7 +382,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (!isKeyboard) const SizedBox(height: 120),
+                      // T1: smaller spacer so the card never covers the logo
+                      if (!isKeyboard) const SizedBox(height: 150),
                       _LoginCard(
                         branchCtrl: _branchCtrl,
                         usernameCtrl: _usernameCtrl,
@@ -676,7 +677,7 @@ class _LoginCardState extends State<_LoginCard> {
                     Text(
                       tr(context, 'sign_in_btn'),
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 19, // T1: was 22 — takes too much space
                         fontWeight: FontWeight.w800,
                         color: isDark ? Colors.white : AppColors.primaryDark,
                         letterSpacing: 0.3,
@@ -684,7 +685,7 @@ class _LoginCardState extends State<_LoginCard> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 20), // T1: was 28
 
                 // Connection error (top, prominent)
                 if (widget.connectionError != null) ...[
