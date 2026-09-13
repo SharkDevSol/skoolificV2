@@ -530,10 +530,10 @@ class _ReportCardWidget extends StatelessWidget {
                   TableRow(
                     decoration: const BoxDecoration(color: Color(0xFF8B0000)),
                     children: [
-                      _buildCell('Subject', isHeader: true),
-                      _buildCell('1st Term', isHeader: true),
-                      _buildCell('2nd Term', isHeader: true),
-                      _buildCell('Average', isHeader: true),
+                      _buildCell(tr(context, 'subject'), isHeader: true),
+                      _buildCell(tr(context, 'term_1'), isHeader: true),
+                      _buildCell(tr(context, 'term_2'), isHeader: true),
+                      _buildCell(tr(context, 'average_score'), isHeader: true),
                     ],
                   ),
                   // 2.3: per-term values per subject (correct data)
@@ -564,7 +564,7 @@ class _ReportCardWidget extends StatelessWidget {
                   TableRow(
                     decoration: const BoxDecoration(color: Color(0xFFFAF0E6)),
                     children: [
-                      _buildCell('Total', isBold: true),
+                      _buildCell(tr(context, 'total'), isBold: true),
                       _buildCell(_termTotal(marks, '1')),
                       _buildCell(_termTotal(marks, '2')),
                       _buildCell(_overallTotal(marks)),
@@ -574,7 +574,7 @@ class _ReportCardWidget extends StatelessWidget {
                   TableRow(
                     decoration: const BoxDecoration(color: Color(0xFFFAF0E6)),
                     children: [
-                      _buildCell('Average', isBold: true),
+                      _buildCell(tr(context, 'average_score'), isBold: true),
                       _buildCell(_termAvg(marks, '1')),
                       _buildCell(_termAvg(marks, '2')),
                       _buildCell(_overallAvg(marks)),

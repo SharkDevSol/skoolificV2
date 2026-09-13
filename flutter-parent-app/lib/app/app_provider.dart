@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../core/services/storage_service.dart';
 import '../core/services/api_service.dart';
@@ -145,6 +145,41 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> refresh() => _load();
 
+  /// T1: silent refresh — fetches fresh data WITHOUT showing loading screens.
+  /// Used on app resume; keeps current data visible while updating.
+  Future<void> silentRefresh() async {
+    if (user == null || user!.username.isEmpty) return;
+    try {
+      final freshWards = await ApiService().guardianWards(user!.username);
+      if (freshWards.isNotEmpty) {
+        wards = freshWards;
+        if (selectedWard == null ||
+            !wards.any((w) => w.studentName == selectedWard!.studentName)) {
+          selectedWard = wards.first;
+        }
+      }
+      try {
+        final marksRes = await ApiService().guardianMarks(user!.username);
+        marks = marksRes.marks;
+        _marksCache.clear();
+        for (final w in wards) {
+          _marksCache[w.studentName] =
+              marks.where((m) => m.ward == w.studentName).toList();
+        }
+        _saveCache('marks', marksRes);
+      } catch (_) {}
+      try {
+        payments = await ApiService().guardianPayments(user!.username);
+        _saveCache('payments', payments);
+      } catch (_) {}
+      try {
+        _allPosts = await ApiService().guardianPosts(user!.branchCode);
+        _saveCache('posts', _allPosts);
+      } catch (_) {}
+      notifyListeners();
+    } catch (_) {}
+  }
+
   // ---- 2.4: instant ward switching with caches ----
   List<Mark> cachedMarksFor(Ward ward) => _marksCache[ward.studentName] ?? [];
 
@@ -167,11 +202,35 @@ class AppProvider extends ChangeNotifier {
 
   void _loadCaches() {
     try {
+      // T1: restore ALL cached data from local storage — the app opens with
+      // data immediately (no manual refresh), even offline.
       final postsJson = StorageService.getOfflineCache('posts');
       if (postsJson != null && _allPosts.isEmpty) {
         _allPosts = ((jsonDecode(postsJson) as List))
             .map((p) => Post.fromJson(p))
             .toList();
+      }
+      // marks cache (saved as full GuardianMarksResponse)
+      if (_marksCache.isEmpty) {
+        final marksJson = StorageService.getOfflineCache('marks');
+        if (marksJson != null) {
+          final res = GuardianMarksResponse.fromJson(jsonDecode(marksJson));
+          for (final w in wards) {
+            _marksCache[w.studentName] =
+                res.marks.where((m) => m.ward == w.studentName).toList();
+          }
+          if (marks.isEmpty && res.marks.isNotEmpty) marks = res.marks;
+        }
+      }
+      // payments cache
+      if (_paymentsCache.isEmpty) {
+        final payJson = StorageService.getOfflineCache('payments');
+        if (payJson != null) {
+          payments = GuardianPaymentsResponse.fromJson(jsonDecode(payJson));
+          if (user != null) {
+            _paymentsCache[user!.username] = payments!;
+          }
+        }
       }
     } catch (_) {}
   }

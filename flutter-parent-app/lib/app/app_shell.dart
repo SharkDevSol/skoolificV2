@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../core/l10n/app_localizations.dart';
 import 'package:flutter_floating_bottom_bar/flutter_floating_bottom_bar.dart';
 import 'package:provider/provider.dart';
@@ -21,11 +21,15 @@ import '../../screens/eval_book/eval_book_tab.dart';
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
+  // T8: lets any page (e.g. notifications) switch the shell's tab —
+  // set by the shell state at init, called with the tab index.
+  static void Function(int tabIndex)? switchTab;
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin {
+class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _currentIndex = 0;
   bool _isFabExpanded = false;
   late TabController _tabController;
@@ -36,7 +40,15 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // T1: app resume detection
     _tabController = TabController(length: 4, vsync: this);
+    // T8: expose tab switching for notification deep-links
+    AppShell.switchTab = (i) {
+      if (i >= 0 && i < 4) {
+        _tabController.animateTo(i);
+        if (mounted) setState(() => _currentIndex = i);
+      }
+    };
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() => _currentIndex = _tabController.index);
@@ -67,8 +79,19 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     }
   }
 
+  // T1: when the app comes back to foreground, refresh data silently
+  // (in place — no loading screen, no navigation jump)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      Provider.of<AppProvider>(context, listen: false).silentRefresh();
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    AppShell.switchTab = null; // T8: clear on dispose
     _tabController.dispose();
     super.dispose();
   }
@@ -199,19 +222,19 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                   ),
 
                   const SizedBox(width: 8),
-                  // FIX 10/11: update button — badge (red dot) shows ONLY when a
-                  // newer version the user hasn't taken is live on the server
-                  GestureDetector(
-                    onTap: _checkForUpdate,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        const CircleAvatar(
-                          radius: 16,
-                          backgroundColor: AppColors.primaryLight,
-                          child: Icon(Icons.system_update, size: 20, color: AppColors.primary),
-                        ),
-                        if (_updateAvailable)
+                  // T3: update button is COMPLETELY HIDDEN unless a newer
+                  // version the user hasn't taken is available on the server
+                  if (_updateAvailable)
+                    GestureDetector(
+                      onTap: _checkForUpdate,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          const CircleAvatar(
+                            radius: 16,
+                            backgroundColor: AppColors.primaryLight,
+                            child: Icon(Icons.system_update, size: 20, color: AppColors.primary),
+                          ),
                           Positioned(
                             right: -2,
                             top: -2,
@@ -225,10 +248,10 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                                   size: 5, color: Colors.white),
                             ),
                           ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
+                  if (_updateAvailable) const SizedBox(width: 8),
                   // 6.1: notification bell next to profile icon, always visible
                   GestureDetector(
                     onTap: () {

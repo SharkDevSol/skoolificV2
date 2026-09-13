@@ -133,6 +133,11 @@ class AppLocalizations {
       'description': 'Details',
       'logout': 'Log out',
       'reported_by': 'Reported by',
+      'term_1': '1st Term',
+      'term_2': '2nd Term',
+      'grading_scale': 'Grading Scale',
+      'student_name': 'Full Name',
+      'academic_year': 'Academic Year',
     },
     'so': {
       'marks': 'Dhibcaha',
@@ -256,6 +261,11 @@ class AppLocalizations {
       'description': 'Faahfaahin',
       'logout': 'Ka bax',
       'reported_by': 'Waxa cadeeyay',
+      'term_1': 'Xilli 1aad',
+      'term_2': 'Xilli 2aad',
+      'grading_scale': 'Heerka Darajada',
+      'student_name': 'Magaca Buuxa',
+      'academic_year': 'Sannadka Waxbarashada',
     },
     'am': {
       'marks': 'ምልክቶች',
@@ -379,6 +389,11 @@ class AppLocalizations {
       'description': 'ዝርዝር',
       'logout': 'ውጣ',
       'reported_by': 'ያሳወቀው',
+      'term_1': '1ኛው ወቅት',
+      'term_2': '2ኛው ወቅት',
+      'grading_scale': 'የንብረት መለኪያ',
+      'student_name': 'ሙሉ ስም',
+      'academic_year': 'የትምህርት ዓመት',
     },
     'ar': {
       'marks': 'الدرجات',
@@ -502,6 +517,11 @@ class AppLocalizations {
       'description': 'التفاصيل',
       'logout': 'تسجيل الخروج',
       'reported_by': 'أبلغ عنه',
+      'term_1': 'الفصل الأول',
+      'term_2': 'الفصل الثاني',
+      'grading_scale': 'سلطة التنقيط',
+      'student_name': 'الاسم الكامل',
+      'academic_year': 'العام الدراسي',
     },
   };
 

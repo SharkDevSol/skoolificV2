@@ -98,6 +98,11 @@ class StorageService {
   static String get locale => _prefs.getString('locale') ?? 'en';
 
   // T8: one-time language selection — has the user picked a language yet?
+  // T10: update the remembered username alone (e.g. after changing username)
+  static Future<void> setRememberedUsername(String username) async {
+    await _prefs.setString('rememberedUsername', username);
+  }
+
   static bool get hasChosenLanguage => _prefs.getBool('languageChosen') ?? false;
 
   static Future<void> setLanguageChosen() async {

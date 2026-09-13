@@ -1,4 +1,4 @@
-﻿class User {
+class User {
   final int id;
   final String username;
   final String name;
@@ -415,6 +415,8 @@ class NotificationItem {
   final String body;
   final String? time;
   final bool read;
+  // T8: notification type (marks/attendance/payment/...) for deep-linking
+  final String? type;
 
   NotificationItem({
     required this.id,
@@ -422,6 +424,7 @@ class NotificationItem {
     required this.body,
     this.time,
     this.read = false,
+    this.type,
   });
 
   factory NotificationItem.fromJson(Map<String, dynamic> j) => NotificationItem(
@@ -430,7 +433,17 @@ class NotificationItem {
         body: j['body']?.toString() ?? j['message']?.toString() ?? '',
         time: j['time']?.toString() ?? j['created_at']?.toString(),
         read: j['read'] == true,
+        type: j['type']?.toString(),
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'body': body,
+        'time': time,
+        'read': read,
+        'type': type,
+      };
 }
 
 // === DISCIPLINE FAULTS (7.1) ===

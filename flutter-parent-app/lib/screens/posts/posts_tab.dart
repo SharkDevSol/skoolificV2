@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../core/l10n/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';

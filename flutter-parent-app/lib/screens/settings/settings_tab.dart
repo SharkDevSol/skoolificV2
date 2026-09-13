@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -76,6 +77,13 @@ class SettingsTab extends StatelessWidget {
                   tr(context, 'change_password'),
                   '',
                   onTap: () => _showChangePasswordDialog(context),
+                ),
+                const Divider(height: 1),
+                _SettingsRow(
+                  Icons.person_outline,
+                  'Change Username',
+                  '',
+                  onTap: () => _showChangeUsernameDialog(context),
                 ),
                 const Divider(height: 1),
                 // 1.7: view/change saved Branch Code
@@ -182,23 +190,151 @@ class SettingsTab extends StatelessWidget {
     );
   }
 
+  // T10: REAL change password — calls the backend, updates the roster
   void _showChangePasswordDialog(BuildContext context) {
+    final app = Provider.of<AppProvider>(context, listen: false);
+    final username = app.user?.username ?? '';
+    final oldCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    bool saving = false;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(tr(context, 'change_password')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppTextField(label: tr(context, 'old_password'), isPassword: true),
-            const SizedBox(height: 16),
-            AppTextField(label: tr(context, 'new_password'), isPassword: true),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(tr(context, 'change_password')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: oldCtrl,
+                obscureText: true,
+                decoration: InputDecoration(labelText: tr(context, 'old_password')),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: newCtrl,
+                obscureText: true,
+                decoration: InputDecoration(labelText: tr(context, 'new_password')),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: confirmCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirm new password'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr(context, 'cancel'))),
+            ElevatedButton(
+              onPressed: saving ? null : () async {
+                if (oldCtrl.text.isEmpty || newCtrl.text.isEmpty) return;
+                if (newCtrl.text != confirmCtrl.text) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('New passwords do not match')));
+                  return;
+                }
+                setDialogState(() => saving = true);
+                final err = await ApiService()
+                    .changePassword(username, oldCtrl.text, newCtrl.text);
+                setDialogState(() => saving = false);
+                if (!ctx.mounted) return;
+                if (err == null) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Password changed successfully'),
+                      backgroundColor: AppColors.success));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(err), backgroundColor: AppColors.danger));
+                }
+              },
+              child: saving
+                  ? const SizedBox(width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text(tr(context, 'save')),
+            ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Save')),
-        ],
+      ),
+    );
+  }
+
+  // T10: REAL change username — calls the backend; server rejects duplicates
+  void _showChangeUsernameDialog(BuildContext context) {
+    final app = Provider.of<AppProvider>(context, listen: false);
+    final currentUsername = app.user?.username ?? '';
+    final newCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    bool saving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Change Username'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Current: $currentUsername',
+                  style: const TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: newCtrl,
+                decoration: const InputDecoration(labelText: 'New username'),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: passCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirm with password'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr(context, 'cancel'))),
+            ElevatedButton(
+              onPressed: saving ? null : () async {
+                if (newCtrl.text.trim().isEmpty || passCtrl.text.isEmpty) return;
+                setDialogState(() => saving = true);
+                final err = await ApiService()
+                    .changeUsername(currentUsername, newCtrl.text.trim(), passCtrl.text);
+                setDialogState(() => saving = false);
+                if (!ctx.mounted) return;
+                if (err == null) {
+                  Navigator.pop(ctx);
+                  // update the stored session so the app keeps working with the new username
+                  try {
+                    final raw = storage.StorageService.user;
+                    if (raw != null) {
+                      final u = jsonDecode(raw) as Map<String, dynamic>;
+                      u['username'] = newCtrl.text.trim();
+                      await storage.StorageService.saveSession(
+                        token: storage.StorageService.token ?? '',
+                        user: jsonEncode(u),
+                        branchCode: storage.StorageService.branchCode ?? '',
+                      );
+                      await storage.StorageService.setRememberedUsername(newCtrl.text.trim());
+                    }
+                  } catch (_) {}
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Username changed successfully'),
+                      backgroundColor: AppColors.success));
+                } else {
+                  // server rejects duplicates with 'Username already exists'
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(err), backgroundColor: AppColors.danger));
+                }
+              },
+              child: saving
+                  ? const SizedBox(width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text(tr(context, 'save')),
+            ),
+          ],
+        ),
       ),
     );
   }

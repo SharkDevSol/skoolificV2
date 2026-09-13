@@ -10,6 +10,24 @@ class ApiService {
   factory ApiService() => _instance;
   ApiService._internal();
 
+  // T5: global request timeout — on slow internet requests used to hang
+  // forever. 25s is long enough for weak connections, short enough to show
+  // a clear error instead of an endless spinner.
+  static const Duration _timeout = Duration(seconds: 25);
+
+  /// T5: GET with timeout + one retry on network failure (slow connections
+  /// often drop the first request; a single silent retry fixes most of them).
+  Future<http.Response> get(Uri url, {Map<String, String>? headers}) async {
+    try {
+      return await http
+          .get(url, headers: headers)
+          .timeout(_timeout);
+    } on Exception catch (_) {
+      // one silent retry (fresh connection)
+      return await http.get(url, headers: headers).timeout(_timeout);
+    }
+  }
+
   String _handleError(dynamic e) {
     if (e is SocketException || e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
       return 'Connection issue. Please check your internet.';
@@ -51,7 +69,7 @@ class ApiService {
 
   Future<User> guardianProfile(String username) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianProfile}/$username'),
         headers: _headers(),
       );
@@ -85,7 +103,7 @@ class ApiService {
 
   Future<List<Ward>> guardianWards(String username) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianList}'),
         headers: _headers(),
       );
@@ -109,7 +127,7 @@ class ApiService {
 
   Future<GuardianMarksResponse> guardianMarks(String username) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianMarks}/$username'),
         headers: _headers(),
       );
@@ -124,7 +142,7 @@ class ApiService {
 
   Future<GuardianPaymentsResponse> guardianPayments(String username) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianPayments}/$username'),
         headers: _headers(),
       );
@@ -139,7 +157,7 @@ class ApiService {
 
   Future<List<Post>> guardianPosts(String schoolId) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianPosts}/$schoolId'),
         headers: _headers(),
       );
@@ -167,7 +185,7 @@ class ApiService {
 
   // 7.1: discipline faults for a class — GET /api/faults/faults/:className
   Future<List<FaultRecord>> classFaults(String className) async {
-    final res = await http.get(
+    final res = await get(
       Uri.parse('${ApiConstants.baseUrl}/api/faults/faults/$className'),
       headers: _headers(),
     );
@@ -183,7 +201,7 @@ class ApiService {
   /// Returns {termNumber: {rank, rankDisplay, average}} for ONE student.
   Future<Map<int, Map<String, dynamic>>> studentRanking(
       String className, String studentName) async {
-    final res = await http.get(
+    final res = await get(
       Uri.parse('${ApiConstants.baseUrl}/api/mark-list/full-ranking/$className'),
       headers: _headers(),
     );
@@ -212,7 +230,7 @@ class ApiService {
 
   // 8.1: chat conversations — GET /api/chats/conversations?userId=
   Future<List<ChatConversation>> conversations(String userId) async {
-    final res = await http.get(
+    final res = await get(
       Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}?userId=$userId'),
       headers: _headers(),
     );
@@ -230,7 +248,7 @@ class ApiService {
 
   // 8.1: messages in a conversation — GET /api/chats/conversations/:id/messages
   Future<List<ChatMessage>> conversationMessages(String conversationId, String myUsername) async {
-    final res = await http.get(
+    final res = await get(
       Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
       headers: _headers(),
     );
@@ -259,7 +277,7 @@ class ApiService {
   Future<AttendanceSummary> monthlySummary(String className, String schoolId,
       {required int year, required int month}) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse(
             '${ApiConstants.baseUrl}${ApiConstants.monthlySummary}/$className/$schoolId?year=$year&month=$month'),
         headers: _headers(),
@@ -276,7 +294,7 @@ class ApiService {
   Future<List<AttendanceDay>> studentAttendance(String className, String schoolId,
       {required int year, required int month}) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse(
             '${ApiConstants.baseUrl}${ApiConstants.studentAttendance}/$className/$schoolId?year=$year&month=$month'),
         headers: _headers(),
@@ -294,7 +312,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> chatConversations(String userId) async {
     try {
-      final res = await http.get(
+      final res = await get(
         Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}?userId=$userId'),
         headers: _headers(),
       );
@@ -303,6 +321,50 @@ class ApiService {
       // Ignore
     }
     return {};
+  }
+
+  /// T10: change password — POST /api/user-profile/guardian/change-password
+  /// Returns null on success, error message string on failure.
+  Future<String?> changePassword(
+      String username, String currentPassword, String newPassword) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/api/user-profile/guardian/change-password'),
+        headers: _headers(),
+        body: jsonEncode({
+          'username': username,
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      ).timeout(_timeout);
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200 && data['success'] == true) return null;
+      return data['error']?.toString() ?? 'Failed to change password';
+    } catch (e) {
+      return _handleError(e);
+    }
+  }
+
+  /// T10: change username — POST /api/user-profile/guardian/change-username
+  /// Returns null on success, error message string on failure.
+  Future<String?> changeUsername(
+      String currentUsername, String newUsername, String password) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/api/user-profile/guardian/change-username'),
+        headers: _headers(),
+        body: jsonEncode({
+          'currentUsername': currentUsername,
+          'newUsername': newUsername,
+          'password': password,
+        }),
+      ).timeout(_timeout);
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200 && data['success'] == true) return null;
+      return data['error']?.toString() ?? 'Failed to change username';
+    } catch (e) {
+      return _handleError(e);
+    }
   }
 }
 

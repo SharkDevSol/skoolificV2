@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import '../../core/l10n/app_localizations.dart';
@@ -626,12 +626,13 @@ class _LoginCardState extends State<_LoginCard> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(maxWidth: 400),
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        borderRadius: BorderRadius.circular(28),
+          width: double.infinity,
+          // T2: smaller card — narrower max width + tighter padding
+          constraints: const BoxConstraints(maxWidth: 360),
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            borderRadius: BorderRadius.circular(24),
         border: Border.all(color: isDark ? const Color(0xFF2C2C2C) : Colors.transparent),
         boxShadow: isDark
             ? [
@@ -651,7 +652,8 @@ class _LoginCardState extends State<_LoginCard> {
       ),
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+          // T2: tighter padding makes the card visibly smaller
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 26),
           child: Form(
             key: _formKeyState,
             child: Column(

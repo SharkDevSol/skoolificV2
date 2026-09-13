@@ -40,6 +40,8 @@ class PushService {
       // When user taps a notification while app is in background
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage msg) {
         debugPrint('📲 notification opened: ${msg.notification?.title}');
+        // T8: opening a notification from the tray = it's read + deep-link
+        _storeLocal(msg, markRead: true);
       });
 
       // Background handler (app terminated) — must be top-level function
@@ -99,7 +101,7 @@ class PushService {
     } catch (_) {}
   }
 
-  static void _storeLocal(RemoteMessage msg) {
+  static void _storeLocal(RemoteMessage msg, {bool markRead = false}) {
     // Keep latest 20 notifications locally for the Notifications tab
     try {
       final list = StorageService.getOfflineCache('notifs');
@@ -109,7 +111,8 @@ class PushService {
         'title': msg.notification?.title ?? msg.data['title'] ?? '',
         'body': msg.notification?.body ?? msg.data['body'] ?? '',
         'time': DateTime.now().toIso8601String(),
-        'read': false,
+        'read': markRead, // T8: opened from tray = read
+        'type': msg.data['type']?.toString(), // T8: for deep-linking
       });
       if (notifs.length > 20) notifs.removeRange(20, notifs.length);
       StorageService.setOfflineCache('notifs', jsonEncode(notifs));

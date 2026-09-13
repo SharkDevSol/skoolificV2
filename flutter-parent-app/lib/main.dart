@@ -26,17 +26,16 @@ void main() async {
 /// whole navigator (app "reloaded" to Posts on every theme/ward/language change).
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
-/// FIX 8B: our own localization delegate. Flutter does NOT ship Somali/Amharic/
-/// Arabic material translations for everything, and a locale MaterialWidgets
-/// can't resolve makes buttons (dropdowns, +, tabs) silently die. This
-/// delegate loads our strings for any locale and falls back to English
-/// material texts, so every widget keeps working in all 4 languages.
+/// T7/T11: our own delegate supplies AppLocalizations for ALL 4 languages
+/// (including Somali, which Flutter's GlobalMaterialLocalizations does NOT
+/// ship — its load() throws "unsupported locale" and kills the widget tree).
 class _AppLocalizationsDelegate
     extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) => true; // we handle any of our 4 languages
+  bool isSupported(Locale locale) =>
+      AppLocalizations.supportedLocales.any((l) => l.languageCode == locale.languageCode);
 
   @override
   Future<AppLocalizations> load(Locale locale) async => AppLocalizations();
@@ -54,22 +53,49 @@ class MyApp extends StatelessWidget {
       create: (_) => AppProvider(),
       child: Consumer<AppProvider>(
         builder: (context, appProvider, child) {
+          final loc = appProvider.locale;
+          // T7/T11: Somali has NO Flutter material bundle — pass a fallback
+          // locale (en) to the Material delegates so they never throw, while
+          // OUR delegate still serves Somali strings for every widget.
+          final materialLocale =
+              loc.languageCode == 'so' ? const Locale('en') : loc;
           return MaterialApp(
             title: 'IQRA Parent',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,
             themeMode: appProvider.themeMode,
-            // FIX 9: language switch only swaps OUR strings — the widget tree,
-            // locale resolution, and navigator stay mounted (no reload, no Posts jump)
-            locale: appProvider.locale,
+            // T7: language switch swaps OUR strings via _AppLocalizationsDelegate —
+            // widget tree stays mounted (no reload, no data loss, no Posts jump)
+            locale: loc,
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: const [
-              _AppLocalizationsDelegate(),
+            localizationsDelegates: [
+              const _AppLocalizationsDelegate(),
+              // T7/T11: material delegate resolves en/am/ar directly; for 'so'
+              // we override with materialLocale=en (see above) so load() never fails
               GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,
             ],
+            localeResolutionCallback: (deviceLocale, supported) {
+              // T7/T11: ALWAYS resolve to the user's chosen language —
+              // this is what makes tr() widgets rebuild with new strings
+              return loc;
+            },
+            builder: (context, child) {
+              // T7/T11: wrap with Localizations override for the material
+              // widgets when locale is Somali (they get 'en' material strings
+              // but our Somali strings come from _AppLocalizationsDelegate)
+              return Localizations(
+                locale: materialLocale,
+                delegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                child: child ?? const SizedBox(),
+              );
+            },
             navigatorKey: rootNavigatorKey,
             // FIX 1: react to session ending. While the provider is loading,
             // keep showing whatever the saved session implies (shell if a
