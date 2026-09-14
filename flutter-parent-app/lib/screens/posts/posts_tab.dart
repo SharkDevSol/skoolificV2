@@ -19,6 +19,8 @@ class _PostsTabState extends State<PostsTab> {
   bool _loading = true;
   // 4.1: local like state per post id (optimistic UI)
   final Set<String> _likedIds = {};
+  // T3 final: track provider posts identity so silent refreshes propagate
+  int _lastProviderPostCount = -1;
 
   @override
   void initState() {
@@ -98,6 +100,23 @@ class _PostsTabState extends State<PostsTab> {
   Widget build(BuildContext context) {
     final app = Provider.of<AppProvider>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // T3 final: when the provider's posts refresh (silent refresh on resume /
+    // startup), mirror them here — posts auto-update without manual refresh
+    if (app.allPosts.isNotEmpty &&
+        app.allPosts.length != _lastProviderPostCount &&
+        _posts.length != app.allPosts.length) {
+      _lastProviderPostCount = app.allPosts.length;
+      // schedule after build to avoid setState during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _posts.length != app.allPosts.length) {
+          setState(() {
+            _posts = app.allPosts;
+            _loading = false;
+          });
+        }
+      });
+    }
 
     return RefreshIndicator(
       onRefresh: _fetch,

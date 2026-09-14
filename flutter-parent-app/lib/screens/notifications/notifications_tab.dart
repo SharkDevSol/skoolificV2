@@ -76,8 +76,18 @@ class _NotificationsTabState extends State<NotificationsTab> {
       case 'payments':
         AppShell.switchTab?.call(2);
         break;
-      // messages/discipline open as pushed pages from the + menu —
-      // switching the shell tab doesn't reach them, so just go home tab
+      case 'message':
+      case 'messages':
+      case 'chat':
+        AppShell.openMessages?.call();
+        break;
+      case 'faults':
+      case 'discipline':
+        AppShell.openDiscipline?.call();
+        break;
+      case 'update':
+        AppShell.openUpdateDialog?.call();
+        break;
       default:
         AppShell.switchTab?.call(0);
     }

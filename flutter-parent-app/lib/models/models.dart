@@ -509,6 +509,20 @@ class ChatConversation {
         j['other_participant']?.toString() ??
         j['name']?.toString() ??
         'Conversation';
+    // T6: admin broadcast — use the admin's full name
+    if (j['type'] == 'class_broadcast' && j['admin_name'] != null) {
+      title = j['admin_name'].toString();
+    }
+    // T6: teacher chat — title shows the teacher's full name
+    if (j['type'] == 'teacher_chat' && participants is List) {
+      final teacher = participants.firstWhere(
+        (p) => p is Map && p['user_type'] == 'teacher',
+        orElse: () => null,
+      );
+      if (teacher is Map && (teacher['user_name'] ?? '').toString().isNotEmpty) {
+        title = teacher['user_name'].toString();
+      }
+    }
     if ((title.isEmpty || title == 'Conversation') && participants is List) {
       final names = participants
           .map((p) => p is Map ? (p['name']?.toString() ?? p['username']?.toString() ?? '') : p.toString())
@@ -519,8 +533,11 @@ class ChatConversation {
     return ChatConversation(
       id: j['id']?.toString() ?? j['conversation_id']?.toString() ?? '',
       title: title,
-      lastMessage: j['last_message']?.toString() ?? j['lastMessage']?.toString() ?? j['message']?.toString(),
-      lastTime: j['last_message_time']?.toString() ?? j['lastMessageTime']?.toString() ?? j['updated_at']?.toString(),
+      lastMessage: j['last_message'] is Map
+          ? (j['last_message']['message_text']?.toString() ??
+              j['last_message']['message']?.toString())
+          : (j['last_message']?.toString() ?? j['lastMessage']?.toString() ?? j['message']?.toString()),
+      lastTime: j['last_message_time']?.toString() ?? j['lastMessageTime']?.toString() ?? j['updated_at']?.toString() ?? j['last_message_at']?.toString(),
       unreadCount: j['unread_count'] is int ? j['unread_count'] : _toInt(j['unreadCount']),
     );
   }

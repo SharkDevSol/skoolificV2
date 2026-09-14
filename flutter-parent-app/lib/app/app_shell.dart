@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/theme/app_theme.dart';
 import '../core/services/update_service.dart';
 import '../widgets/first_launch_language.dart';
+import '../widgets/offline_banner.dart';
 import 'app_provider.dart';
 import '../../screens/marks/marks_tab.dart';
 import '../../screens/payments/payments_tab.dart';
@@ -28,6 +29,10 @@ class AppShell extends StatefulWidget {
   // v4.7: lets the push service open the update popup when an update
   // notification is tapped (even from the system tray).
   static void Function()? openUpdateDialog;
+
+  // v4.9: push tap deep-links to pushed pages (messages, discipline)
+  static void Function()? openMessages;
+  static void Function()? openDiscipline;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -56,6 +61,13 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     // v4.7: expose update popup for update-notification taps
     AppShell.openUpdateDialog = () {
       if (mounted) _checkForUpdate();
+    };
+    // v4.9: expose pushed-page openers for notification deep-links
+    AppShell.openMessages = () {
+      if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const MessagesTab()));
+    };
+    AppShell.openDiscipline = () {
+      if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const DisciplineTab()));
     };
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
@@ -101,6 +113,8 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     WidgetsBinding.instance.removeObserver(this);
     AppShell.switchTab = null; // T8: clear on dispose
     AppShell.openUpdateDialog = null; // v4.7: clear on dispose
+    AppShell.openMessages = null;
+    AppShell.openDiscipline = null;
     _tabController.dispose();
     super.dispose();
   }
@@ -287,6 +301,8 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
               ),
             ),
             // Main Content
+            // T4 final: offline banner — shows when connectivity drops
+            const OfflineBanner(),
             Expanded(
               child: BottomBar(
                 layout: BottomBarLayout.adaptive(

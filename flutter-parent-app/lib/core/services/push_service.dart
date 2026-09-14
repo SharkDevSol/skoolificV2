@@ -43,9 +43,18 @@ class PushService {
         debugPrint('📲 notification opened: ${msg.notification?.title}');
         // T8: opening a notification from the tray = it's read + deep-link
         _storeLocal(msg, markRead: true);
-        // v4.7: update notification -> open the update popup directly
-        if ((msg.data['type'] ?? '').toString() == 'update') {
-          AppShell.openUpdateDialog?.call();
+        _handleNotificationTap(msg.data);
+      });
+
+      // v4.9: app was CLOSED entirely — the tap launched the app
+      FirebaseMessaging.instance.getInitialMessage().then((msg) {
+        if (msg != null) {
+          debugPrint('📲 cold-start notification tap: ${msg.notification?.title}');
+          _storeLocal(msg, markRead: true);
+          // wait for the shell to be ready, then navigate
+          Future.delayed(const Duration(seconds: 2), () {
+            _handleNotificationTap(msg.data);
+          });
         }
       });
 
@@ -106,8 +115,40 @@ class PushService {
     } catch (_) {}
   }
 
-  static void _storeLocal(RemoteMessage msg, {bool markRead = false}) {
-    // Keep latest 20 notifications locally for the Notifications tab
+  /// T2: notification tap -> open the matching page.
+  /// marks -> Marks tab, attendance -> Attendance tab, payment -> Payments tab,
+  /// update -> update popup, message/chat -> Messages page.
+  static void _handleNotificationTap(Map<String, dynamic> data) {
+    final type = (data['type'] ?? '').toString().toLowerCase();
+    switch (type) {
+      case 'marks':
+        AppShell.switchTab?.call(1);
+        break;
+      case 'attendance':
+        AppShell.switchTab?.call(3);
+        break;
+      case 'payment':
+      case 'payments':
+        AppShell.switchTab?.call(2);
+        break;
+      case 'message':
+      case 'messages':
+      case 'chat':
+        AppShell.openMessages?.call();
+        break;
+      case 'faults':
+      case 'discipline':
+        AppShell.openDiscipline?.call();
+        break;
+      case 'update':
+        AppShell.openUpdateDialog?.call();
+        break;
+      default:
+        AppShell.switchTab?.call(0);
+    }
+  }
+
+  static void _storeLocal(RemoteMessage msg, {bool markRead = false}) {    // Keep latest 20 notifications locally for the Notifications tab
     try {
       final list = StorageService.getOfflineCache('notifs');
       final notifs = list != null ? jsonDecode(list) as List : [];

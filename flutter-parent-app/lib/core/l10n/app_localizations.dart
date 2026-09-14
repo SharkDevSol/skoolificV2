@@ -138,6 +138,7 @@ class AppLocalizations {
       'grading_scale': 'Grading Scale',
       'student_name': 'Full Name',
       'academic_year': 'Academic Year',
+      'offline_mode': 'You are offline — showing saved data',
     },
     'so': {
       'marks': 'Dhibcaha',
@@ -266,6 +267,7 @@ class AppLocalizations {
       'grading_scale': 'Heerka Darajada',
       'student_name': 'Magaca Buuxa',
       'academic_year': 'Sannadka Waxbarashada',
+      'offline_mode': 'Waxaad offline tahay — waxaan muujinayaa xogta kaydsan',
     },
     'am': {
       'marks': 'ምልክቶች',
@@ -394,6 +396,7 @@ class AppLocalizations {
       'grading_scale': 'የንብረት መለኪያ',
       'student_name': 'ሙሉ ስም',
       'academic_year': 'የትምህርት ዓመት',
+      'offline_mode': 'እንደት አይግ ሰረ፡ የተቀምጠውን ወዳ እዊዐች',
     },
     'ar': {
       'marks': 'الدرجات',
@@ -522,6 +525,7 @@ class AppLocalizations {
       'grading_scale': 'سلطة التنقيط',
       'student_name': 'الاسم الكامل',
       'academic_year': 'العام الدراسي',
+      'offline_mode': 'أنت غير متصل — يتم عرض البيانات المحفوظة',
     },
   };
 
