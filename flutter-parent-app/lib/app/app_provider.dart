@@ -100,14 +100,51 @@ class AppProvider extends ChangeNotifier {
         );
       }
       if (user != null && user!.username.isNotEmpty) {
-        // 10.6: load cached data first for instant display, then refresh
+        // 10.6/final: restore caches FIRST (instant display, before network)
+        // so the app shows data immediately, then refresh in the background
         _loadCaches();
-        wards = await ApiService().guardianWards(user!.username);
-        if (wards.isNotEmpty && selectedWard == null) {
-          selectedWard = wards.first;
-        } else if (wards.isNotEmpty && selectedWard != null) {
-          final index = wards.indexWhere((w) => w.studentName == selectedWard!.studentName);
-          selectedWard = index >= 0 ? wards[index] : wards.first;
+        // restore the saved selected ward too (offline-safe)
+        if (selectedWard == null) {
+          try {
+            final savedWardJson = StorageService.getOfflineCache('selectedWard');
+            if (savedWardJson != null) {
+              selectedWard = Ward.fromJson(jsonDecode(savedWardJson));
+            }
+          } catch (_) {}
+        }
+        try {
+          wards = await ApiService().guardianWards(user!.username);
+          // final T6: cache the wards list for offline use
+          if (wards.isNotEmpty) {
+            try {
+              StorageService.setOfflineCache('wards', jsonEncode(
+                wards.map((w) => {
+                  'studentName': w.studentName,
+                  'className': w.className,
+                  'schoolId': w.schoolId,
+                }).toList(),
+              ));
+            } catch (_) {}
+          }
+          if (wards.isNotEmpty && selectedWard == null) {
+            selectedWard = wards.first;
+          } else if (wards.isNotEmpty && selectedWard != null) {
+            final index = wards.indexWhere((w) => w.studentName == selectedWard!.studentName);
+            selectedWard = index >= 0 ? wards[index] : wards.first;
+          }
+        } catch (_) {
+          // final T6: offline — restore the wards list from local storage
+          try {
+            final wardsJson = StorageService.getOfflineCache('wards');
+            if (wardsJson != null && wards.isEmpty) {
+              wards = ((jsonDecode(wardsJson) as List))
+                  .map((w) => Ward.fromJson(w))
+                  .toList();
+            }
+            if (selectedWard == null && wards.isNotEmpty) {
+              selectedWard = wards.first;
+            }
+          } catch (_) {}
         }
 
         // Fetch marks and payments (non-blocking errors)
@@ -232,12 +269,34 @@ class AppProvider extends ChangeNotifier {
           }
         }
       }
+      // final T6: wards cache — restore when offline (wards list never loaded)
+      if (wards.isEmpty) {
+        try {
+          final wardsJson = StorageService.getOfflineCache('wards');
+          if (wardsJson != null) {
+            wards = ((jsonDecode(wardsJson) as List))
+                .map((w) => Ward.fromJson(w))
+                .toList();
+            if (selectedWard == null && wards.isNotEmpty) {
+              selectedWard = wards.first;
+            }
+          }
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
   void selectWard(Ward ward) {
     if (selectedWard?.studentName != ward.studentName) {
       selectedWard = ward;
+      // final: persist selected ward for offline restore
+      try {
+        StorageService.setOfflineCache('selectedWard', jsonEncode({
+          'studentName': ward.studentName,
+          'className': ward.className,
+          'schoolId': ward.schoolId,
+        }));
+      } catch (_) {}
       notifyListeners();
     }
   }

@@ -491,16 +491,16 @@ class _ReportCardWidget extends StatelessWidget {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _InfoRow(label: 'Sex:', value: ward.gender ?? '—', arabicLabel: 'الجنس')),
-                  Expanded(child: _InfoRow(label: 'Age:', value: ward.age?.toString() ?? '—', arabicLabel: 'العمر')),
-                  Expanded(child: _InfoRow(label: 'Grade:', value: ward.className ?? '—', arabicLabel: 'الصف')),
+                  Expanded(child: _InfoRow(label: tr(context, 'gender') + ':', value: ward.gender ?? '—', arabicLabel: 'الجنس')),
+                  Expanded(child: _InfoRow(label: tr(context, 'age') + ':', value: ward.age?.toString() ?? '—', arabicLabel: 'العمر')),
+                  Expanded(child: _InfoRow(label: tr(context, 'grade') + ':', value: ward.className ?? '—', arabicLabel: 'الصف')),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _InfoRow(label: 'Branch:', value: ward.schoolId)),
-                  const Expanded(child: _InfoRow(label: 'Academic Year:', value: '2026')),
+                  Expanded(child: _InfoRow(label: tr(context, 'branch') + ':', value: ward.schoolId)),
+                  Expanded(child: _InfoRow(label: tr(context, 'academic_year') + ':', value: '2026')),
                 ],
               ),
               const SizedBox(height: 16),
@@ -602,10 +602,10 @@ class _ReportCardWidget extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                 decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
                 child: RichText(
-                  text: const TextSpan(
-                    style: TextStyle(color: Colors.black, fontSize: 13, fontFamily: 'sans-serif'),
+                  text: TextSpan(
+                    style: const TextStyle(color: Colors.black, fontSize: 13, fontFamily: 'sans-serif'),
                     children: [
-                      TextSpan(text: 'Grading Scale: ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                      TextSpan(text: tr(context, 'grading_scale') + ': ', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                       TextSpan(text: ' A+ (90-100)   A (80-89)   B+ (70-79)   B (60-69)   C (50-59)   D (40-49)   F (< 40)'),
                     ],
                   ),

@@ -958,11 +958,11 @@ class _ModernFieldState extends State<_ModernField> {
         const SizedBox(height: 8),
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          height: 52,
-          decoration: BoxDecoration(
-            color: fieldFill,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: borderColor, width: _focused ? 1.6 : 1.2),
+                    height: 44, // final: smaller inputs (was 52)
+                    decoration: BoxDecoration(
+                      color: fieldFill,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: borderColor, width: _focused ? 1.6 : 1.2),
             boxShadow: _focused
                 ? [
                     BoxShadow(
@@ -1123,7 +1123,7 @@ class _PrimaryButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        height: 52,
+        height: 46, // final: smaller button
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             colors: [AppColors.primary, AppColors.accent],

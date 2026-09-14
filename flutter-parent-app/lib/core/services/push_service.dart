@@ -6,6 +6,7 @@ import 'api_service.dart';
 import '../constants/api_constants.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../../app/app_shell.dart';
 
 /// 6.2/6.3/7.2/8.2: FCM push notification service.
 /// Shows notifications in the system tray even when the app is closed.
@@ -42,6 +43,10 @@ class PushService {
         debugPrint('📲 notification opened: ${msg.notification?.title}');
         // T8: opening a notification from the tray = it's read + deep-link
         _storeLocal(msg, markRead: true);
+        // v4.7: update notification -> open the update popup directly
+        if ((msg.data['type'] ?? '').toString() == 'update') {
+          AppShell.openUpdateDialog?.call();
+        }
       });
 
       // Background handler (app terminated) — must be top-level function

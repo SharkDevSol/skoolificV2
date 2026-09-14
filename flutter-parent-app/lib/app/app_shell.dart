@@ -25,6 +25,10 @@ class AppShell extends StatefulWidget {
   // set by the shell state at init, called with the tab index.
   static void Function(int tabIndex)? switchTab;
 
+  // v4.7: lets the push service open the update popup when an update
+  // notification is tapped (even from the system tray).
+  static void Function()? openUpdateDialog;
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
@@ -48,6 +52,10 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
         _tabController.animateTo(i);
         if (mounted) setState(() => _currentIndex = i);
       }
+    };
+    // v4.7: expose update popup for update-notification taps
+    AppShell.openUpdateDialog = () {
+      if (mounted) _checkForUpdate();
     };
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
@@ -92,6 +100,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     AppShell.switchTab = null; // T8: clear on dispose
+    AppShell.openUpdateDialog = null; // v4.7: clear on dispose
     _tabController.dispose();
     super.dispose();
   }
