@@ -67,6 +67,21 @@ class _DisciplineTabState extends State<DisciplineTab> {
     }
   }
 
+  // final T3: translate the level badge (Minor/Moderate/Major) — the fault
+  // type itself is admin-entered data and stays as recorded
+  String _levelLabel(BuildContext context, String level) {
+    switch (level.toLowerCase()) {
+      case 'major':
+        return AppLocalizations.tr(context, 'major');
+      case 'moderate':
+        return AppLocalizations.tr(context, 'moderate');
+      case 'minor':
+        return AppLocalizations.tr(context, 'minor');
+      default:
+        return level;
+    }
+  }
+
   IconData _levelIcon(String level) {
     switch (level.toLowerCase()) {
       case 'major':
@@ -141,7 +156,7 @@ class _DisciplineTabState extends State<DisciplineTab> {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            f.level,
+                            _levelLabel(context, f.level),
                             style: TextStyle(
                               color: color,
                               fontWeight: FontWeight.w700,
@@ -354,7 +369,7 @@ class _DisciplineTabState extends State<DisciplineTab> {
                                         borderRadius: BorderRadius.circular(20),
                                       ),
                                       child: Text(
-                                        f.level,
+                                        _levelLabel(context, f.level),
                                         style: TextStyle(
                                           color: color,
                                           fontWeight: FontWeight.w700,

@@ -139,6 +139,9 @@ class AppLocalizations {
       'student_name': 'Full Name',
       'academic_year': 'Academic Year',
       'offline_mode': 'You are offline — showing saved data',
+      'major': 'Major',
+      'moderate': 'Moderate',
+      'minor': 'Minor',
     },
     'so': {
       'marks': 'Dhibcaha',
@@ -268,6 +271,9 @@ class AppLocalizations {
       'student_name': 'Magaca Buuxa',
       'academic_year': 'Sannadka Waxbarashada',
       'offline_mode': 'Waxaad offline tahay — waxaan muujinayaa xogta kaydsan',
+      'major': 'Weyn',
+      'moderate': 'Dhexdhexaad',
+      'minor': 'Yar',
     },
     'am': {
       'marks': 'ምልክቶች',
@@ -397,6 +403,9 @@ class AppLocalizations {
       'student_name': 'ሙሉ ስም',
       'academic_year': 'የትምህርት ዓመት',
       'offline_mode': 'እንደት አይግ ሰረ፡ የተቀምጠውን ወዳ እዊዐች',
+      'major': 'ትልቅ',
+      'moderate': 'መካከለኛ',
+      'minor': 'አነስተኛ',
     },
     'ar': {
       'marks': 'الدرجات',
@@ -526,6 +535,9 @@ class AppLocalizations {
       'student_name': 'الاسم الكامل',
       'academic_year': 'العام الدراسي',
       'offline_mode': 'أنت غير متصل — يتم عرض البيانات المحفوظة',
+      'major': 'كبير',
+      'moderate': 'متوسط',
+      'minor': 'بسيط',
     },
   };
 

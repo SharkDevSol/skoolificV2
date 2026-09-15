@@ -12,7 +12,7 @@ class UpdateService {
   static const String versionEndpoint =
       'https://iqra.skoolific.com/downloads/parent-app/version.json';
 
-  static const String appVersion = '4.4.0'; // keep in sync with pubspec
+  static const String appVersion = '5.0.0'; // keep in sync with pubspec
 
   /// Returns null if up-to-date (or check fails => treated as up-to-date),
   /// otherwise a map {version, url, notes}.
