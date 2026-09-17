@@ -21,6 +21,13 @@ class PushService {
         alert: true, badge: true, sound: true,
       );
 
+      // T4: show banner + sound when a push arrives while the app is OPEN
+      try {
+        await fcm.setForegroundNotificationPresentationOptions(
+          alert: true, badge: true, sound: true,
+        );
+      } catch (_) {}
+
       // Get this device's token and register it with our backend so the
       // backend knows which phone to push to for this guardian.
       final token = await fcm.getToken();
