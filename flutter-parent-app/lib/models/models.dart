@@ -564,9 +564,18 @@ class ChatMessage {
             j['senderName']?.toString() ??
             j['sender']?.toString() ??
             '',
-        content: j['content']?.toString() ?? j['message']?.toString() ?? j['body']?.toString() ?? '',
+        // FIX: backend sends 'message_text' — fall through content/message/body
+        content: j['content']?.toString() ??
+            j['message_text']?.toString() ??
+            j['message']?.toString() ??
+            j['body']?.toString() ??
+            '',
         time: j['created_at']?.toString() ?? j['time']?.toString() ?? j['timestamp']?.toString(),
-        isMine: (j['sender_username']?.toString() ?? j['sender']?.toString() ?? '') == myUsername,
+        isMine: (j['sender_username']?.toString() ??
+                j['sender_id']?.toString() ??
+                j['sender']?.toString() ??
+                '') ==
+            myUsername,
       );
 }
 

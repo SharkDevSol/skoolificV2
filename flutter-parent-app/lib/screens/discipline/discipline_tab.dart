@@ -188,7 +188,7 @@ class _DisciplineTabState extends State<DisciplineTab> {
                   value: f.reportedBy),
               _detailTile(theme, border, isDark,
                   icon: Icons.calendar_today_outlined,
-                  label: tr(ctx, 'payment_date'),
+                  label: tr(ctx, 'discipline_date'),
                   value: _shortDate(f.date)),
               if (f.actionTaken?.isNotEmpty ?? false)
                 _detailTile(theme, border, isDark,

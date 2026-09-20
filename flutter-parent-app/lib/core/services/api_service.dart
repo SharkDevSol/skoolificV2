@@ -264,10 +264,30 @@ class ApiService {
 
   // 8.1: send message — POST /api/chats/conversations/:id/messages
   Future<void> sendMessage(String conversationId, String content) async {
+    int senderId = 0;
+    String senderName = '';
+    String senderType = 'guardian';
+
+    final userJson = StorageService.user;
+    if (userJson != null && userJson.isNotEmpty) {
+      try {
+        final parsed = jsonDecode(userJson) as Map<String, dynamic>;
+        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+        senderName = parsed['name']?.toString() ?? parsed['guardian_name']?.toString() ?? '';
+        senderType = parsed['role']?.toString() ?? 'guardian';
+      } catch (_) {}
+    }
+
     final res = await http.post(
       Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
       headers: _headers(),
-      body: jsonEncode({'content': content, 'message': content}),
+      body: jsonEncode({
+        'content': content, 
+        'messageText': content, // backend expects messageText
+        'senderId': senderId,
+        'senderType': senderType,
+        'senderName': senderName
+      }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw ApiException('Could not send message');
