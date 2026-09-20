@@ -12,7 +12,7 @@ class UpdateService {
   static const String versionEndpoint =
       'https://iqra.skoolific.com/downloads/parent-app/version.json';
 
-  static const String appVersion = '5.0.0'; // keep in sync with pubspec
+  static const String appVersion = '5.3.0'; // keep in sync with pubspec
 
   /// Returns null if up-to-date (or check fails => treated as up-to-date),
   /// otherwise a map {version, url, notes}.
@@ -23,7 +23,8 @@ class UpdateService {
           .timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return null;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final latest = data['latestVersion']?.toString() ?? '';
+      // FIX: version.json uses key "version" (not "latestVersion") — read both
+      final latest = (data['latestVersion'] ?? data['version'])?.toString() ?? '';
       if (latest.isEmpty) return null;
 
       // FIX 11: user already saw/handled this exact version? Don't nag again.
@@ -34,7 +35,8 @@ class UpdateService {
       if (_isNewer(latest, appVersion)) {
         return {
           'version': latest,
-          'url': data['apkUrl']?.toString() ?? '',
+          // FIX: version.json uses "apk_url" — read both keys
+          'url': (data['apkUrl'] ?? data['apk_url'])?.toString() ?? '',
           'notes': data['notes']?.toString() ?? '',
         };
       }
