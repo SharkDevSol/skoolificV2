@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/storage_service.dart';
 import '../../app/app_provider.dart';
 import '../../widgets/app_widgets.dart';
 import '../../widgets/ward_selector.dart';
@@ -110,6 +112,27 @@ class _AttendanceTabState extends State<AttendanceTab> {
         _cacheKey(app.selectedWard!),
         AttendanceMonth(days: days, summary: summary),
       );
+      // FIX (offline): persist attendance month to local storage too — the
+      // in-memory cache dies on app restart, so offline always showed empty.
+      try {
+        StorageService.setOfflineCache('attendance_' + _cacheKey(app.selectedWard!), jsonEncode({
+          'days': days.map((d) => {
+            'day': d.day,
+            'dayOfWeek': d.dayOfWeek,
+            'status': d.status,
+            'checkInTime': d.checkInTime,
+            'notes': d.notes,
+          }).toList(),
+          'summary': {
+            'present': summary.present,
+            'absent': summary.absent,
+            'late': summary.late,
+            'leave': summary.leave,
+            'total': summary.total,
+            'percentage': summary.percentage,
+          },
+        }));
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _summary = summary;
@@ -117,7 +140,41 @@ class _AttendanceTabState extends State<AttendanceTab> {
         });
       }
     } catch (_) {
-      // offline: keep cached data if fetch fails
+      // FIX (offline): fetch failed — fall back to the PERSISTED cache
+      // (survives app restart), not just the in-memory one.
+      try {
+        final raw = StorageService.getOfflineCache('attendance_' + _cacheKey(app.selectedWard!));
+        if (raw != null && raw.isNotEmpty) {
+          final j = jsonDecode(raw) as Map<String, dynamic>;
+          final s = j['summary'] as Map<String, dynamic>;
+          final persisted = AttendanceMonth(
+            days: (j['days'] as List).map((d) {
+              final m = d as Map<String, dynamic>;
+              return AttendanceDay(
+                day: (m['day'] as num?)?.toInt() ?? 0,
+                dayOfWeek: (m['dayOfWeek'] ?? '').toString(),
+                status: (m['status'] ?? '').toString(),
+                checkInTime: m['checkInTime']?.toString(),
+                notes: m['notes']?.toString(),
+              );
+            }).toList(),
+            summary: AttendanceSummary(
+              present: (s['present'] as num?)?.toInt() ?? 0,
+              absent: (s['absent'] as num?)?.toInt() ?? 0,
+              late: (s['late'] as num?)?.toInt() ?? 0,
+              leave: (s['leave'] as num?)?.toInt() ?? 0,
+              total: (s['total'] as num?)?.toInt() ?? 0,
+              percentage: (s['percentage'] as num?)?.toDouble() ?? 0,
+            ),
+          );
+          if (mounted && _days.isEmpty) {
+            setState(() {
+              _summary = persisted.summary;
+              _days = persisted.days;
+            });
+          }
+        }
+      } catch (_) {}
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -78,7 +78,16 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
       if (mounted) {
         setState(() {
           _loading = false;
-          if (_marks.isEmpty) _error = e.toString();
+          // FIX (offline): NEVER show a connection error when we have cached
+          // data — fall back to the provider's cached marks instead.
+          if (_marks.isEmpty && app.marks.isNotEmpty) {
+            _marks = app.marks;
+            _error = null;
+          } else if (_marks.isEmpty) {
+            _error = e.toString();
+          } else {
+            _error = null;
+          }
         });
       }
     }

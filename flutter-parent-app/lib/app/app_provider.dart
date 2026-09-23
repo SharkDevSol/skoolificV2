@@ -112,64 +112,86 @@ class AppProvider extends ChangeNotifier {
             }
           } catch (_) {}
         }
+        // FIX (speed 6): run the 4 independent API fetches in PARALLEL
+        // instead of one-by-one (wards, marks, payments, posts) — startup
+        // is as slow as the SLOWEST request, not the SUM of all four.
+        final api = ApiService();
+        final results = await Future.wait<Map<String, dynamic>?>([
+          api.guardianWards(user!.username).then((v) => <String, dynamic>{'wards': v}).catchError((_) => <String, dynamic>{}),
+          api.guardianMarks(user!.username).then((v) => <String, dynamic>{'marks': v}).catchError((_) => <String, dynamic>{}),
+          api.guardianPayments(user!.username).then((v) => <String, dynamic>{'payments': v}).catchError((_) => <String, dynamic>{}),
+          api.guardianPosts(user!.branchCode.isNotEmpty
+              ? user!.branchCode
+              : (StorageService.branchCode ?? '')).then((v) => <String, dynamic>{'posts': v}).catchError((_) => <String, dynamic>{}),
+        ]);
+        // wards
         try {
-          wards = await ApiService().guardianWards(user!.username);
-          // final T6: cache the wards list for offline use
-          if (wards.isNotEmpty) {
-            try {
-              StorageService.setOfflineCache('wards', jsonEncode(
-                wards.map((w) => {
-                  'studentName': w.studentName,
-                  'className': w.className,
-                  'schoolId': w.schoolId,
-                }).toList(),
-              ));
-            } catch (_) {}
+          final wRes = results[0]?['wards'] as List<Ward>?;
+          if (wRes != null) {
+            wards = wRes;
+            if (wards.isNotEmpty) {
+              try {
+                StorageService.setOfflineCache('wards', jsonEncode(
+                  wards.map((w) => {
+                    'studentName': w.studentName,
+                    'className': w.className,
+                    'schoolId': w.schoolId,
+                  }).toList(),
+                ));
+              } catch (_) {}
+            }
+            if (wards.isNotEmpty && selectedWard == null) {
+              selectedWard = wards.first;
+            } else if (wards.isNotEmpty && selectedWard != null) {
+              final index = wards.indexWhere((w) => w.studentName == selectedWard!.studentName);
+              selectedWard = index >= 0 ? wards[index] : wards.first;
+            }
           }
-          if (wards.isNotEmpty && selectedWard == null) {
-            selectedWard = wards.first;
-          } else if (wards.isNotEmpty && selectedWard != null) {
-            final index = wards.indexWhere((w) => w.studentName == selectedWard!.studentName);
-            selectedWard = index >= 0 ? wards[index] : wards.first;
-          }
-        } catch (_) {
-          // final T6: offline — restore the wards list from local storage
+        } catch (_) {}
+        // offline fallback: wards from storage
+        if (wards.isEmpty) {
           try {
             final wardsJson = StorageService.getOfflineCache('wards');
-            if (wardsJson != null && wards.isEmpty) {
+            if (wardsJson != null) {
               wards = ((jsonDecode(wardsJson) as List))
                   .map((w) => Ward.fromJson(w))
                   .toList();
-            }
-            if (selectedWard == null && wards.isNotEmpty) {
-              selectedWard = wards.first;
+              if (selectedWard == null && wards.isNotEmpty) {
+                selectedWard = wards.first;
+              }
             }
           } catch (_) {}
         }
-
-        // Fetch marks and payments (non-blocking errors)
+        notifyListeners(); // paint wards immediately
+        // marks
         try {
-          final marksRes = await ApiService().guardianMarks(user!.username);
-          marks = marksRes.marks;
-          // 10.6: cache per ward
-          _marksCache.clear();
-          for (final w in wards) {
-            _marksCache[w.studentName] =
-                marks.where((m) => m.ward == w.studentName).toList();
+          final marksRes = results[1]?['marks'] as GuardianMarksResponse?;
+          if (marksRes != null) {
+            marks = marksRes.marks;
+            _marksCache.clear();
+            for (final w in wards) {
+              _marksCache[w.studentName] =
+                  marks.where((m) => m.ward == w.studentName).toList();
+            }
+            _saveCache('marks', marksRes);
           }
-          _saveCache('marks', marksRes);
         } catch (_) {}
+        // payments
         try {
-          payments = await ApiService().guardianPayments(user!.username);
-          _paymentsCache.clear();
-          _saveCache('payments', payments);
+          final pRes = results[2]?['payments'] as GuardianPaymentsResponse?;
+          if (pRes != null) {
+            payments = pRes;
+            _paymentsCache.clear();
+            _saveCache('payments', pRes);
+          }
         } catch (_) {}
-        // 4.1: prefetch posts (cache for offline too)
+        // posts
         try {
-          _allPosts = await ApiService().guardianPosts(user!.branchCode.isNotEmpty
-              ? user!.branchCode
-              : (StorageService.branchCode ?? ''));
-          _saveCache('posts', _allPosts);
+          final postsRes = results[3]?['posts'] as List<Post>?;
+          if (postsRes != null) {
+            _allPosts = postsRes;
+            _saveCache('posts', _allPosts);
+          }
         } catch (_) {}
       }
     } catch (e) {
