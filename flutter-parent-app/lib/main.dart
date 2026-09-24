@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -14,11 +14,22 @@ import 'screens/login/login_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await StorageService.init();
-  // 6.2: start FCM push notifications (system tray, works with app closed)
-  await PushService.init();
+  // FIX (crash): do NOT await Firebase init before runApp — requestPermission
+  // + getToken can block/throw before the UI exists and kills the app
+  // ("closed because this app has a bug"). Start the UI FIRST, then init
+  // push in the background (fire-and-forget).
+  unawaited(PushService.init());
   // FIX: re-register the FCM token on every app start — covers token rotation
   // and users who logged in before this fix existed
   unawaited(PushService.ensureRegistered());
+  // Catch-all: never let a background error kill the app
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('uncaught: $error');
+    return true; // handled — do not crash
+  };
   runApp(const MyApp());
 }
 
