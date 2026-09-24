@@ -294,6 +294,42 @@ class ApiService {
     }
   }
 
+  // FIX (1B): send message WITH media — multipart/form-data with files.
+  // Backend accepts upload.array('attachments', 5).
+  Future<void> sendMessageWithMedia(String conversationId, String content,
+      List<String> filePaths) async {
+    int senderId = 0;
+    String senderName = '';
+    String senderType = 'guardian';
+
+    final userJson = StorageService.user;
+    if (userJson != null && userJson.isNotEmpty) {
+      try {
+        final parsed = jsonDecode(userJson) as Map<String, dynamic>;
+        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+        senderName = parsed['name']?.toString() ?? parsed['guardian_name']?.toString() ?? '';
+        senderType = parsed['role']?.toString() ?? 'guardian';
+      } catch (_) {}
+    }
+
+    final uri = Uri.parse(
+        '${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages');
+    final req = http.MultipartRequest('POST', uri);
+    req.headers.addAll(_headers());
+    req.fields['content'] = content;
+    req.fields['messageText'] = content;
+    req.fields['senderId'] = senderId.toString();
+    req.fields['senderType'] = senderType;
+    req.fields['senderName'] = senderName;
+    for (final p in filePaths) {
+      req.files.add(await http.MultipartFile.fromPath('attachments', p));
+    }
+    final streamed = await req.send().timeout(const Duration(seconds: 60));
+    if (streamed.statusCode != 200 && streamed.statusCode != 201) {
+      throw ApiException('Could not send message');
+    }
+  }
+
   Future<AttendanceSummary> monthlySummary(String className, String schoolId,
       {required int year, required int month}) async {
     try {

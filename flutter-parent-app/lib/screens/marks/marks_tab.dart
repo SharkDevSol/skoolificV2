@@ -241,10 +241,13 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
     if (ward == null || marks.isEmpty) return EmptyState(icon: Icons.emoji_events_outlined, message: AppLocalizations.tr(context, 'no_report'));
 
     // 2.2: fit-to-screen by default, smooth pinch-zoom/pan, never hidden by nav bar
+    // FIX (3): TAP the card -> fullscreen zoom view (pinch + pan inside)
     return Column(
       children: [
         Expanded(
-          child: InteractiveViewer(
+          child: GestureDetector(
+            onTap: () => _openZoom(ward, marks),
+            child: InteractiveViewer(
             transformationController: _zoomController,
             constrained: true,
             clipBehavior: Clip.none,
@@ -267,8 +270,59 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
             ),
           ),
         ),
+        ),
         _ZoomHint(controller: _zoomController),
       ],
+    );
+  }
+
+  // FIX (3): fullscreen zoom dialog — pinch to zoom, drag to pan, tap X to close
+  void _openZoom(Ward ward, List<Mark> marks) {
+    final zoomCtrl = TransformationController();
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: SafeArea(
+          child: Stack(
+            children: [
+              InteractiveViewer(
+                transformationController: zoomCtrl,
+                panEnabled: true,
+                scaleEnabled: true,
+                minScale: 1.0,
+                maxScale: 6.0,
+                boundaryMargin: const EdgeInsets.all(200),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: SizedBox(
+                      width: 900,
+                      child: _ReportCardWidget(ward: ward, marks: marks, ranking: _ranking, rankTotal: _rankTotal),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: Colors.white24,
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                    onPressed: () {
+                      zoomCtrl.dispose();
+                      Navigator.of(ctx).pop();
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

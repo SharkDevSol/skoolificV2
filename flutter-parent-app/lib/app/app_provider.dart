@@ -73,10 +73,11 @@ class AppProvider extends ChangeNotifier {
       final savedLocale = StorageService.locale;
       locale = Locale(savedLocale);
 
-      // FIX 1: session still valid? If the JWT expired (24h), log the user out
-      // instead of silently showing an app with no data.
-      if (!StorageService.isLoggedIn || _tokenExpired()) {
-        await StorageService.clear(); // clears token + user (keeps branch + Remember Me)
+      // FIX 1: session still valid? If the JWT expired, DO NOT log the user
+      // out (task 4: stay logged in without timeout) — keep them in the app
+      // with cached data; API calls just fail silently until re-login.
+      if (!StorageService.isLoggedIn) {
+        await StorageService.clear();
         user = null;
         wards = [];
         marks = [];

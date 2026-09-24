@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
@@ -156,6 +158,26 @@ class _ChatScreenState extends State<_ChatScreen> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   bool _sending = false;
+  // FIX (1B): media attachments the parent picked before sending
+  final List<String> _pendingMedia = [];
+
+  Future<void> _pickMedia() async {
+    try {
+      final picker = ImagePicker();
+      final files = <String>[];
+      // pick an image from gallery
+      final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+      if (img != null) files.add(img.path);
+      if (files.isEmpty) return;
+      setState(() => _pendingMedia.addAll(files));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not pick file'), duration: Duration(seconds: 2)),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -197,11 +219,18 @@ class _ChatScreenState extends State<_ChatScreen> {
 
   Future<void> _send() async {
     final text = _inputCtrl.text.trim();
-    if (text.isEmpty || _sending) return;
+    final hasMedia = _pendingMedia.isNotEmpty;
+    if ((text.isEmpty && !hasMedia) || _sending) return;
     setState(() => _sending = true);
     _inputCtrl.clear();
+    final media = List<String>.from(_pendingMedia);
+    setState(() => _pendingMedia.clear());
     try {
-      await ApiService().sendMessage(widget.conversation.id, text);
+      if (media.isNotEmpty) {
+        await ApiService().sendMessageWithMedia(widget.conversation.id, text, media);
+      } else {
+        await ApiService().sendMessage(widget.conversation.id, text);
+      }
       await _load();
     } catch (_) {
       if (mounted) {
@@ -275,6 +304,14 @@ class _ChatScreenState extends State<_ChatScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  // FIX (1B): render attachments — image inline,
+                                  // video/file as a tappable link
+                                  if (m.attachments.isNotEmpty)
+                                    ...m.attachments.map((a) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 6),
+                                      child: _AttachmentView(att: a, isMine: m.isMine, isDark: isDark),
+                                    )),
+                                  if (m.content.isNotEmpty)
                                   Text(
                                     m.content,
                                     style: TextStyle(
@@ -308,8 +345,39 @@ class _ChatScreenState extends State<_ChatScreen> {
                     ? []
                     : [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, -2))],
               ),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
+                  // FIX (1B): pending media chips (name + remove)
+                  if (_pendingMedia.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Wrap(
+                        spacing: 6,
+                        children: _pendingMedia.map((p) => Chip(
+                          label: Text(
+                            p.split('/').last,
+                            style: const TextStyle(fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          deleteIcon: const Icon(Icons.close, size: 14),
+                          onDeleted: () => setState(() => _pendingMedia.remove(p)),
+                          visualDensity: VisualDensity.compact,
+                        )).toList(),
+                      ),
+                    ),
+                  Row(
+                children: [
+                  // FIX (1B): attach button (image/video/file)
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: isDark ? const Color(0xFF2A2A2A) : AppColors.bg,
+                    child: IconButton(
+                      icon: Icon(Icons.attach_file, color: AppColors.primary, size: 20),
+                      onPressed: _pickMedia,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: TextField(
                       controller: _inputCtrl,
@@ -342,6 +410,8 @@ class _ChatScreenState extends State<_ChatScreen> {
                   ),
                 ],
               ),
+                ],
+              ),
             ),
           ),
         ],
@@ -357,5 +427,70 @@ class _ChatScreenState extends State<_ChatScreen> {
       return '$date $time';
     }
     return t;
+  }
+}
+
+// FIX (1B): renders a chat attachment — image inline, video/file as link
+class _AttachmentView extends StatelessWidget {
+  final ChatAttachment att;
+  final bool isMine;
+  final bool isDark;
+  const _AttachmentView({required this.att, required this.isMine, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    if (att.isImage) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(
+          att.url,
+          width: 220,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _fileChip(context),
+          loadingBuilder: (_, child, progress) =>
+              progress == null ? child : const SizedBox(
+            width: 220, height: 120,
+            child: Center(child: AppLoadingIndicator()),
+          ),
+        ),
+      );
+    }
+    return _fileChip(context);
+  }
+
+  Widget _fileChip(BuildContext context) {
+    final icon = att.isVideo ? Icons.play_circle_outline : Icons.insert_drive_file_outlined;
+    return InkWell(
+      onTap: () async {
+        try {
+          await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white12 : Colors.black.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: isMine ? Colors.white : AppColors.primary),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                att.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isMine ? Colors.white : (isDark ? Colors.white : AppColors.text),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

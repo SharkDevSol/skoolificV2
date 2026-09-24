@@ -504,7 +504,11 @@ class ChatConversation {
   factory ChatConversation.fromJson(Map<String, dynamic> j) {
     // Accept several shapes from the backend
     final participants = j['participants'];
-    String title = j['title']?.toString() ??
+    // FIX (1A): backend now sends display_title (admin's real profile name
+    // for admin_guardian, the other participant's name otherwise) — use it
+    // FIRST so the admin chat shows a proper name, not "Conversation"
+    String title = j['display_title']?.toString() ??
+        j['title']?.toString() ??
         j['conversation_title']?.toString() ??
         j['other_participant']?.toString() ??
         j['name']?.toString() ??
@@ -525,7 +529,7 @@ class ChatConversation {
     }
     if ((title.isEmpty || title == 'Conversation') && participants is List) {
       final names = participants
-          .map((p) => p is Map ? (p['name']?.toString() ?? p['username']?.toString() ?? '') : p.toString())
+          .map((p) => p is Map ? (p['user_name']?.toString() ?? p['name']?.toString() ?? p['username']?.toString() ?? '') : p.toString())
           .where((s) => s.isNotEmpty)
           .toList();
       if (names.isNotEmpty) title = names.join(', ');
@@ -549,6 +553,8 @@ class ChatMessage {
   final String content;
   final String? time;
   final bool isMine;
+  // FIX (1B): attachments (image/video/file) from the backend
+  final List<ChatAttachment> attachments;
 
   ChatMessage({
     required this.id,
@@ -556,6 +562,7 @@ class ChatMessage {
     required this.content,
     this.time,
     this.isMine = false,
+    this.attachments = const [],
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> j, String myUsername) => ChatMessage(
@@ -576,6 +583,40 @@ class ChatMessage {
                 j['sender']?.toString() ??
                 '') ==
             myUsername,
+        attachments: (j['attachments'] is List)
+            ? (j['attachments'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(ChatAttachment.fromJson)
+                .toList()
+            : const [],
+      );
+}
+
+// FIX (1B): a chat attachment (image/video/file)
+class ChatAttachment {
+  final String name;
+  final String url;
+  final String fileType;
+
+  ChatAttachment({required this.name, required this.url, this.fileType = ''});
+
+  bool get isImage => fileType.startsWith('image/') ||
+      _hasExt(url, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+  bool get isVideo => fileType.startsWith('video/') ||
+      _hasExt(url, ['mp4', 'mov', 'webm', 'avi', 'mkv']);
+
+  static bool _hasExt(String url, List<String> exts) {
+    final clean = url.toLowerCase().split('?').first;
+    return exts.any((e) => clean.endsWith('.$e'));
+  }
+
+  factory ChatAttachment.fromJson(Map<String, dynamic> j) => ChatAttachment(
+        name: (j['name'] ?? j['original_name'] ?? j['filename'] ?? 'file').toString(),
+        // relative URL -> absolute against the API base
+        url: (j['url'] ?? '').toString().startsWith('http')
+            ? (j['url'] ?? '').toString()
+            : 'https://iqra.skoolific.com${j['url'] ?? ''}',
+        fileType: (j['file_type'] ?? '').toString(),
       );
 }
 
