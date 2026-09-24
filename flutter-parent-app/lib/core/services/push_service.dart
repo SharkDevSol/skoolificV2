@@ -65,8 +65,8 @@ class PushService {
         }
       });
 
-      // Background handler (app terminated) — must be top-level function
-      FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
+      // Background handler (app terminated) — registered in main() BEFORE
+      // any await (moved there — required by firebase_messaging)
     } catch (e) {
       debugPrint('PushService init skipped: $e'); // no google-services? ignore
     }
@@ -175,6 +175,6 @@ class PushService {
 
 /// Must be top-level (not a class method) for background pushes.
 @pragma('vm:entry-point')
-Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
+Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   debugPrint('📱 background push: ${message.notification?.title}');
 }

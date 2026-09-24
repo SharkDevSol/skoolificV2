@@ -5,6 +5,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/push_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+// background handler exported from push_service
+export 'core/services/push_service.dart' show firebaseBackgroundHandler;
 import 'core/theme/app_theme.dart';
 import 'core/l10n/app_localizations.dart';
 import 'app/app_provider.dart';
@@ -13,6 +16,9 @@ import 'screens/login/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // CRITICAL: firebase_messaging requires the background handler registered
+  // BEFORE any await (registering it later = native crash on Android)
+  FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
   await StorageService.init();
   // FIX (crash): do NOT await Firebase init before runApp — requestPermission
   // + getToken can block/throw before the UI exists and kills the app
