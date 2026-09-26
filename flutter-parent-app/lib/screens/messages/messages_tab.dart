@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:io';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
 import '../../app/app_provider.dart';
@@ -440,17 +443,27 @@ class _AttachmentView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (att.isImage) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.network(
-          att.url,
-          width: 220,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _fileChip(context),
-          loadingBuilder: (_, child, progress) =>
-              progress == null ? child : const SizedBox(
-            width: 220, height: 120,
-            child: Center(child: AppLoadingIndicator()),
+      return GestureDetector(
+        // FIX (2B): tap the image -> fullscreen zoomable view
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => _FullscreenImageViewer(url: att.url, title: att.name),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(
+            att.url,
+            width: 220,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _fileChip(context),
+            loadingBuilder: (_, child, progress) =>
+                progress == null ? child : const SizedBox(
+              width: 220, height: 120,
+              child: Center(child: AppLoadingIndicator()),
+            ),
           ),
         ),
       );
@@ -463,9 +476,23 @@ class _AttachmentView extends StatelessWidget {
     return InkWell(
       onTap: () async {
         try {
-          await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+          if (att.isVideo) {
+            // FIX (2B): videos -> download then open in the phone's video player
+            final local = await _saveToDownloads(att);
+            if (local != null) {
+              final ok = await launchUrl(Uri.file(local.path), mode: LaunchMode.externalApplication);
+              if (!ok) {
+                await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+              }
+            } else {
+              await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+            }
+          } else {
+            await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+          }
         } catch (_) {}
       },
+      onLongPress: () => _showSaveSheet(context),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
@@ -488,7 +515,131 @@ class _AttachmentView extends StatelessWidget {
                 ),
               ),
             ),
+            // FIX (2B): save button on every file chip
+            const SizedBox(width: 4),
+            Icon(Icons.download_outlined, size: 16,
+                color: isMine ? Colors.white70 : (isDark ? Colors.white70 : Colors.black54)),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showSaveSheet(BuildContext context) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saving...'), duration: Duration(seconds: 1)),
+    );
+    final local = await _saveToDownloads(att);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(local != null ? 'Saved: ${local.path.split('/').last}' : 'Save failed'),
+    ));
+  }
+
+  Future<File?> _saveToDownloads(ChatAttachment a) async {
+    try {
+      final res = await http.get(Uri.parse(a.url)).timeout(const Duration(seconds: 60));
+      if (res.statusCode != 200) return null;
+      final dir = await getExternalStorageDirectory(); // app downloads dir
+      final folder = Directory('${dir?.path ?? ''}/SavedFiles');
+      if (!folder.existsSync()) folder.createSync(recursive: true);
+      final safeName = a.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+      final f = File('${folder.path}/$safeName');
+      await f.writeAsBytes(res.bodyBytes);
+      return f;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+// FIX (2B): fullscreen zoomable image viewer
+class _FullscreenImageViewer extends StatefulWidget {
+  final String url;
+  final String title;
+  const _FullscreenImageViewer({required this.url, required this.title});
+  @override
+  State<_FullscreenImageViewer> createState() => _FullscreenImageViewerState();
+}
+
+class _FullscreenImageViewerState extends State<_FullscreenImageViewer> {
+  final TransformationController _tc = TransformationController();
+  TapDownDetails? _doubleTapDetails;
+
+  @override
+  void dispose() {
+    _tc.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      backgroundColor: isDark ? Colors.black : Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(widget.title,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+            maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.download_outlined, color: Colors.white),
+            onPressed: () async {
+              try {
+                final res = await http.get(Uri.parse(widget.url))
+                    .timeout(const Duration(seconds: 60));
+                if (res.statusCode == 200) {
+                  final dir = await getExternalStorageDirectory();
+                  final folder = Directory('${dir?.path ?? ''}/SavedFiles');
+                  if (!folder.existsSync()) folder.createSync(recursive: true);
+                  final safeName = widget.title.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+                  await File('${folder.path}/$safeName').writeAsBytes(res.bodyBytes);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Image saved')));
+                  }
+                }
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Save failed')));
+                }
+              }
+            },
+          ),
+        ],
+      ),
+      body: GestureDetector(
+        onDoubleTapDown: (d) => _doubleTapDetails = d,
+        onDoubleTap: () {
+          // double-tap: zoom in/out toggle
+          final Matrix4 current = _tc.value;
+          final Offset? position = _doubleTapDetails?.localPosition;
+          if (current.getMaxScaleOnAxis() > 1.05) {
+            _tc.value = Matrix4.identity();
+          } else {
+            _tc.value = Matrix4.identity()
+              ..translate(-position!.dx * 2.0, -position.dy * 2.0)
+              ..scale(3.0);
+          }
+        },
+        child: InteractiveViewer(
+          transformationController: _tc,
+          minScale: 1.0,
+          maxScale: 6.0,
+          child: Center(
+            child: Image.network(
+              widget.url,
+              fit: BoxFit.contain,
+              loadingBuilder: (_, child, progress) =>
+                  progress == null ? child : const Center(child: CircularProgressIndicator()),
+              errorBuilder: (_, __, ___) => const Center(
+                child: Text('Could not load image', style: TextStyle(color: Colors.white54)),
+              ),
+            ),
+          ),
         ),
       ),
     );
