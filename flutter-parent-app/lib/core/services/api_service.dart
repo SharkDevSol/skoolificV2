@@ -109,10 +109,29 @@ class ApiService {
       );
       if (res.statusCode == 200) {
         final list = jsonDecode(res.body) as List;
-        final me = list.firstWhere(
-          (g) => g['guardian_username'] == username,
-          orElse: () => null,
-        );
+        // FIX: match by username first; fall back to the guardian's phone
+        // (the login profile may carry the phone as the username) so wards
+        // always load after login
+        Map<String, dynamic>? me;
+        for (final g in list) {
+          if (g is Map && g['guardian_username']?.toString() == username) {
+            me = Map<String, dynamic>.from(g);
+            break;
+          }
+        }
+        if (me == null) {
+          for (final g in list) {
+            if (g is Map &&
+                (g['guardian_phone']?.toString() == username ||
+                 g['id']?.toString() == username)) {
+              me = Map<String, dynamic>.from(g);
+              break;
+            }
+          }
+        }
+        if (me == null && list.isNotEmpty && list.length == 1) {
+          me = Map<String, dynamic>.from(list.first as Map);
+        }
         if (me != null && me['students'] is List) {
           return (me['students'] as List)
               .map((s) => Ward.fromJson(s))
