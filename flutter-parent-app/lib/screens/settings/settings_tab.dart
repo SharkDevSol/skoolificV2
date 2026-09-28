@@ -101,10 +101,16 @@ class SettingsTab extends StatelessWidget {
           PrimaryButton(
             label: AppLocalizations.tr(context, 'logout'),
             onPressed: () {
-              // FIX: do NOT push a new LoginScreen — main.dart's Consumer
-              // switches to login when the session clears. Pushing caused
-              // a blank login card after logout.
+              // FIX: clear the session AND clear the navigation stack in one
+              // step. provider.logout() alone left this page on the stack
+              // (logout seemed to do nothing until BACK was pressed), and
+              // pushAndRemoveUntil alone duplicated the login (blank card).
               provider.logout();
+              Navigator.of(context, rootNavigator: true)
+                  .pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (r) => false,
+              );
             },
           ),
         ],
