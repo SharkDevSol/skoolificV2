@@ -284,34 +284,37 @@ class ApiService {
   // 8.1: send message — POST /api/chats/conversations/:id/messages
   Future<void> sendMessage(String conversationId, String content) async {
     int senderId = 0;
-    String senderName = '';
-    String senderType = 'guardian';
+        String senderName = '';
+        String senderType = 'guardian';
+        String senderUsername = '';
 
-    final userJson = StorageService.user;
-    if (userJson != null && userJson.isNotEmpty) {
-      try {
-        final parsed = jsonDecode(userJson) as Map<String, dynamic>;
-        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
-        senderName = parsed['name']?.toString() ?? parsed['guardian_name']?.toString() ?? '';
-        senderType = parsed['role']?.toString() ?? 'guardian';
-      } catch (_) {}
-    }
+        final userJson = StorageService.user;
+        if (userJson != null && userJson.isNotEmpty) {
+          try {
+            final parsed = jsonDecode(userJson) as Map<String, dynamic>;
+            senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+            senderName = parsed['name']?.toString() ?? parsed['guardian_name']?.toString() ?? '';
+            senderType = parsed['role']?.toString() ?? 'guardian';
+            senderUsername = parsed['username']?.toString() ?? '';
+          } catch (_) {}
+        }
 
-    final res = await http.post(
-      Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
-      headers: _headers(),
-      body: jsonEncode({
-        'content': content, 
-        'messageText': content, // backend expects messageText
-        'senderId': senderId,
-        'senderType': senderType,
-        'senderName': senderName
-      }),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw ApiException('Could not send message');
-    }
-  }
+        final res = await http.post(
+          Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
+          headers: _headers(),
+          body: jsonEncode({
+            'content': content,
+            'messageText': content, // backend expects messageText
+            'senderId': senderId,
+            'senderUsername': senderUsername, // FIX: the model's isMine matches this
+            'senderType': senderType,
+            'senderName': senderName
+          }),
+        );
+        if (res.statusCode != 200 && res.statusCode != 201) {
+          throw ApiException('Could not send message');
+        }
+      }
 
   // FIX (1B): send message WITH media — multipart/form-data with files.
   // Backend accepts upload.array('attachments', 5).
