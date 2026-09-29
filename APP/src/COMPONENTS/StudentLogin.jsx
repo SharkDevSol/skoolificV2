@@ -6,6 +6,7 @@ import { Building2, User as UserIcon, Lock } from 'lucide-react';
 import styles from './StudentLogin.module.css';
 import Input from './Input/Input';
 import Button from './Button/Button';
+import { getBranchCode, setBranchCode, isFixedBranch } from '../utils/branchCode';
 import ThemeToggle from './ThemeToggle/ThemeToggle';
 import LanguageSelector from './LanguageSelector/LanguageSelector';
 import Toast from './Toast/Toast';
@@ -23,19 +24,18 @@ const StudentLogin = () => {
 
   // Load saved branch code from localStorage on mount
   React.useEffect(() => {
-    const savedBranchCode = localStorage.getItem('branchCode');
+    const savedBranchCode = getBranchCode();
     if (savedBranchCode) {
       setCredentials(prev => ({ ...prev, branchCode: savedBranchCode }));
     }
   }, []);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setCredentials(prev => ({ ...prev, [name]: value }));
+  const handleInputChange = (field, value) => {
+        setCredentials(prev => ({ ...prev, [field]: value }));
     
     // Clear error for this field when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
@@ -51,7 +51,7 @@ const StudentLogin = () => {
     
     // Validate all fields
     const newErrors = {};
-    if (!credentials.branchCode) newErrors.branchCode = 'Branch code is required';
+    if (!isFixedBranch() && !credentials.branchCode) newErrors.branchCode = 'Branch code is required';
     if (!credentials.username) newErrors.username = 'Username is required';
     if (!credentials.password) newErrors.password = 'Password is required';
     
@@ -67,16 +67,21 @@ const StudentLogin = () => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post('/api/v2/auth/login', {
+      const response = await axios.post('/api/v2/branches/login', {
         ...credentials,
         userType: 'student'
       });
       
-      const { role, student } = response.data;
+      const user = response.data.user || {};
+      const role = user.role;
       
       if (role === 'student') {
-        localStorage.setItem('branchCode', credentials.branchCode);
-        navigate(`/app/student/${student.username}`);
+        if (response.data.token) localStorage.setItem('authToken', response.data.token);
+        localStorage.setItem('studentUser', JSON.stringify(user));
+        localStorage.setItem('isLoggedIn', 'true');
+        localStorage.setItem('userType', 'student');
+        setBranchCode(credentials.branchCode, true);
+        navigate(`/app/student/${user.username || credentials.username}`);
       } else {
         setToastMessage('Please use the Guardian Login page for guardian accounts.');
         setToastType('error');
@@ -107,24 +112,26 @@ const StudentLogin = () => {
           </div>
           
           <form onSubmit={handleLogin} className={styles.form}>
-            <Input
-              label={t('auth.branchCode', 'Branch Code')}
-              name="branchCode"
-              value={credentials.branchCode}
-              onChange={handleInputChange}
-              onBlur={() => handleBlur('branchCode')}
-              icon={<Building2 size={20} />}
-              placeholder={t('auth.branchCodePlaceholder', 'Enter branch code')}
-              error={touched.branchCode && errors.branchCode}
-              disabled={isLoading}
-              required
-            />
+            {!isFixedBranch() && (
+              <Input
+                label={t('auth.branchCode', 'Branch Code')}
+                name="branchCode"
+                value={credentials.branchCode}
+                onChange={(value) => handleInputChange('branchCode', value)}
+                onBlur={() => handleBlur('branchCode')}
+                icon={<Building2 size={20} />}
+                placeholder={t('auth.branchCodePlaceholder', 'Enter branch code')}
+                error={touched.branchCode && errors.branchCode}
+                disabled={isLoading}
+                required
+              />
+            )}
             
             <Input
               label={t('auth.username', 'Username')}
               name="username"
               value={credentials.username}
-              onChange={handleInputChange}
+              onChange={(value) => handleInputChange('username', value)}
               onBlur={() => handleBlur('username')}
               icon={<UserIcon size={20} />}
               placeholder={t('auth.usernamePlaceholder', 'Enter your username')}
@@ -139,7 +146,7 @@ const StudentLogin = () => {
               type="password"
               name="password"
               value={credentials.password}
-              onChange={handleInputChange}
+              onChange={(value) => handleInputChange('password', value)}
               onBlur={() => handleBlur('password')}
               icon={<Lock size={20} />}
               placeholder={t('auth.passwordPlaceholder', 'Enter your password')}

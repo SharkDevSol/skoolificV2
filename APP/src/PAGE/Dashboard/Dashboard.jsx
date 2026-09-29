@@ -235,7 +235,7 @@ const Dashboard = () => {
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>{t('dashboard') || 'Dashboard'}</h1>
+          <h1>{t('dashboard.title') || 'Dashboard'}</h1>
           <p className={styles.headerSubtitle}>
             {t('dashboardWelcome') || 'Welcome back! Here\'s what\'s happening today.'}
           </p>
@@ -336,7 +336,7 @@ const Dashboard = () => {
                   dataKey="students" 
                   stroke="#667eea" 
                   strokeWidth={3}
-                  name={t('students') || 'Students'}
+                  name={t('students.title') || 'Students'}
                   dot={{ fill: '#667eea', r: 6 }}
                   activeDot={{ r: 8 }}
                 />

@@ -1,10 +1,11 @@
 // ListStudent.jsx - Modern Student List with File Display
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FiUsers, FiSearch, FiFilter, FiEye, FiEyeOff, FiEdit2, FiUserX, FiUserCheck, 
-  FiDownload, FiFile, FiX, FiRefreshCw, FiLock, FiCopy,
+  FiDownload, FiFile, FiX, FiRefreshCw, FiLock, FiCopy, FiTrash2,
   FiPhone, FiUser, FiCalendar, FiBook, FiGrid, FiList, FiCamera, FiUpload,
   FiChevronLeft, FiChevronRight
 } from 'react-icons/fi';
@@ -12,15 +13,17 @@ import Webcam from 'react-webcam';
 import { getFileType, getFileIcon, isFileField, getFileUrl, formatLabel, getFileName, looksLikeFile } from '../utils/fileUtils';
 import { useTranslation } from 'react-i18next';
 import { useApp } from '../../../context/AppContext';
+import { getBranchCode } from '../../../utils/branchCode';
+import { classIdLabel } from '../../../utils/classId';
 import styles from './ListStudent.module.css';
 
-import Table from '../../../components/Table/Table';
-import Input from '../../../components/Input/Input';
-import Select from '../../../components/Select/Select';
-import Button from '../../../components/Button/Button';
+import Table from '../../../COMPONENTS/Table/Table';
+import Input from '../../../COMPONENTS/Input/Input';
+import Select from '../../../COMPONENTS/Select/Select';
+import Button from '../../../COMPONENTS/Button/Button';
 
 // API base URL - use environment variable or fallback to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
+const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 
 const ListStudent = () => {
   const { t: tApp } = useApp();
@@ -44,6 +47,7 @@ const ListStudent = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editFormData, setEditFormData] = useState({});
   const [editFile, setEditFile] = useState(null);
+  const [editFileField, setEditFileField] = useState({});
   const [showCamera, setShowCamera] = useState(false);
   const [classes, setClasses] = useState([]);
   const [selectedClass, setSelectedClass] = useState('');
@@ -53,6 +57,12 @@ const ListStudent = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [showGuardianPassword, setShowGuardianPassword] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState(null);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const itemsPerPage = 12;
 
   const copyToClipboard = (text) => {
@@ -68,7 +78,7 @@ const ListStudent = () => {
       const response = await axios.get(`${API_BASE_URL}/student-list/classes`);
       setClasses(response.data);
       if (response.data.length > 0) setSelectedClass(response.data[0]);
-      const formRes = await axios.get(`${API_BASE_URL}/students/form-structure`);
+      const formRes = await axios.get(`${API_BASE_URL}/students/form-structure`, { headers: { 'x-branch-code': (getBranchCode() || '').toUpperCase() } });
       setCustomFields(formRes.data?.customFields || []);
     } catch (error) { console.error('Error:', error); }
   };
@@ -80,12 +90,25 @@ const ListStudent = () => {
       const params = new URLSearchParams();
       if (showInactive) params.append('includeInactive', 'only');
       if (filterStudentType !== 'all') params.append('studentType', filterStudentType);
-      
       const queryString = params.toString();
-      const url = `${API_BASE_URL}/student-list/students/${className}${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await axios.get(url);
-      const studentsWithIds = response.data.map((student, index) => ({
+
+      let allStudentsData = [];
+
+      if (className === 'ALL') {
+        // Fetch students from ALL classes
+        const promises = classes.map(cls => {
+          const url = `${API_BASE_URL}/student-list/students/${cls}${queryString ? `?${queryString}` : ''}`;
+          return axios.get(url).then(res => res.data.map(s => ({ ...s, class: s.class || cls }))).catch(() => []);
+        });
+        const results = await Promise.all(promises);
+        allStudentsData = results.flat();
+      } else {
+        const url = `${API_BASE_URL}/student-list/students/${className}${queryString ? `?${queryString}` : ''}`;
+        const response = await axios.get(url);
+        allStudentsData = response.data;
+      }
+
+      const studentsWithIds = allStudentsData.map((student, index) => ({
         ...student, uniqueId: `${student.student_name}-${index}-${Date.now()}`, displayId: index + 1
       }));
       setStudents(studentsWithIds);
@@ -109,12 +132,69 @@ const ListStudent = () => {
     setCurrentPage(1);
   };
 
+  const handleExportExcel = () => {
+    if (filteredStudents.length === 0) {
+      alert('No students to export');
+      return;
+    }
+    const rows = filteredStudents.map(student => {
+      const row = {};
+      Object.entries(student).forEach(([key, value]) => {
+        if (['uniqueId', 'displayId', 'id'].includes(key)) return;
+        if (typeof value === 'object' && value !== null) {
+          row[formatLabel(key)] = '';
+          return;
+        }
+        row[formatLabel(key)] = key === 'class_id' ? classIdLabel(value) : (value ?? '');
+      });
+      return row;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    const filename = `students_${selectedClass || 'all'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  };
+
   const getColumnType = (key) => {
+    if (!key) return 'text';
     if (key === 'image_student') return 'image';
-    if (key.includes('date') || key.includes('dob')) return 'date';
     if (key.includes('password')) return 'password';
-    const cf = customFields.find(f => f.name === key);
-    return cf?.type || 'text';
+    const cf = customFields.find(f => (f.name || '').toLowerCase() === key.toLowerCase());
+    if (cf?.type) return cf.type;
+    const lower = key.toLowerCase();
+    if ((lower.includes('old') && lower.includes('new')) || lower.includes('old_or_new') || lower.includes('oldornew')) return 'select';
+    if (lower.includes('date') || lower.includes('dob') || lower.includes('birth')) return 'date';
+    if (lower.includes('number') || lower.includes('age') || lower.includes('count')) return 'number';
+    if (lower.includes('checkbox') || lower.includes('bool') || lower.includes('flag') || lower.startsWith('is_')) return 'checkbox';
+    if (lower.includes('textarea') || lower.includes('description') || lower.includes('bio') || lower.includes('reason')) return 'textarea';
+    if (lower.includes('multi') || lower.includes('options')) return 'multi-select';
+    if (lower.includes('select') || lower.includes('dropdown') || lower.includes('choice') || lower.includes('gender') || lower.includes('relation') || lower.includes('type')) return 'select';
+    if (lower.includes('upload') || lower.includes('file') || lower.includes('photo')) return 'upload';
+    return 'text';
+  };
+
+  const getFieldOptions = (col) => {
+    const key = ((col && (col.key || col.name)) || '').toLowerCase();
+    const cf = customFields.find(f => (f.name || '').toLowerCase() === key);
+    if (cf && Array.isArray(cf.options) && cf.options.length > 0) return cf.options;
+    if ((key.includes('old') && key.includes('new')) || key.includes('old_or_new') || key.includes('oldornew')) return ['New', 'Old'];
+    if (key.includes('gender')) return ['Male', 'Female'];
+    if (key.includes('relation')) return ['Father', 'Mother', 'Guardian', 'Other'];
+    if (key.includes('blood')) return ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+    return null;
+  };
+
+  const isCheckboxChecked = (val) => {
+    return val === true || val === 'true' || val === 'TRUE' || val === '1' || val === 'YES' || val === 'yes' || val === 'on';
+  };
+
+  const handleFieldFileChange = (e, field) => {
+    const file = e.target.files[0];
+    if (file) {
+      setEditFileField(prev => ({ ...(prev || {}), [field]: file }));
+      setEditFormData(prev => ({ ...prev, [field]: file.name }));
+    }
   };
 
   const getStudentFiles = (student) => {
@@ -145,7 +225,7 @@ const ListStudent = () => {
       
       try {
         await axios.put(
-          `${API_BASE_URL}/student-list/toggle-active/${selectedClass}/${student.school_id}/${student.class_id}`,
+          `${API_BASE_URL}/student-list/toggle-active/${student.class || selectedClass}/${student.school_id}/${student.class_id}`,
           { is_active: true }
         );
         alert('Student activated successfully! They are now visible in all system lists.');
@@ -160,7 +240,7 @@ const ListStudent = () => {
       
       try {
         await axios.put(
-          `${API_BASE_URL}/student-list/toggle-active/${selectedClass}/${student.school_id}/${student.class_id}`,
+          `${API_BASE_URL}/student-list/toggle-active/${student.class || selectedClass}/${student.school_id}/${student.class_id}`,
           { is_active: false }
         );
         alert('Student deactivated successfully! They are now hidden from all system lists.');
@@ -171,20 +251,90 @@ const ListStudent = () => {
     }
   };
 
-  const handleDelete = async (student) => {
-    if (!window.confirm(`Delete ${student.student_name}?`)) return;
+  const openDeleteModal = (student) => {
+    setStudentToDelete(student);
+    setAdminPasswordInput('');
+    setDeleteError('');
+    setShowDeletePassword(false);
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!studentToDelete) return;
+    if (!adminPasswordInput.trim()) {
+      setDeleteError('Please enter your admin password');
+      return;
+    }
+
+    setDeleteLoading(true);
+    setDeleteError('');
+
     try {
-      if (student.school_id && student.class_id) {
-        await axios.delete(`${API_BASE_URL}/student-list/student/${selectedClass}/${student.school_id}/${student.class_id}`);
+      const branchCode = getBranchCode();
+      const currentUsername = localStorage.getItem('username') || 'admin';
+      const token = localStorage.getItem('token') || '';
+
+      // 1. Verify admin password first
+      try {
+        await axios.post(
+          `${API_BASE_URL}/admin/verify-password`,
+          {
+            password: adminPasswordInput,
+            username: currentUsername
+          },
+          {
+            headers: {
+              'x-branch-code': branchCode,
+              'Authorization': token ? `Bearer ${token}` : ''
+            }
+          }
+        );
+      } catch (verifyErr) {
+        const verifyMsg = verifyErr.response?.data?.error || 'Incorrect admin password. Deletion cancelled.';
+        setDeleteError(verifyMsg);
+        setDeleteLoading(false);
+        return;
       }
-      setStudents(prev => prev.filter(s => s.uniqueId !== student.uniqueId));
-    } catch (error) { alert('Failed to delete'); }
+
+      // 2. Perform the permanent deletion
+      const targetClass = studentToDelete.class || selectedClass;
+      await axios.delete(
+        `${API_BASE_URL}/student-list/student/${targetClass}/${studentToDelete.school_id}/${studentToDelete.class_id}`,
+        {
+          headers: {
+            'x-branch-code': branchCode,
+            'x-admin-password': adminPasswordInput,
+            'x-admin-username': currentUsername,
+            'Authorization': token ? `Bearer ${token}` : ''
+          },
+          data: {
+            password: adminPasswordInput,
+            username: currentUsername
+          }
+        }
+      );
+
+      setShowDeleteModal(false);
+      const deletedName = studentToDelete.student_name;
+      setStudentToDelete(null);
+      setAdminPasswordInput('');
+      alert(`Student "${deletedName}" was deleted permanently.`);
+      fetchStudents(selectedClass);
+    } catch (error) {
+      console.error('Delete student error:', error);
+      const errMsg = error.response?.data?.error || error.response?.data?.message || 'Failed to delete student.';
+      setDeleteError(errMsg);
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   const openEditModal = (student) => { 
     setSelectedStudent(student); 
     setEditFormData(student); 
     setEditFile(null); 
+    setEditFileField({});
     setShowEditModal(true); 
   };
 
@@ -219,12 +369,23 @@ const ListStudent = () => {
       if (selectedStudent.school_id && selectedStudent.class_id) {
         const formData = new FormData();
         Object.entries(editFormData).forEach(([key, value]) => {
-          if (!['uniqueId', 'displayId', 'id'].includes(key) && value != null) formData.append(key, value.toString());
+          // Skip image_student text field - it's sent as a file below
+          if (['uniqueId', 'displayId', 'id', 'image_student'].includes(key)) return;
+          if (value != null) formData.append(key, value.toString());
         });
         if (editFile) formData.append('image_student', editFile);
-        await axios.put(`${API_BASE_URL}/student-list/student/${selectedClass}/${selectedStudent.school_id}/${selectedStudent.class_id}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        if (editFileField && Object.keys(editFileField).length > 0) {
+          Object.entries(editFileField).forEach(([key, file]) => formData.append(key, file));
+        }
+        await axios.put(`${API_BASE_URL}/student-list/student/${selectedStudent.class || selectedClass}/${selectedStudent.school_id}/${selectedStudent.class_id}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        // Refetch the students list to get the correct server-side image path
+        if (editFormData.class && editFormData.class !== selectedClass) {
+          // Student was transferred to a new class — switch to that class view
+          setSelectedClass(editFormData.class);
+        } else {
+          await fetchStudents(selectedClass);
+        }
       }
-      setStudents(prev => prev.map(s => s.uniqueId === selectedStudent.uniqueId ? { ...editFormData, uniqueId: s.uniqueId, displayId: s.displayId } : s));
       setShowEditModal(false);
     } catch (error) { alert('Failed to update'); }
     finally { setLoading(false); }
@@ -238,10 +399,11 @@ const ListStudent = () => {
       key: 'photo', header: 'Photo', width: '80px', sortable: false,
       render: (_, student) => {
         const isInactive = student.is_active === false || student.is_active === 'false';
+        const photoUrl = getFileUrl(student.image_student, 'student');
         return (
           <div className={styles.tableImageWrapper}>
-            {student.image_student ? (
-              <img src={getFileUrl(student.image_student, 'student')} alt="" className={styles.tableImage} />
+            {photoUrl ? (
+              <img src={photoUrl} alt="" className={styles.tableImage} />
             ) : (
               <div className={styles.tableAvatar}><FiUser /></div>
             )}
@@ -265,6 +427,10 @@ const ListStudent = () => {
     {
       key: 'class', header: 'Class', sortable: true,
       render: (_, student) => student.class || selectedClass
+    },
+    {
+      key: 'class_id', header: 'Class ID', sortable: true,
+      render: (value) => classIdLabel(value) || '-'
     },
     {
       key: 'gender', header: 'Gender', sortable: true,
@@ -298,6 +464,29 @@ const ListStudent = () => {
         ) : '-';
       }
     },
+    // Dynamic columns for custom form fields (e.g. Warning, Old Or New, etc.)
+    ...customFields
+      .filter(field => field && field.name && !['image_student', 'student_name', 'smachine_id', 'class_id', 'age', 'gender', 'class', 'guardian_name', 'guardian_phone', 'guardian_relation', 'username', 'password', 'guardian_username', 'guardian_password', 'is_active', 'is_free', 'exemption_type', 'exemption_reason'].includes(field.name.toLowerCase()))
+      .map(field => ({
+        key: field.name.toLowerCase(),
+        header: field.label || formatLabel(field.name),
+        sortable: false,
+        render: (value) => {
+          if (value === null || value === undefined || value === '') return '-';
+          if (typeof value === 'boolean') {
+            return value
+              ? <span className={`${styles.tableBadge} ${styles.badgeSuccess}`}>Yes</span>
+              : <span className={styles.tableBadge}>No</span>;
+          }
+          if (value === true || value === 'true' || value === 'on' || value === 'YES') {
+            return <span className={`${styles.tableBadge} ${styles.badgeSuccess}`}>Yes</span>;
+          }
+          if (value === false || value === 'false' || value === 'off' || value === 'NO' || value === 'no') {
+            return <span className={styles.tableBadge}>No</span>;
+          }
+          return String(value);
+        }
+      })),
     {
       key: 'actions', header: 'Actions', sortable: false, align: 'right',
       render: (_, student) => {
@@ -316,6 +505,13 @@ const ListStudent = () => {
               className={isInactive ? styles.activateBtn : styles.deactivateBtn}
             >
               {isInactive ? <FiUserCheck /> : <FiUserX />}
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); openDeleteModal(student); }}
+              title={t('delete') || 'Delete Student'}
+              className={styles.deleteBtn}
+            >
+              <FiTrash2 />
             </button>
           </div>
         );
@@ -346,17 +542,23 @@ const ListStudent = () => {
         <div className={styles.headerStats}>
           <div className={styles.statBox}>
             <span className={styles.statNum}>{filteredStudents.length}</span>
-            <span className={styles.statLabel}>{showInactive ? 'Deactivated' : t('students')}</span>
+            <span className={styles.statLabel}>{showInactive ? 'Deactivated' : t('students.title', 'Students')}</span>
           </div>
           <div className={styles.statBox}>
             <span className={styles.statNum}>{classes.length}</span>
-            <span className={styles.statLabel}>{t('classes')}</span>
+            <span className={styles.statLabel}>{t('classes.title', t('classes', 'Classes'))}</span>
           </div>
         </div>
       </motion.div>
 
       {/* Class Tabs */}
       <motion.div className={styles.classTabs} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <button 
+          className={`${styles.classTab} ${selectedClass === 'ALL' ? styles.active : ''}`} 
+          onClick={() => { setSelectedClass('ALL'); setCurrentPage(1); }}
+        >
+          <FiUsers /> All Students
+        </button>
         {classes.map(cls => (
           <button 
             key={cls} 
@@ -420,6 +622,13 @@ const ListStudent = () => {
           {t('refresh') || 'Refresh'}
         </Button>
         <Button 
+          variant="secondary" 
+          onClick={handleExportExcel}
+          icon={<FiDownload />}
+        >
+          Download Excel
+        </Button>
+        <Button 
           variant={showInactive ? "primary" : "secondary"}
           onClick={() => setShowInactive(!showInactive)}
           icon={showInactive ? <FiUserCheck /> : <FiUserX />}
@@ -452,7 +661,7 @@ const ListStudent = () => {
                   onClick={() => { setSelectedStudent(student); setShowModal(true); }}
                 >
                   <div className={styles.cardHeader}>
-                    {student.image_student ? (
+                    {getFileUrl(student.image_student, 'student') ? (
                       <img 
                         src={getFileUrl(student.image_student, 'student')} 
                         alt={student.student_name} 
@@ -502,7 +711,10 @@ const ListStudent = () => {
                   </div>
                   <div className={styles.cardBody}>
                     <h3 className={styles.studentName}>{student.student_name || 'Unknown'}</h3>
-                    <p className={styles.studentClass}>{student.class || selectedClass}</p>
+                    <p className={styles.studentClass}>
+                      {student.class || selectedClass}
+                      {student.class_id ? ` • ID: ${classIdLabel(student.class_id)}` : ''}
+                    </p>
                     <div className={styles.cardInfo}>
                       {student.age && (
                         <div className={styles.infoItem}><FiCalendar /> Age: {student.age}</div>
@@ -557,6 +769,13 @@ const ListStudent = () => {
                     >
                       {isInactive ? <FiUserCheck /> : <FiUserX />}
                     </button>
+                    <button 
+                      className={`${styles.actionBtn} ${styles.deleteBtn}`}
+                      onClick={(e) => { e.stopPropagation(); openDeleteModal(student); }}
+                      title={t('delete') || 'Delete Student'}
+                    >
+                      <FiTrash2 />
+                    </button>
                   </div>
                 </motion.div>
               );
@@ -575,6 +794,59 @@ const ListStudent = () => {
             emptyMessage={t('noStudentsFound') || 'No students found matching your criteria.'}
           />
         </motion.div>
+      )}
+
+      {/* Pagination Controls (for grid view) */}
+      {viewMode === 'grid' && totalPages > 1 && (
+        <div className={styles.pagination}>
+          <button 
+            className={styles.pageBtn} 
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+            disabled={currentPage === 1}
+          >
+            <FiChevronLeft /> Previous
+          </button>
+          <div className={styles.pageNumbers}>
+            {(() => {
+              const pages = [];
+              const maxVisible = 5;
+              let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+              let end = Math.min(totalPages, start + maxVisible - 1);
+              if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1);
+              
+              if (start > 1) {
+                pages.push(<button key={1} className={styles.pageNum} onClick={() => setCurrentPage(1)}>1</button>);
+                if (start > 2) pages.push(<span key="dots1" className={styles.pageDots}>...</span>);
+              }
+              for (let i = start; i <= end; i++) {
+                pages.push(
+                  <button 
+                    key={i} 
+                    className={`${styles.pageNum} ${currentPage === i ? styles.pageActive : ''}`}
+                    onClick={() => setCurrentPage(i)}
+                  >
+                    {i}
+                  </button>
+                );
+              }
+              if (end < totalPages) {
+                if (end < totalPages - 1) pages.push(<span key="dots2" className={styles.pageDots}>...</span>);
+                pages.push(<button key={totalPages} className={styles.pageNum} onClick={() => setCurrentPage(totalPages)}>{totalPages}</button>);
+              }
+              return pages;
+            })()}
+          </div>
+          <button 
+            className={styles.pageBtn} 
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+            disabled={currentPage === totalPages}
+          >
+            Next <FiChevronRight />
+          </button>
+          <span className={styles.pageInfo}>
+            {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredStudents.length)} of {filteredStudents.length}
+          </span>
+        </div>
       )}
 
 
@@ -599,7 +871,7 @@ const ListStudent = () => {
                 <FiX />
               </button>
               <div className={styles.modalHeader}>
-                {selectedStudent.image_student ? (
+                {getFileUrl(selectedStudent.image_student, 'student') ? (
                   <img 
                     src={getFileUrl(selectedStudent.image_student, 'student')} 
                     alt="" 
@@ -626,11 +898,15 @@ const ListStudent = () => {
                   <h3><FiUser /> {t('basicInformation')}</h3>
                   <div className={styles.infoGrid}>
                     {Object.entries(selectedStudent)
-                      .filter(([key, value]) => !isFileField(key) && !looksLikeFile(value) && !['uniqueId', 'displayId', 'id', 'password', 'guardian_password'].includes(key))
+                      .filter(([key, value]) => !isFileField(key) && !looksLikeFile(value) && !['uniqueId', 'displayId', 'id', 'password', 'guardian_password', 'username', 'guardian_username'].includes(key))
                       .map(([key, value]) => (
                         <div key={key} className={styles.infoRow}>
                           <span className={styles.infoLabel}>{formatLabel(key)}</span>
-                          <span className={styles.infoValue}>{value || '-'}</span>
+                          <span className={styles.infoValue}>
+                            {typeof value === 'boolean'
+                              ? (value ? 'Yes' : 'No')
+                              : (key === 'class_id' ? (classIdLabel(value) || '-') : (value || '-'))}
+                          </span>
                         </div>
                       ))
                     }
@@ -702,7 +978,12 @@ const ListStudent = () => {
 
                 {/* Documents Section */}
                 {(() => {
-                  const fileFields = Object.entries(selectedStudent).filter(([key, value]) => value && (isFileField(key) || looksLikeFile(value)));
+                  const PLACEHOLDERS = new Set(['{}', '[]', '[object Object]', 'null', 'undefined', '']);
+                  const fileFields = Object.entries(selectedStudent).filter(([key, value]) => 
+                    value && 
+                    !PLACEHOLDERS.has(String(value).trim()) && 
+                    (isFileField(key) || looksLikeFile(value))
+                  );
                   if (fileFields.length === 0) return null;
                   return (
                     <div className={styles.modalSection}>
@@ -801,11 +1082,12 @@ const ListStudent = () => {
                 <div className={styles.editFields}>
                   {allColumns
                     .filter(col => 
-                      !isFileField(col.key) && 
                       col.type !== 'password' && 
                       !['uniqueId', 'displayId', 'id', 'image_student'].includes(col.key)
                     )
-                    .map(col => (
+                    .map(col => {
+                      const fieldOptions = getFieldOptions(col);
+                      return (
                       <div key={col.key} className={styles.editField}>
                         <label>{col.label}</label>
                         {col.type === 'checkbox' ? (
@@ -813,23 +1095,68 @@ const ListStudent = () => {
                             <input 
                               type="checkbox"
                               name={col.key} 
-                              checked={editFormData[col.key] === 'true' || editFormData[col.key] === true || editFormData[col.key] === 'YES'}
+                              checked={isCheckboxChecked(editFormData[col.key])}
                               onChange={(e) => setEditFormData(prev => ({ ...prev, [col.key]: e.target.checked ? 'YES' : 'NO' }))}
                             />
-                            <span>{editFormData[col.key] === 'true' || editFormData[col.key] === true || editFormData[col.key] === 'YES' ? 'YES' : 'NO'}</span>
+                            <span>{isCheckboxChecked(editFormData[col.key]) ? 'YES' : 'NO'}</span>
                           </div>
-                        ) : col.type === 'select' || col.type === 'dropdown' ? (
+                        ) : col.type === 'multi-select' ? (
+                          <div className={styles.checkboxWrapper}>
+                            {(fieldOptions || []).map(opt => (
+                              <label key={opt} className={styles.multiOption}>
+                                <input
+                                  type="checkbox"
+                                  checked={(editFormData[col.key] || '').toString().split(',').map(s => s.trim()).includes(opt)}
+                                  onChange={(e) => {
+                                    const current = (editFormData[col.key] || '').toString().split(',').map(s => s.trim()).filter(Boolean);
+                                    const next = e.target.checked ? [...current, opt] : current.filter(v => v !== opt);
+                                    setEditFormData(prev => ({ ...prev, [col.key]: next.join(', ') }));
+                                  }}
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : col.key === 'class' ? (
                           <select
-                            name={col.key}
-                            value={editFormData[col.key] || ''}
+                            name="class"
+                            value={editFormData.class || ''}
                             onChange={handleEditChange}
                           >
-                            <option value="">Select...</option>
-                            {/* Add options based on custom field definition */}
-                            {customFields.find(f => f.name === col.key)?.options?.map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
+                            {classes.map(cls => (
+                              <option key={cls} value={cls}>{cls}</option>
                             ))}
                           </select>
+                        ) : (col.type === 'select' || col.type === 'dropdown' || fieldOptions) ? (
+                          fieldOptions ? (
+                            <select
+                              name={col.key}
+                              value={editFormData[col.key] || ''}
+                              onChange={handleEditChange}
+                            >
+                              <option value="">Select...</option>
+                              {fieldOptions.map(opt => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              name={col.key}
+                              value={editFormData[col.key] || ''}
+                              onChange={handleEditChange}
+                            />
+                          )
+                        ) : col.type === 'upload' ? (
+                          <div className={styles.fileUploadField}>
+                            <label className={styles.fileUploadBtn}>
+                              <FiUpload /> Choose File
+                              <input type="file" onChange={(e) => handleFieldFileChange(e, col.key)} hidden />
+                            </label>
+                            <span className={styles.fileUploadName}>
+                              {editFileField[col.key] ? editFileField[col.key].name : (editFormData[col.key] || 'No file selected')}
+                            </span>
+                          </div>
                         ) : col.type === 'textarea' ? (
                           <textarea
                             name={col.key}
@@ -846,7 +1173,8 @@ const ListStudent = () => {
                           />
                         )}
                       </div>
-                    ))
+                    );
+                    })
                   }
                 </div>
                 <div className={styles.editActions}>
@@ -922,6 +1250,107 @@ const ListStudent = () => {
                   <FiDownload /> Download
                 </a>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation with Password Modal */}
+      <AnimatePresence>
+        {showDeleteModal && studentToDelete && (
+          <motion.div 
+            className={styles.modalOverlay} 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            onClick={() => !deleteLoading && setShowDeleteModal(false)}
+          >
+            <motion.div 
+              className={styles.deleteModal}
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className={styles.deleteModalHeader}>
+                <div className={styles.deleteIconWrapper}>
+                  <FiTrash2 />
+                </div>
+                <div>
+                  <h3>Delete Student</h3>
+                  <p>Permanent action confirmation</p>
+                </div>
+                <button 
+                  type="button" 
+                  className={styles.closeBtn}
+                  onClick={() => !deleteLoading && setShowDeleteModal(false)}
+                >
+                  <FiX />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmDelete} className={styles.deleteForm}>
+                <div className={styles.deleteWarning}>
+                  <p>
+                    Are you sure you want to permanently delete <strong>{studentToDelete.student_name}</strong>?
+                  </p>
+                  <div className={styles.deleteStudentMeta}>
+                    <span>Class: <strong>{studentToDelete.class || selectedClass}</strong></span>
+                    <span>School ID: <strong>{studentToDelete.school_id}</strong></span>
+                  </div>
+                  <p className={styles.deleteWarningText}>
+                    ⚠️ This action cannot be undone. All marks, attendance, and records associated with this student will be permanently removed.
+                  </p>
+                </div>
+
+                <div className={styles.passwordFieldGroup}>
+                  <label htmlFor="adminPassword">
+                    <FiLock /> Enter Admin Password to Confirm:
+                  </label>
+                  <div className={styles.passwordInputWrapper}>
+                    <input
+                      id="adminPassword"
+                      type={showDeletePassword ? 'text' : 'password'}
+                      value={adminPasswordInput}
+                      onChange={(e) => { setAdminPasswordInput(e.target.value); setDeleteError(''); }}
+                      placeholder="Enter administrator password"
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      className={styles.togglePasswordBtn}
+                      onClick={() => setShowDeletePassword(!showDeletePassword)}
+                      tabIndex="-1"
+                    >
+                      {showDeletePassword ? <FiEyeOff /> : <FiEye />}
+                    </button>
+                  </div>
+                  {deleteError && (
+                    <div className={styles.deleteErrorMessage}>
+                      {deleteError}
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.deleteModalActions}>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowDeleteModal(false)} 
+                    className={styles.cancelBtn}
+                    disabled={deleteLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className={styles.confirmDeleteBtn}
+                    disabled={deleteLoading || !adminPasswordInput.trim()}
+                  >
+                    {deleteLoading ? 'Verifying & Deleting...' : 'Delete Permanently'}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}

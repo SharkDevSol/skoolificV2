@@ -14,6 +14,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import styles from './StudentAttendanceSystem.module.css';
+import { classIdLabel } from '../../utils/classId';
 
 import Button from '../../COMPONENTS/Button/Button';
 import Select from '../../COMPONENTS/Select/Select';
@@ -26,7 +27,13 @@ import { useToast } from '../../COMPONENTS/Toast/useToast';
 import ToastContainer from '../../COMPONENTS/Toast/ToastContainer';
 
 // API base URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
+const getApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl;
+  if (typeof window !== 'undefined') return window.location.origin + '/api';
+  return 'http://localhost:5052/api';
+};
+const API_BASE_URL = getApiBaseUrl();
 
 const ATTENDANCE_STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'LEAVE'];
 
@@ -218,12 +225,26 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
 
   const fetchSettings = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/academic/student-attendance/settings`);
-      if (response.data.success) {
-        setSettings(response.data.data);
+      // Use Task1 schedule config as single source of truth
+      const response = await axios.get(`${API_BASE_URL}/schedule/config`);
+      if (response.data) {
+        const config = response.data;
+        // Convert numeric school_days to day names (1=Monday, 2=Tuesday, ..., 5=Friday)
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        let schoolDays = config.school_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        if (Array.isArray(schoolDays) && typeof schoolDays[0] === 'number') {
+          schoolDays = schoolDays.map(d => dayNames[d] || d);
+        }
+        setSettings({
+          school_days: schoolDays,
+          shift_count: config.total_shifts || 1,
+          shift_rotation: config.shift_rotation || false,
+          periods_per_shift: config.periods_per_shift || 8,
+          period_duration: config.period_duration || 40
+        });
       }
     } catch (err) {
-      console.error('Error fetching settings:', err);
+      console.error('Error fetching schedule config:', err);
       setSettings({
         school_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
       });
@@ -283,53 +304,13 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
 
       if (response.data.success) {
         const weeks = response.data.data.weeks;
+        const currentWeekId = response.data.data.currentWeekId;
         
-        // Mark current week
-        const weeksWithCurrent = weeks.map(week => {
-          let isCurrentWeek = false;
-          
-          if (currentEthiopianDate) {
-            const firstDay = week.days[0];
-            const lastDay = week.days[week.days.length - 1];
-            
-            // Check if today is exactly one of the school days
-            const exactMatch = week.days.some(
-              d => d.year === currentEthiopianDate.year && 
-                   d.month === currentEthiopianDate.month && 
-                   d.day === currentEthiopianDate.day
-            );
-            
-            // Check if today falls within the week range
-            const withinRange = 
-              currentEthiopianDate.year === firstDay.year &&
-              currentEthiopianDate.month === firstDay.month &&
-              currentEthiopianDate.day >= firstDay.day &&
-              currentEthiopianDate.day <= lastDay.day;
-            
-            // Check if week spans months
-            const spansMonths = firstDay.month !== lastDay.month;
-            if (spansMonths) {
-              const inFirstMonth = 
-                currentEthiopianDate.year === firstDay.year &&
-                currentEthiopianDate.month === firstDay.month &&
-                currentEthiopianDate.day >= firstDay.day;
-              
-              const inLastMonth = 
-                currentEthiopianDate.year === lastDay.year &&
-                currentEthiopianDate.month === lastDay.month &&
-                currentEthiopianDate.day <= lastDay.day;
-              
-              isCurrentWeek = exactMatch || inFirstMonth || inLastMonth;
-            } else {
-              isCurrentWeek = exactMatch || withinRange;
-            }
-          }
-          
-          return {
-            ...week,
-            isCurrent: isCurrentWeek
-          };
-        });
+        // Mark current week (prefer backend's currentWeekId)
+        const weeksWithCurrent = weeks.map(week => ({
+          ...week,
+          isCurrent: currentWeekId ? week.id === currentWeekId : false
+        }));
         
         setSchoolWeeks(weeksWithCurrent);
         
@@ -976,7 +957,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                         <tr key={record.id || index}>
                           <td>{index + 1}</td>
                           <td className={styles.studentName}>{record.student_name}</td>
-                          <td>{record.class_id || 'N/A'}</td>
+                          <td>{classIdLabel(record.class_id) || 'N/A'}</td>
                           <td>{record.smachine_id || 'Not Set'}</td>
                           <td>{renderStatusBadge(record)}</td>
                           <td>{record.check_in_time || '-'}</td>
@@ -1064,7 +1045,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                   <div className={styles.studentMeta}>
                     <span className={styles.studentName}>{student.student_name}</span>
                     <span className={styles.studentMetaSub}>
-                      {t('students.attendance.classId', 'Class ID')}: {student.class_id || 'N/A'} ·{' '}
+                      {t('students.attendance.classId', 'Class ID')}: {classIdLabel(student.class_id) || 'N/A'} ·{' '}
                       {t('students.attendance.machineId', 'Machine ID')}: {student.smachine_id || '—'}
                     </span>
                   </div>
@@ -1119,7 +1100,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
               {students.map(student => (
                 <tr key={`${student.student_id}-${student.class_name}`}>
                   <td className={styles.studentName}>{student.student_name}</td>
-                  <td className={styles.classId}>{student.class_id || 'N/A'}</td>
+                  <td className={styles.classId}>{classIdLabel(student.class_id) || 'N/A'}</td>
                   <td className={styles.machineId}>{student.smachine_id || 'Not Set'}</td>
                   {selectedWeek.days.map((dayInfo, index) => (
                     <td 

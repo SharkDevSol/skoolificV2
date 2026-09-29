@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import SubjectMappingSetup from './SubjectMappingSetup';
 import './CreateMarklist/MarkListFrontend.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 
 const MarkListForm = () => {
   const { t } = useApp();
@@ -31,6 +31,7 @@ const MarkListForm = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [viewMode, setViewMode] = useState('create');
+  const [formExists, setFormExists] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
@@ -88,8 +89,10 @@ const MarkListForm = () => {
           setMarkList(data.markList);
           setFormConfig(data.config);
           setViewMode('view');
+          setFormExists(true);
         } else {
           // No existing mark list - reset to default components and show create form
+          setFormExists(false);
           setMarkComponents([
             { name: 'practical_1', percentage: 5 },
             { name: 'test_1', percentage: 10 },
@@ -154,6 +157,17 @@ const MarkListForm = () => {
       return;
     }
 
+    // Pre-check for existing form
+    try {
+      const checkRes = await fetch(`${API_BASE_URL}/mark-list/mark-list/${selectedSubject}/${selectedClass}/${selectedTerm}`);
+      if (checkRes.ok) {
+        setMessage(`Mark list already exists for ${selectedSubject} - ${selectedClass} - Term ${selectedTerm}. Delete it first if you want to recreate.`);
+        setFormExists(true);
+        setLoading(false);
+        return;
+      }
+    } catch {}
+
     try {
       const response = await fetch(`${API_BASE_URL}/mark-list/create-mark-forms`, {
         method: 'POST',
@@ -173,12 +187,43 @@ const MarkListForm = () => {
       if (response.ok) {
         setMessage(`Mark list form created successfully! ${result.studentsCount} students added.`);
         setViewMode('view');
+        setFormExists(true);
         await loadMarkList();
+      } else if (response.status === 409) {
+        setMessage(result.error || 'This mark list already exists. Delete it first if you want to recreate.');
+        setFormExists(true);
       } else {
         setMessage(result.error || 'Failed to create mark form');
       }
     } catch (error) {
       setMessage('Error creating mark form: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteMarkForm = async () => {
+    if (!selectedSubject || !selectedClass || !selectedTerm) return;
+    if (!window.confirm(`Delete mark list for ${selectedSubject} / ${selectedClass} / Term ${selectedTerm}?`)) return;
+    
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/mark-list/delete-mark-form/${selectedSubject}/${selectedClass}/${selectedTerm}`,
+        { method: 'DELETE' }
+      );
+      const result = await response.json();
+      if (response.ok) {
+        setMessage('Mark list deleted successfully');
+        setFormExists(false);
+        setViewMode('create');
+        setMarkList([]);
+        setFormConfig(null);
+      } else {
+        setMessage(result.error || 'Failed to delete mark list');
+      }
+    } catch (error) {
+      setMessage('Error deleting mark list: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -198,6 +243,7 @@ const MarkListForm = () => {
         setMarkList(data.markList);
         setFormConfig(data.config);
         setViewMode('view');
+        setFormExists(true);
       } else {
         const errData = await response.json().catch(() => ({}));
         setMessage(errData.error || 'Mark list not found for this combination');
@@ -298,12 +344,6 @@ const MarkListForm = () => {
             onClick={() => setViewMode('create')}
           >
             Create Form
-          </button>
-          <button 
-            className={viewMode === 'view' ? 'active' : ''}
-            onClick={() => setViewMode('view')}
-          >
-            View/Edit Marks
           </button>
         </div>
       </div>
@@ -418,6 +458,16 @@ const MarkListForm = () => {
           >
             {loading ? 'Creating...' : 'Create Mark List Form'}
           </button>
+          {formExists && (
+            <button 
+              onClick={handleDeleteMarkForm}
+              disabled={loading}
+              className="delete-btn"
+              style={{ marginLeft: '10px', padding: '8px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+            >
+              Delete Mark List
+            </button>
+          )}
         </div>
       )}
 
@@ -508,28 +558,42 @@ const TeacherAssignment = () => {
 
   const fetchData = async () => {
     try {
-      const [teachersResponse, combinationsResponse, assignmentsResponse] = await Promise.all([
+      const [teachersResponse, combinationsResponse, assignmentsResponse, autoConnectResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/mark-list/teachers`),
         fetch(`${API_BASE_URL}/mark-list/subject-class-combinations`),
-        fetch(`${API_BASE_URL}/mark-list/teacher-assignments`)
+        fetch(`${API_BASE_URL}/mark-list/teacher-assignments`),
+        fetch(`${API_BASE_URL}/mark-list/auto-connect-teachers`)
       ]);
 
-      const [teachersData, combinationsData, assignmentsData] = await Promise.all([
+      const [teachersData, combinationsData, assignmentsData, autoConnectData] = await Promise.all([
         teachersResponse.json(),
         combinationsResponse.json(),
-        assignmentsResponse.json()
+        assignmentsResponse.json(),
+        autoConnectResponse.ok ? autoConnectResponse.json() : []
       ]);
 
       setTeachers(teachersData);
       setSubjectClassCombinations(combinationsData);
       setExistingAssignments(assignmentsData);
 
+      // Start with saved assignments
       const assignmentState = {};
       assignmentsData.forEach(assignment => {
         const key = `${assignment.teacher_name}|||${assignment.subject_class}`;
         assignmentState[key] = true;
       });
+
+      // Auto-connect from schedule (Task6) - merge without overwriting manual assignments
+      if (Array.isArray(autoConnectData)) {
+        autoConnectData.forEach(conn => {
+          const key = `${conn.teacher_name}|||${conn.subject_class}`;
+          if (!assignmentState[key]) {
+            assignmentState[key] = 'auto';
+          }
+        });
+      }
       setAssignments(assignmentState);
+      setMessage(`Loaded ${assignmentsData.length} saved + ${Array.isArray(autoConnectData) ? autoConnectData.filter(c => !assignmentState[`${c.teacher_name}|||${c.subject_class}`] && assignmentState[`${c.teacher_name}|||${c.subject_class}`] === 'auto').length : 0} auto-connected from schedule`);
     } catch (error) {
       console.error('Error fetching data:', error);
       setMessage('Error loading data: ' + error.message);
@@ -610,7 +674,7 @@ const TeacherAssignment = () => {
     <div className="teacher-assignment">
       <div className="assignment-header">
         <h2>Teacher-Subject Assignment</h2>
-        <p>Assign teachers to subject-class combinations</p>
+        <p>Assign teachers to subject-class combinations. Green checkboxes are auto-connected from schedule.</p>
       </div>
 
       {existingAssignments.length > 0 && (
@@ -654,10 +718,11 @@ const TeacherAssignment = () => {
                   </td>
                   {subjectClassCombinations.map(combination => (
                     <td key={`${combination.subject_name}-${combination.class_name}`} className="assignment-cell">
-                      <label className="checkbox-container">
+                      <label className="checkbox-container" title={assignments[`${teacher.name}|||${combination.subject_class}`] === 'auto' ? 'Auto-connected from schedule' : ''}>
                         <input
                           type="checkbox"
-                          checked={assignments[`${teacher.name}|||${combination.subject_class}`] || false}
+                          checked={assignments[`${teacher.name}|||${combination.subject_class}`] === true || assignments[`${teacher.name}|||${combination.subject_class}`] === 'auto'}
+                          className={assignments[`${teacher.name}|||${combination.subject_class}`] === 'auto' ? 'auto-checked' : ''}
                           onChange={(e) => handleAssignmentChange(
                             teacher.name, 
                             combination.subject_class,
@@ -688,342 +753,13 @@ const TeacherAssignment = () => {
   );
 };
 
-const ClassRanking = () => {
-  const [classes, setClasses] = useState([]);
-  const [selectedClass, setSelectedClass] = useState('');
-  const [selectedTerm, setSelectedTerm] = useState(1);
-  const [termCount, setTermCount] = useState(2);
-  const [ranking, setRanking] = useState(null);
-  const [allTermsData, setAllTermsData] = useState(null); // All terms averages
-  const [showAllTerms, setShowAllTerms] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  const fetchInitialData = async () => {
-    try {
-      const [classesRes, configRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/mark-list/classes`),
-        fetch(`${API_BASE_URL}/schedule/config`)
-      ]);
-
-      const [classesData, configData] = await Promise.all([
-        classesRes.json(),
-        configRes.json()
-      ]);
-
-      setClasses(classesData);
-      setTermCount(configData.terms || 2);
-    } catch (error) {
-      console.error('Error fetching initial data:', error);
-      setMessage('Error loading data: ' + error.message);
-    }
-  };
-
-  const loadRanking = async () => {
-    if (!selectedClass) {
-      setMessage('Please select a class');
-      return;
-    }
-
-    setLoading(true);
-    setMessage('');
-
-    try {
-      const response = await fetch(
-        `/api/mark-list/comprehensive-ranking/${selectedClass}/${selectedTerm}`
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        setRanking(data);
-        setMessage('');
-      } else {
-        const error = await response.json();
-        setMessage(error.error || 'Failed to load ranking');
-        setRanking(null);
-      }
-    } catch (error) {
-      setMessage('Error loading ranking: ' + error.message);
-      setRanking(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadAllTermsAverages = async () => {
-    if (!selectedClass) {
-      setMessage('Please select a class');
-      return;
-    }
-
-    setLoading(true);
-    setMessage('');
-
-    try {
-      const termPromises = Array.from({ length: termCount }, (_, i) =>
-        fetch(`/api/mark-list/comprehensive-ranking/${selectedClass}/${i + 1}`).then(r => r.ok ? r.json() : null)
-      );
-      const termsData = await Promise.all(termPromises);
-      
-      // Combine all terms data
-      const studentsMap = {};
-      termsData.forEach((termData, termIndex) => {
-        if (!termData?.rankings) return;
-        termData.rankings.forEach(student => {
-          if (!studentsMap[student.studentName]) {
-            studentsMap[student.studentName] = {
-              studentName: student.studentName,
-              termAverages: {},
-              totalAverage: 0,
-              termCount: 0
-            };
-          }
-          studentsMap[student.studentName].termAverages[termIndex + 1] = student.average;
-          studentsMap[student.studentName].totalAverage += student.average;
-          studentsMap[student.studentName].termCount++;
-        });
-      });
-
-      // Calculate final averages and sort
-      const combinedRankings = Object.values(studentsMap).map(student => ({
-        ...student,
-        finalAverage: student.termCount > 0 ? student.totalAverage / student.termCount : 0
-      })).sort((a, b) => b.finalAverage - a.finalAverage);
-
-      // Add ranks
-      combinedRankings.forEach((student, index) => {
-        student.rank = index + 1;
-      });
-
-      setAllTermsData({
-        className: selectedClass,
-        termCount,
-        rankings: combinedRankings
-      });
-      setShowAllTerms(true);
-    } catch (error) {
-      setMessage('Error loading all terms: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="class-ranking">
-      <div className="ranking-header">
-        <h2>Class Ranking System</h2>
-        <p>View comprehensive class rankings by term or all terms combined</p>
-      </div>
-
-      <div className="ranking-controls">
-        <div className="control-group">
-          <label>Class:</label>
-          <select 
-            value={selectedClass} 
-            onChange={(e) => { setSelectedClass(e.target.value); setShowAllTerms(false); }}
-          >
-            <option value="">Select Class</option>
-            {classes.map(className => (
-              <option key={className} value={className}>
-                {className}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label>Term:</label>
-          <select 
-            value={selectedTerm} 
-            onChange={(e) => setSelectedTerm(parseInt(e.target.value))}
-            disabled={showAllTerms}
-          >
-            {Array.from({ length: termCount }, (_, i) => (
-              <option key={i + 1} value={i + 1}>
-                Term {i + 1}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <button 
-          onClick={() => { setShowAllTerms(false); loadRanking(); }}
-          disabled={loading || !selectedClass}
-          className="load-btn"
-        >
-          {loading && !showAllTerms ? 'Loading...' : 'Load Single Term'}
-        </button>
-
-        <button 
-          onClick={loadAllTermsAverages}
-          disabled={loading || !selectedClass}
-          className="load-btn all-terms-btn"
-          style={{ background: '#667eea' }}
-        >
-          {loading && showAllTerms ? 'Loading...' : 'Load All Terms Averages'}
-        </button>
-      </div>
-
-      {/* All Terms View */}
-      {showAllTerms && allTermsData && (
-        <div className="ranking-content">
-          <div className="ranking-summary">
-            <h3>{allTermsData.className} - All Terms Combined Summary</h3>
-            <div className="summary-stats">
-              <div className="stat-item">
-                <span className="stat-value">{allTermsData.rankings.length}</span>
-                <span className="stat-label">Total Students</span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-value">{allTermsData.termCount}</span>
-                <span className="stat-label">Terms</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="ranking-table-container">
-            <table className="ranking-table">
-              <thead>
-                <tr>
-                  <th className="rank-header">Rank</th>
-                  <th className="student-header">Student Name</th>
-                  {Array.from({ length: termCount }, (_, i) => (
-                    <th key={i + 1}>Term {i + 1} Avg</th>
-                  ))}
-                  <th style={{ background: '#667eea' }}>Total Average</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allTermsData.rankings.map(student => (
-                  <tr key={student.studentName} className="student-row">
-                    <td className="rank-cell">
-                      <div className="rank-badge">{student.rank}</div>
-                    </td>
-                    <td className="student-name-cell">{student.studentName}</td>
-                    {Array.from({ length: termCount }, (_, i) => (
-                      <td key={i + 1} className="average-cell">
-                        {student.termAverages[i + 1]?.toFixed(1) || '-'}%
-                      </td>
-                    ))}
-                    <td className="average-cell" style={{ fontWeight: 'bold', color: '#667eea' }}>
-                      {student.finalAverage.toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Single Term View */}
-      {!showAllTerms && ranking && (
-        <div className="ranking-content">
-          <div className="ranking-summary">
-            <h3>
-              {ranking.className} - Term {ranking.termNumber} Summary
-            </h3>
-            <div className="summary-stats">
-              <div className="stat-item">
-                <span className="stat-value">{ranking.summary.totalStudents}</span>
-                <span className="stat-label">Total Students</span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-value">{ranking.summary.totalSubjects}</span>
-                <span className="stat-label">Total Subjects</span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-value">{ranking.summary.averageClassScore.toFixed(1)}%</span>
-                <span className="stat-label">Class Average</span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-value">{ranking.summary.passRate.toFixed(1)}%</span>
-                <span className="stat-label">Pass Rate</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="ranking-table-container">
-            <table className="ranking-table">
-              <thead>
-                <tr>
-                  <th className="rank-header">Rank</th>
-                  <th className="student-header">Student Name</th>
-                  {ranking.subjects.map(subject => (
-                    <th key={subject} className="subject-header">
-                      {subject}
-                    </th>
-                  ))}
-                  <th>Total</th>
-                  <th>Average</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ranking.rankings.map(student => (
-                  <tr key={student.studentName} className="student-row">
-                    <td className="rank-cell">
-                      <div className="rank-badge">
-                        {student.rankDisplay}
-                      </div>
-                    </td>
-                    <td className="student-name-cell">
-                      {student.studentName}
-                    </td>
-                    {ranking.subjects.map(subject => (
-                      <td key={subject} className="subject-score-cell">
-                        {student.subjects[subject] ? (
-                          <div className="score-container">
-                            <span className="score-value">
-                              {student.subjects[subject].total}
-                            </span>
-                            <span className="score-status">
-                              {student.subjects[subject].status}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="no-data">-</span>
-                        )}
-                      </td>
-                    ))}
-                    <td className="total-score-cell">
-                      {student.totalMarks}
-                    </td>
-                    <td className="average-cell">
-                      {student.average.toFixed(1)}%
-                    </td>
-                    <td className="overall-status-cell">
-                      {student.overallStatus}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {message && (
-        <div className={`message ${message.includes('successfully') ? 'success' : 'error'}`}>
-          {message}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const MarkListManagement = () => {
   const [activeTab, setActiveTab] = useState('subjects');
 
   const tabs = [
     { id: 'subjects', label: '📚 Subject Setup', component: SubjectMappingSetup },
     { id: 'forms', label: 'Mark List Forms', component: MarkListForm },
-    { id: 'teachers', label: 'Teacher Assignment', component: TeacherAssignment },
-    { id: 'ranking', label: 'Class Ranking', component: ClassRanking }
+    { id: 'teachers', label: 'Teacher Assignment', component: TeacherAssignment }
   ];
 
   const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component;
@@ -1032,7 +768,7 @@ const MarkListManagement = () => {
     <div className="mark-list-system">
       <div className="system-header">
         <h1>Mark List Management System</h1>
-        <p>Manage mark lists, teacher assignments, and class rankings</p>
+        <p>Manage mark lists and teacher assignments</p>
       </div>
 
       <div className="system-navigation">

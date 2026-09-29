@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './Task7.module.css';
+import ScheduleEditor from './ScheduleEditor';
+import { getBranchCode } from '../utils/branchCode';
 
 const Task7 = ({ onComplete, onScheduleGenerated }) => {
   const [step, setStep] = useState(1);
@@ -306,35 +308,61 @@ const Task7 = ({ onComplete, onScheduleGenerated }) => {
         
         setClassSubjects(processedData);
         
-        const initialMatrix = {};
-        processedData.forEach((subjectClass, index) => {
-          const subjectClassStr = getSubjectClassString(subjectClass);
-          const subjectName = getSubjectName(subjectClassStr);
-          const className = subjectClassStr.split(' Class ')[1] || '';
-          const teacherAssignment = getTeacherForClassSubject(subjectClassStr);
-          
-          let shiftId = 1;
-          if (className) {
-            const firstChar = className.charAt(0).toLowerCase();
-            if (firstChar >= 'm') {
-              shiftId = 2;
-            } else {
-              shiftId = (index % 2) + 1;
-            }
+        // Load per-class shifts from Task 2
+        let classShifts = {};
+        try {
+          const configsRes = await axios.get('/api/schedule/class-subject-configs');
+          if (configsRes.data && configsRes.data.length > 0) {
+            // Use shift from class_subject_configs (already synced from Task 2)
+            const initialMatrix = {};
+            configsRes.data.forEach(item => {
+              const key = item.subject_class || `${item.subject_name} Class ${item.class_name}`;
+              initialMatrix[key] = {
+                shift_id: item.shift_id || 1,
+                periods: getRecommendedPeriods(getSubjectName(key)),
+                days: basicConfig.school_days || [1, 2, 3, 4, 5]
+              };
+            });
+            // Also add any items from processedData that weren't in configs
+            processedData.forEach(key => {
+              if (!initialMatrix[key]) {
+                initialMatrix[key] = {
+                  shift_id: 1,
+                  periods: getRecommendedPeriods(getSubjectName(key)),
+                  days: basicConfig.school_days || [1, 2, 3, 4, 5]
+                };
+              }
+            });
+            setShiftPeriodMatrix(initialMatrix);
+          } else {
+            // Fallback: build from processedData with shift from classConfigs
+            const classConfigsRes = await axios.get('/api/students/form-structure', { headers: { 'x-branch-code': (getBranchCode() || '').toUpperCase() } });
+            const ccData = classConfigsRes.data?.classConfigs || {};
+            const fallbackMatrix = {};
+            processedData.forEach(key => {
+              const className = key.split(' Class ')[1] || '';
+              const cfg = ccData[className] || {};
+              fallbackMatrix[key] = {
+                shift_id: cfg.shift || 1,
+                periods: getRecommendedPeriods(getSubjectName(key)),
+                days: basicConfig.school_days || [1, 2, 3, 4, 5]
+              };
+            });
+            setShiftPeriodMatrix(fallbackMatrix);
           }
-          
-          let teachingDays = basicConfig.school_days || [1, 2, 3, 4, 5];
-          if (teacherAssignment && !isTeacherFullTime(teacherAssignment)) {
-            teachingDays = getRandomDays(teachingDays, 3);
-          }
-          
-          initialMatrix[subjectClassStr] = {
-            shift_id: shiftId,
-            periods: getRecommendedPeriods(subjectName),
-            days: teachingDays
-          };
-        });
-        setShiftPeriodMatrix(initialMatrix);
+        } catch(e) {
+          console.error('Error loading shifts:', e);
+          // Ultimate fallback: default shift 1
+          const fallbackMatrix = {};
+          processedData.forEach(key => {
+            fallbackMatrix[key] = {
+              shift_id: 1,
+              periods: getRecommendedPeriods(getSubjectName(key)),
+              days: basicConfig.school_days || [1, 2, 3, 4, 5]
+            };
+          });
+          setShiftPeriodMatrix(fallbackMatrix);
+        }
       }
     } catch (error) {
       console.error('Error fetching class-subjects:', error);
@@ -808,18 +836,6 @@ const Task7 = ({ onComplete, onScheduleGenerated }) => {
             </div>
           )}
 
-          <div className={styles.rebalanceSection}>
-            <button 
-              onClick={rebalanceShifts}
-              className={styles.secondaryButton}
-            >
-              🔄 Auto-Rebalance Shifts
-            </button>
-            <p className={styles.helpText}>
-              Evenly distribute classes between Shift 1 and Shift 2
-            </p>
-          </div>
-
           <div className={styles.configurationSummary}>
             <h4>Current Shift Distribution</h4>
             <div className={styles.overviewStats}>
@@ -882,14 +898,13 @@ const Task7 = ({ onComplete, onScheduleGenerated }) => {
                         <div className={styles.configurationControls}>
                           <div className={styles.controlGroup}>
                             <label className={styles.controlLabel}>Shift</label>
-                            <select
-                              value={currentConfig.shift_id || 1}
-                              onChange={(e) => handleShiftChange(subjectClassStr, e.target.value)}
-                              className={styles.controlSelect}
-                            >
-                              <option value="1">Shift 1 (Morning)</option>
-                              <option value="2">Shift 2 (Afternoon)</option>
-                            </select>
+                            <div style={{
+                              padding: '8px 12px', background: '#f0f4ff', borderRadius: '6px',
+                              border: '1px solid #d0d7ff', fontSize: '0.85rem', fontWeight: 500,
+                              color: currentConfig.shift_id === 2 ? '#7c3aed' : '#2563eb'
+                            }}>
+                              Shift {currentConfig.shift_id || 1} ({currentConfig.shift_id === 2 ? 'Afternoon' : 'Morning'})
+                            </div>
                           </div>
 
                           <div className={styles.controlGroup}>
@@ -1228,6 +1243,14 @@ const Task7 = ({ onComplete, onScheduleGenerated }) => {
           </div>
         </div>
       )}
+      <div style={{ marginTop: '3rem', borderTop: '2px solid #e5e7eb', paddingTop: '1.5rem' }}>
+        <details>
+          <summary style={{ cursor: 'pointer', fontSize: '1rem', fontWeight: 600, color: '#667eea' }}>
+            🗓️ Open Schedule Editor (Click to swap periods)
+          </summary>
+          <ScheduleEditor />
+        </details>
+      </div>
     </div>
   );
 };

@@ -71,7 +71,7 @@
 }
 
 .statCard {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 16px;
   padding: 1.5rem;
   display: flex;
@@ -181,7 +181,7 @@
 }
 
 .chartCard {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
@@ -205,6 +205,24 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.chartHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.reportSub {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface-secondary);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 /* Top Students List */

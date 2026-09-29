@@ -14,6 +14,7 @@ import FileUpload from '../../../COMPONENTS/FileUpload/FileUpload';
 import Textarea from '../../../COMPONENTS/Textarea/Textarea';
 import Checkbox from '../../../COMPONENTS/Checkbox/Checkbox';
 import Button from '../../../COMPONENTS/Button/Button';
+import { getBranchCode } from '../../../utils/branchCode';
 
 const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
   const { t } = useTranslation();
@@ -43,25 +44,38 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
     const errors = {};
     const isTeacherRole = formData.role === 'Teacher';
     
-    if (isTeacherRole) {
-      // Validate name is required for teachers
-      if (!formData.name || formData.name.trim() === '') {
-        errors.name = 'Name is required for teachers';
+    // Validate all required fields
+    if (!formData.name || formData.name.trim() === '') {
+      errors.name = 'Name is required';
+    }
+    if (!formData.gender) {
+      errors.gender = 'Gender is required';
+    }
+    if (!formData.role) {
+      errors.role = 'Role is required';
+    }
+    if (!formData.staff_enrollment_type) {
+      errors.staff_enrollment_type = 'Enrollment type is required';
+    }
+    if (!formData.staff_work_time) {
+      errors.staff_work_time = 'Work time is required';
+    }
+    
+    // Phone format validation (at least 10 digits)
+    if (formData.phone) {
+      const digits = formData.phone.replace(/\D/g, '');
+      if (digits.length < 10) {
+        errors.phone = 'Phone must have at least 10 digits';
       }
-      
-      // Validate staff_work_time is required for teachers
-      if (!formData.staff_work_time) {
-        errors.staff_work_time = 'Work time is required for teachers';
+    }
+    
+    // Validate schedule for part-time teachers
+    if (isTeacherRole && formData.staff_work_time === 'Part Time') {
+      if (!formData.work_days || formData.work_days.length === 0) {
+        errors.schedule = 'Schedule information is required for part-time teachers';
       }
-      
-      // Validate schedule for part-time teachers
-      if (formData.staff_work_time === 'Part Time') {
-        if (!formData.work_days || formData.work_days.length === 0) {
-          errors.schedule = 'Schedule information is required for part-time teachers';
-        }
-        if (!formData.shifts || formData.shifts.length === 0) {
-          errors.schedule = 'Please select at least one shift for part-time teachers';
-        }
+      if (!formData.shifts || formData.shifts.length === 0) {
+        errors.schedule = 'Please select at least one shift for part-time teachers';
       }
     }
     
@@ -130,7 +144,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
       
       const initialFormData = {};
       response.data.forEach(col => {
-        if (!['id', 'global_staff_id', 'staff_id'].includes(col.column_name)) {
+        if (!['id', 'global_staff_id', 'staff_id', 'image_staff'].includes(col.column_name)) {
           if (col.data_type === 'checkbox' || col.data_type === 'boolean') {
             initialFormData[col.column_name] = false;
           } else if (col.data_type === 'multiple-checkbox') {
@@ -397,10 +411,19 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
     const uploadFields = columns.filter(col => col.data_type === 'upload').map(col => col.column_name);
     formDataToSend.append('uploadFields', JSON.stringify(uploadFields));
 
+    // Ensure we have a branch code before submitting
+    const branchCode = getBranchCode();
+    if (!branchCode) {
+      setMessage('❌ No branch code found. Please log in again or select a branch.');
+      setMessageType('error');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      const response = await axios.post('/api/staff/add-staff', formDataToSend, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const headers = { 'X-Branch-Code': branchCode };
+      
+      const response = await axios.post('/api/staff/add-staff', formDataToSend, { headers });
       
       // Handle teacher-specific response data
       if (response.data.teacherData) {
@@ -426,7 +449,13 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
       }
       
       if (response.data.userCredentials) {
-        setGeneratedCredentials(response.data.userCredentials);
+        if (response.data.userCredentials.error) {
+          setMessage(`⚠️ Staff saved but account creation failed: ${response.data.userCredentials.error}`);
+          setMessageType('warning');
+          setGeneratedCredentials(null);
+        } else {
+          setGeneratedCredentials(response.data.userCredentials);
+        }
       } else {
         setGeneratedCredentials(null);
       }
@@ -438,7 +467,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
       // Reset form
       const initialFormData = {};
       columns.forEach(col => {
-        if (!['id', 'global_staff_id', 'staff_id'].includes(col.column_name)) {
+        if (!['id', 'global_staff_id', 'staff_id', 'image_staff'].includes(col.column_name)) {
           if (col.data_type === 'checkbox' || col.data_type === 'boolean') {
             initialFormData[col.column_name] = false;
           } else if (col.data_type === 'multiple-checkbox') {
@@ -501,23 +530,22 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
   const renderField = (col) => {
     const fieldName = col.column_name;
     const value = formData[fieldName] || '';
-    const isRequired = col.is_nullable === 'NO';
+    const isObject = typeof formData[fieldName] === 'object' && formData[fieldName] !== null;
+    const isRequired = true;
     const label = fieldLabel(fieldName);
     const isStandardDropdown = standardOptions[fieldName]?.length > 0;
-    const selectOptions = (col.options || standardOptions[fieldName] || []).map((opt) => ({
-      value: opt,
-      label: opt
-    }));
+    const selectOptions = (col.options || standardOptions[fieldName] || []).map((opt) => {
+      const val = typeof opt === 'object' ? (opt.value || opt.label || '') : opt;
+      return { value: val, label: typeof opt === 'object' ? (opt.label || val) : opt };
+    });
 
     const handleFileUploadChange = (uploaded) => {
       const file = uploaded?.[0];
       if (!file) {
-        const next = { ...files };
-        delete next[fieldName];
-        setFiles(next);
+        setFiles(prev => { const n = { ...prev }; delete n[fieldName]; return n; });
         return;
       }
-      setFiles({ ...files, [fieldName]: file });
+      setFiles(prev => ({ ...prev, [fieldName]: file }));
     };
 
     if (fieldName === 'image_staff' || col.data_type === 'upload') {
@@ -538,6 +566,21 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
             required={isRequired}
             maxSize={30 * 1024 * 1024}
             helperText={`${getFileTypeDescription(fieldName)} (Max 30MB)`}
+          />
+        </div>
+      );
+    }
+
+    if (fieldName === 'machine_id') {
+      return (
+        <div key={fieldName} className={styles.fieldGroup}>
+          <Input
+            label={label}
+            value={value || ''}
+            placeholder="Auto-generated on submit"
+            readOnly
+            required={isRequired}
+            helperText="6-digit unique ID, auto-assigned"
           />
         </div>
       );
@@ -648,13 +691,30 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
       );
     }
 
+    if (fieldName === 'phone') {
+      return (
+        <div key={fieldName} className={styles.fieldGroup}>
+          <Input
+            type="tel"
+            label={label}
+            value={value}
+            onChange={(v) => handleInputChange(fieldName, v)}
+            required={isRequired}
+            error={validationErrors[fieldName]}
+            placeholder="e.g. +251911234567 or 0911234567"
+            helperText="Unique phone number, at least 10 digits"
+          />
+        </div>
+      );
+    }
+
     if (col.data_type === 'integer' || col.data_type === 'numeric') {
       return (
         <div key={fieldName} className={styles.fieldGroup}>
           <Input
             type="number"
             label={label}
-            value={value}
+            value={isObject ? '' : value}
             onChange={(v) => handleInputChange(fieldName, v)}
             required={isRequired}
             error={validationErrors[fieldName]}
@@ -667,7 +727,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
       <div key={fieldName} className={styles.fieldGroup}>
         <Input
           label={label}
-          value={value}
+          value={isObject ? '' : value}
           onChange={(v) => handleInputChange(fieldName, v)}
           required={isRequired}
           error={validationErrors[fieldName]}

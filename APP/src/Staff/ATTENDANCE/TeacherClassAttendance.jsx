@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FiCalendar, FiUsers, FiCheckCircle, FiXCircle, FiClock, FiEdit2, FiX, FiSave, FiAlertCircle } from 'react-icons/fi';
 import styles from './TeacherClassAttendance.module.css';
+import { classIdLabel } from '../../utils/classId';
 
 const TeacherClassAttendance = () => {
   const [assignedClass, setAssignedClass] = useState(null);
@@ -601,7 +602,7 @@ const TeacherClassAttendance = () => {
               {students.map(student => (
                 <tr key={`${student.student_id}-${student.class_name}`}>
                   <td className={styles.studentName}>{student.student_name}</td>
-                  <td className={styles.classId}>{student.class_id || 'N/A'}</td>
+                  <td className={styles.classId}>{classIdLabel(student.class_id) || 'N/A'}</td>
                   <td className={styles.machineId}>{student.smachine_id || 'Not Set'}</td>
                   {selectedWeek.days.map((dayInfo, index) => (
                     <td 

@@ -7,14 +7,14 @@ import Button from '../../COMPONENTS/Button/Button';
 import Card from '../../COMPONENTS/Card/Card';
 import { getCurrentEthiopianMonth, getEthiopianMonthName, ethiopianToGregorian } from '../../utils/ethiopianCalendar';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const ethiopianMonths = [
   'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
   'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
 ];
 
-const AttendanceSystem = () => {
+const TeacherAttendance = () => {
   const { t } = useTranslation();
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -96,7 +96,7 @@ const AttendanceSystem = () => {
   const fetchStaff = async () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      const types = ['Supportive Staff', 'Administrative Staff', 'Teachers'];
+      const types = ['Teachers', 'Administrative Staff', 'Supportive Staff', 'Finance'];
       let allStaff = [];
       
       for (const staffType of types) {
@@ -376,7 +376,7 @@ const AttendanceSystem = () => {
           <div className={styles.headerTitle}>
             <FiUsers className={styles.headerIcon} />
             <div>
-              <h1>Staff Attendance System</h1>
+              <h1>Teacher Attendance</h1>
               <p>Track and manage staff attendance with Ethiopian calendar</p>
             </div>
           </div>
@@ -1213,4 +1213,4 @@ const BulkAttendanceModal = ({ staff, ethMonth, ethYear, onClose, onSuccess }) =
   );
 };
 
-export default AttendanceSystem;
+export default TeacherAttendance;

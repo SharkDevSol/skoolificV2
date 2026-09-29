@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FiUser, FiUsers, FiFileText, FiList, FiInfo, FiSettings } from 'react-icons/fi';
+import { FiUser, FiUsers, FiFileText, FiList, FiInfo, FiSettings, FiMonitor } from 'react-icons/fi';
+import { getBranchCode } from '../utils/branchCode';
+import { classIdLabel } from '../utils/classId';
 import { useApp } from '../context/AppContext';
 import {
   MobileProfileLayout,
@@ -30,17 +32,26 @@ const StudentProfile = () => {
   const toast = useToast();
   const { t } = useApp();
 
-  const navItems = [
-    { id: 'profile', label: t('profile'), icon: <FiUser /> },
-    { id: 'class', label: t('classComm'), icon: <FiUsers /> },
-    { id: 'posts', label: t('posts'), icon: <FiFileText />, centered: true },
-    { id: 'marklist', label: t('marklist'), icon: <FiList /> },
-    { id: 'settings', label: t('settings'), icon: <FiSettings /> }
+const navItems = [
+  { id: 'profile', label: t('profile'), icon: <FiUser /> },
+  { id: 'class', label: t('classComm'), icon: <FiUsers /> },
+  { id: 'posts', label: t('posts'), icon: <FiFileText />, centered: true },
+  { id: 'exams', label: 'Exams', icon: <FiMonitor /> },
+  { id: 'marklist', label: t('marklist'), icon: <FiList /> },
+  { id: 'settings', label: t('settings'), icon: <FiSettings /> }
   ];
+
+  const handleNav = (id) => {
+    if (id === 'exams') {
+      navigate(`/app/student/${username}/exams`);
+      return;
+    }
+    setActiveTab(id);
+  };
 
   const fetchProfile = useCallback(async () => {
     try {
-      const response = await axios.get(`https://v2.skoolific.com/api/students/profile/${username}`);
+      const response = await axios.get(`/api/students/profile/${username}`, { headers: { 'x-branch-code': (getBranchCode() || '').toUpperCase() } });
       setStudent(response.data.student);
       setError('');
     } catch (err) {
@@ -53,7 +64,7 @@ const StudentProfile = () => {
 
   const fetchProfilePosts = useCallback(async (schoolId) => {
     try {
-      const response = await axios.get(`https://v2.skoolific.com/api/posts/profile/student/${schoolId}`);
+      const response = await axios.get(`/api/posts/profile/student/${schoolId}`);
       setProfilePosts(response.data.map(post => ({ ...post, localLikes: post.likes || 0 })));
     } catch (err) {
       console.error('Error fetching profile posts:', err);
@@ -80,7 +91,7 @@ const StudentProfile = () => {
     setMarkListLoading(true);
     try {
       const response = await axios.get(
-        `https://v2.skoolific.com/api/mark-list/student-marks/${student.school_id}/${encodeURIComponent(student.class)}`
+        `/api/mark-list/student-marks/${student.school_id}/${encodeURIComponent(student.class)}`
       );
       setMarkListData(response.data.marks || []);
     } catch (err) {
@@ -108,7 +119,7 @@ const StudentProfile = () => {
 
   const handleLike = async (postId) => {
     try {
-      await axios.put(`https://v2.skoolific.com/api/posts/${postId}/like`);
+      await axios.put(`/api/posts/${postId}/like`);
       setProfilePosts(prev => 
         prev.map(post => 
           post.id === postId 
@@ -148,16 +159,35 @@ const StudentProfile = () => {
     if (!imagePath) return null;
     // Remove leading slash and any 'uploads/' or 'Uploads/' prefix
     const cleanPath = imagePath.replace(/^\/?(uploads|Uploads)\//i, '');
-    return `https://v2.skoolific.com/uploads/${cleanPath}`;
+    return `/uploads/${cleanPath}`;
   };
 
   const renderProfileTab = () => (
     <div className={styles.profileTabContainer}>
       <ProfileHeader
         name={student.student_name}
-        subtitle={`${student.class} • Roll No: ${student.class_id}`}
+        subtitle={`${student.class} • Roll No: ${classIdLabel(student.class_id) || '-'}`}
         imageUrl={getImageUrl(student.image_student)}
       />
+
+      <button
+        onClick={() => navigate(`/app/student/${username}/exams`)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '12px', width: '100%',
+          margin: '4px 0 12px', padding: '14px 16px', borderRadius: '14px', border: '1px solid #ddd6fe',
+          background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', cursor: 'pointer',
+          fontWeight: 700, fontSize: '0.95rem', textAlign: 'left', boxShadow: '0 6px 16px rgba(124,58,237,.3)'
+        }}
+      >
+        <span style={{ fontSize: '1.3rem' }}>📝</span>
+        <span style={{ flex: 1 }}>
+          My Exams
+          <span style={{ display: 'block', fontSize: '0.76rem', fontWeight: 500, opacity: 0.85 }}>
+            Take published tests & view your results
+          </span>
+        </span>
+        <span style={{ fontSize: '1.1rem' }}>›</span>
+      </button>
 
       <CollapsibleCard
         title={t('studentInfo')}
@@ -323,7 +353,7 @@ const StudentProfile = () => {
     return (
       <MobileProfileLayout title="Student Profile" onLogout={handleLogout}>
         <SkeletonLoader type="profile" />
-        <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={setActiveTab} />
+        <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={handleNav} />
       </MobileProfileLayout>
     );
   }
@@ -337,7 +367,7 @@ const StudentProfile = () => {
             Try Again
           </button>
         </div>
-        <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={setActiveTab} />
+        <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={handleNav} />
       </MobileProfileLayout>
     );
   }
@@ -348,7 +378,7 @@ const StudentProfile = () => {
         <div className={styles.errorContainer}>
           <p>Student not found.</p>
         </div>
-        <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={setActiveTab} />
+        <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={handleNav} />
       </MobileProfileLayout>
     );
   }
@@ -360,7 +390,7 @@ const StudentProfile = () => {
       onRefresh={handleRefresh}
     >
       {renderContent()}
-      <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={setActiveTab} />
+      <BottomNavigation items={navItems} activeItem={activeTab} onItemClick={handleNav} />
       <toast.ToastContainer />
     </MobileProfileLayout>
   );

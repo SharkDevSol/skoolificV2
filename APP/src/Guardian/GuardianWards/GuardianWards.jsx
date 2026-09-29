@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { FiUser, FiPhone, FiMail, FiCalendar, FiBook, FiTrendingUp } from 'react-icons/fi';
 import axios from 'axios';
 import styles from './GuardianWards.module.css';
+import { classIdLabel } from '../../utils/classId';
 
 const GuardianWards = () => {
   const [wards, setWards] = useState([]);
@@ -18,7 +19,7 @@ const GuardianWards = () => {
     try {
       const guardianInfo = JSON.parse(localStorage.getItem('guardianInfo') || '{}');
       const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
-      const guardiansResponse = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/guardian-list/guardians`);
+      const guardiansResponse = await axios.get(`${(typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'))}/guardian-list/guardians`);
       const currentGuardian = guardiansResponse.data.find(
         guardian => guardian.guardian_username === guardianInfo.guardian_username ||
                    guardian.guardian_phone === guardianInfo.guardian_phone
@@ -140,7 +141,7 @@ const GuardianWards = () => {
               <div className={styles.modalInfo}>
                 <p><strong>Class:</strong> {selectedWard.class}</p>
                 <p><strong>School ID:</strong> {selectedWard.school_id}</p>
-                <p><strong>Class ID:</strong> {selectedWard.class_id}</p>
+                <p><strong>Class ID:</strong> {classIdLabel(selectedWard.class_id) || '-'}</p>
                 <p><strong>Age:</strong> {selectedWard.age || 'N/A'}</p>
                 <p><strong>Gender:</strong> {selectedWard.gender || 'N/A'}</p>
               </div>

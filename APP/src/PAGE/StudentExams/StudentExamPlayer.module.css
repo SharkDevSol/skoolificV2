@@ -1,0 +1,131 @@
+.container { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
+.backBtn { margin-top: 16px; padding: 10px 18px; border: 1px solid #d1d5db; background: #fff; border-radius: 10px; cursor: pointer; font-size: 14px; color: #374151; }
+.backBtn:hover { background: #f8fafc; }
+.errorBox { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 12px; padding: 16px; font-size: 14px; }
+
+/* gate */
+.gateCard { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 34px 26px; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+.lockIcon { width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 50%; background: #f5f3ff; color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+.gateCard h1 { margin: 0 0 6px; font-size: 20px; color: #1e293b; }
+.pwdInput { width: 190px; font-size: 26px; letter-spacing: 10px; text-align: center; padding: 12px; border: 2px solid #d1d5db; border-radius: 12px; margin: 14px auto 6px; display: block; }
+.pwdInput:focus { outline: none; border-color: #7c3aed; }
+.pwdError { color: #dc2626; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 8px auto; max-width: 360px; }
+.beginBtn { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 16px auto 0; padding: 12px 26px; border: none; border-radius: 11px; background: linear-gradient(135deg, #7c3aed, #6d28d9); color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+.beginBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+.linkBtn { display: block; margin: 12px auto 0; border: none; background: none; color: #6b7280; font-size: 13.5px; cursor: pointer; }
+.linkBtn:hover { color: #374151; text-decoration: underline; }
+
+/* ready */
+.readyCard, .doneCard { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 28px 24px; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+.readyCard h1, .doneCard h1 { margin: 12px 0 4px; font-size: 21px; color: #1e293b; }
+.badges { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.subjectBadge { background: #f3e8ff; color: #7c3aed; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.classBadge { background: #dbeafe; color: #1d4ed8; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.practiceBadge { background: #dcfce7; color: #166534; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.meta { margin: 8px 0 14px; color: #64748b; font-size: 13.5px; }
+.rules { text-align: left; max-width: 520px; margin: 0 auto; padding-left: 20px; color: #374151; font-size: 13.5px; line-height: 1.7; }
+
+/* done */
+.doneCard { border-color: #bbf7d0; background: #f0fdf4; }
+.doneBad { border-color: #fecaca; background: #fef2f2; }
+.doneIcon { width: 56px; height: 56px; margin: 0 auto; border-radius: 50%; background: #dcfce7; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+.doneBad .doneIcon { background: #fee2e2; color: #dc2626; }
+.doneMsg { max-width: 520px; margin: 10px auto; color: #374151; font-size: 14.5px; line-height: 1.6; }
+.doneTime { display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 14px; font-weight: 700; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 14px; max-width: 460px; margin: 10px auto; }
+.doneScore { display: flex; align-items: baseline; justify-content: center; gap: 10px; margin: 8px auto 4px; }
+.doneScoreBig { font-size: 34px; font-weight: 800; color: #166534; font-variant-numeric: tabular-nums; }
+.doneBad .doneScoreBig { color: #b91c1c; }
+.doneScorePct { font-size: 18px; font-weight: 700; color: #16a34a; }
+.doneBad .doneScorePct { color: #dc2626; }
+.doneNotes { display: flex; flex-direction: column; gap: 6px; max-width: 480px; margin: 12px auto; font-size: 13px; color: #4b5563; }
+
+/* exam */
+.examHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.examHeader h1 { margin: 0; font-size: 20px; color: #1e293b; }
+.examHeader p { margin: 4px 0 0; font-size: 13px; color: #64748b; }
+.headerRight { display: flex; gap: 10px; align-items: center; }
+.timer { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 15px; color: #166534; background: #dcfce7; border: 1px solid #86efac; border-radius: 9px; padding: 7px 13px; }
+.timerLow { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
+.lockPill { font-size: 12.5px; font-weight: 700; color: #6d28d9; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 999px; padding: 6px 11px; }
+
+.warningBanner { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; font-weight: 600; margin-bottom: 12px; }
+.errorBanner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.retryBtn { padding: 7px 14px; border: none; border-radius: 8px; background: #dc2626; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+
+.navBar { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; }
+.navGrid { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; justify-content: center; max-height: 160px; overflow: auto; }
+.navBtn { min-width: 32px; height: 32px; padding: 0 6px; border: 1.5px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 600; color: #64748b; cursor: pointer; }
+.navBtnActive { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+.navBtnAnswered:not(.navBtnActive) { background: #ede9fe; border-color: #c4b5fd; color: #6d28d9; }
+.navArrow { padding: 8px 13px; border: 1px solid #d1d5db; background: #fff; border-radius: 8px; cursor: pointer; font-size: 13px; color: #475569; }
+.navArrow:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.questionCard { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 22px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.qHeader { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.qNum { background: #7c3aed; color: #fff; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.qType { background: #f3e8ff; color: #7c3aed; border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 700; text-transform: capitalize; }
+.qMarks { font-size: 12px; color: #64748b; }
+.qText { margin: 0 0 14px; font-size: 15.5px; line-height: 1.6; color: #1e293b; white-space: pre-wrap; }
+
+.options { display: flex; flex-direction: column; gap: 8px; }
+.option { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border: 1.5px solid #e5e7eb; border-radius: 9px; cursor: pointer; font-size: 14.5px; transition: all 0.15s; }
+.option:hover { border-color: #a78bfa; background: #faf5ff; }
+.optionOn { border-color: #7c3aed !important; background: #f5f3ff !important; }
+.optLetter { font-weight: 700; color: #334155; }
+.trueFalse { display: flex; gap: 12px; }
+.tfOption { flex: 1; display: flex; align-items: center; gap: 9px; padding: 13px 16px; border: 1.5px solid #e5e7eb; border-radius: 9px; cursor: pointer; font-size: 14.5px; }
+.tfOption:hover { border-color: #a78bfa; }
+.matching { display: flex; flex-direction: column; gap: 8px; }
+.matchRow { display: flex; align-items: center; gap: 10px; padding: 10px; background: #f9fafb; border-radius: 9px; }
+.matchLeft { min-width: 38%; font-weight: 600; font-size: 14px; }
+.matchArrow { color: #9ca3af; }
+.matchRow select { flex: 1; padding: 8px 9px; border: 1px solid #d1d5db; border-radius: 7px; font-size: 13.5px; background: #fff; }
+.textInput { width: 100%; padding: 12px; border: 1.5px solid #e5e7eb; border-radius: 9px; font-size: 15px; box-sizing: border-box; }
+.textInput:focus, .textArea:focus { outline: none; border-color: #7c3aed; }
+.textArea { width: 100%; padding: 12px; border: 1.5px solid #e5e7eb; border-radius: 9px; font-size: 14.5px; box-sizing: border-box; resize: vertical; font-family: inherit; }
+
+.footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; }
+.nextBtn { padding: 12px 26px; border: none; border-radius: 10px; background: #7c3aed; color: #fff; font-size: 14.5px; font-weight: 700; cursor: pointer; }
+.nextBtn:hover { background: #6d28d9; }
+.submitBtn { display: flex; align-items: center; gap: 8px; padding: 13px 30px; border: none; border-radius: 10px; background: #16a34a; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+.submitBtn:hover { background: #15803d; }
+.submitBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.fsOverlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.94); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
+.fsBox { text-align: center; color: #fff; max-width: 440px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); border-radius: 18px; padding: 30px 26px; }
+.fsBox svg { font-size: 34px; color: #a78bfa; }
+.fsBox h2 { margin: 12px 0 8px; font-size: 21px; }
+.fsBox p { margin: 0 0 18px; font-size: 14.5px; color: #cbd5e1; line-height: 1.5; }
+.fsBtn { display: inline-flex; align-items: center; gap: 8px; padding: 13px 26px; border: none; border-radius: 11px; background: linear-gradient(135deg, #7c3aed, #6d28d9); color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+.fsBtn:hover { filter: brightness(1.08); }
+
+/* ── Mobile lock: exam pinned to the screen when the browser has no fullscreen API ── */
+.immersive { position: fixed; inset: 0; z-index: 1500; max-width: none; margin: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none; background: #f8fafc; padding: max(14px, env(safe-area-inset-top)) 14px calc(28px + env(safe-area-inset-bottom)); }
+.lockPillTap { cursor: pointer; }
+@media (max-width: 560px) {
+  .examHeader h1 { font-size: 16.5px; }
+  .examHeader p { font-size: 12.5px; }
+  .footer { flex-direction: column; align-items: stretch; }
+  .footer button { width: 100%; justify-content: center; }
+}
+
+/* ── Mark for review (same look as the teacher test player) ── */
+.flagBtn { margin-left: auto; border: 1.5px solid #fcd34d; background: #fffbeb; color: #92400e; border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.flagBtnOn { background: #fde68a; border-color: #f59e0b; color: #78350f; }
+.navBtnFlagged:not(.navBtnActive) { box-shadow: inset 0 -3px 0 #f59e0b; border-color: #f59e0b; color: #92400e; background: #fffbeb; }
+
+/* ── Blackout warning: covers the exam after the student leaves it ── */
+.blackout { position: fixed; inset: 0; z-index: 3000; background: #000; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+.blackoutBox { max-width: 520px; color: #fff; }
+.blackoutBox svg { font-size: 44px; color: #fbbf24; }
+.blackoutBox h2 { margin: 14px 0 10px; font-size: 23px; }
+.blackoutReason { margin: 0 0 14px; font-size: 14.5px; color: #cbd5e1; }
+.blackoutRule { margin: 0 0 24px; font-size: 15.5px; line-height: 1.65; color: #f8fafc; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 14px 16px; }
+.blackoutRule strong { color: #fca5a5; }
+.blackoutBtn { padding: 14px 26px; border: none; border-radius: 11px; background: linear-gradient(135deg, #7c3aed, #6d28d9); color: #fff; font-size: 15.5px; font-weight: 700; cursor: pointer; }
+.blackoutBtn:hover { filter: brightness(1.08); }
+@media (max-width: 560px) {
+  .blackoutBox h2 { font-size: 20px; }
+  .blackoutRule { font-size: 14.5px; }
+  .blackoutBtn { width: 100%; }
+}

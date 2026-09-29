@@ -2,19 +2,23 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { formatAPIError } from '../utils/errorMessages';
+import { getBranchCode } from '../utils/branchCode';
 import styles from './TaskDetail.module.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
+const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 import StudentFormBuilder from '../PAGE/CreateRegister/CreateRegisterStudent/StudentFormBuilder';
 import StaffFormBuilder from '../PAGE/CreateRegister/CreateRegisterStaff/StaffFormBuilder';
 import CreateRegisterStaff from '../PAGE/CreateRegister/CreateRegisterStaff/CreateRegisterStaff';
 import SubjectMappingSetup from '../PAGE/CreateMarklist/SubjectMappingSetup';
-import Task7 from '../PAGE/Task7';
+import Task6 from '../PAGE/Task6';
 import { useLanguageSelection, AVAILABLE_LANGUAGES } from '../context/LanguageSelectionContext';
 
 function TaskDetail() {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const currentTaskId = parseInt(taskId);
+  const TOTAL_TASKS = 6;
   const [year, setYear] = useState(new Date().getFullYear());
   const [terms, setTerms] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -24,11 +28,16 @@ function TaskDetail() {
   // V2 Enhancement: Additional Task 1 configuration options
   const [shiftCount, setShiftCount] = useState(1);
   const [shiftRotation, setShiftRotation] = useState(false);
+  const [rotationFrequency, setRotationFrequency] = useState('weekly');
+  const [periodsPerDay, setPeriodsPerDay] = useState({0:4,1:6,2:6,3:6,4:6,5:6,6:4});
   const [periodsPerShift, setPeriodsPerShift] = useState(7);
   const [periodDuration, setPeriodDuration] = useState(45);
   const [hasKG, setHasKG] = useState(false);
-  const [hasEveningClass, setHasEveningClass] = useState(false);
   const [schoolDays, setSchoolDays] = useState([1, 2, 3, 4, 5]); // Monday-Friday by default
+  const [shiftTimes, setShiftTimes] = useState({
+    1: { start: '02:00', end: '06:00', label: 'Shift 1 (Morning)' },
+    2: { start: '07:00', end: '12:00', label: 'Shift 2 (Afternoon)' },
+  });
 
   // Schedule status state for Task 7
   const [scheduleStatus, setScheduleStatus] = useState({
@@ -38,6 +47,16 @@ function TaskDetail() {
     checked: false
   });
   const [checkingSchedule, setCheckingSchedule] = useState(false);
+
+  // Task 5 state (moved to top level to fix React error #310)
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [mergeData, setMergeData] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [classSubjects, setClassSubjects] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [assignments, setAssignments] = useState({});
+  const [teacherWorkTimes, setTeacherWorkTimes] = useState({});
 
   // Function to check schedule generation status
   const checkScheduleCreated = async () => {
@@ -69,8 +88,6 @@ function TaskDetail() {
     }
   };
 
-  const TOTAL_TASKS = 6;
-  
   const handleComplete = async () => {
     const id = parseInt(taskId);
     console.log(`🔵 Attempting to complete task ${id}`);
@@ -78,41 +95,26 @@ function TaskDetail() {
     try {
       // Mark task as completed in database
       console.log(`📡 Calling API: POST /tasks/complete/${id}`);
-      const response = await api.post(`/tasks/complete/${id}`);
-      console.log(`✅ API Response:`, response.data);
+      await api.post(`/tasks/complete/${id}`).catch(e => console.error('Complete API error:', e));
       
       // Also update localStorage for backward compatibility
       const stored = JSON.parse(localStorage.getItem('completedTasks') || '[]');
       if (!stored.includes(id)) {
         stored.push(id);
         localStorage.setItem('completedTasks', JSON.stringify(stored));
-        console.log(`💾 Updated localStorage:`, stored);
       }
       
-      // Check if all tasks are now completed
-      console.log(`📡 Fetching task status...`);
-      const statusResponse = await api.get('/tasks/status');
-      console.log(`📊 Task status:`, statusResponse.data);
-      const completedCount = statusResponse.data.completedTasks.length;
+      setIsCompleted(true);
+      setIsEditing(false);
       
-      if (completedCount >= TOTAL_TASKS) {
-        // All tasks completed, redirect to dashboard
-        console.log(`🎉 All tasks completed! Redirecting to dashboard...`);
-        navigate('/dashboard', { replace: true });
-      } else {
-        // More tasks remaining, go back to tasks list
-        console.log(`📋 ${completedCount}/${TOTAL_TASKS} tasks completed. Redirecting to tasks page...`);
-        navigate('/tasks');
-      }
     } catch (error) {
       console.error('❌ Error completing task:', error);
-      console.error('Error details:', error.response?.data);
-      setError(`Failed to mark task as complete: ${error.response?.data?.error || error.message}`);
+      setError(formatAPIError(error, 'Failed to mark task as complete'));
     }
   };
 
   // Enhanced handleComplete for Task 7 with schedule check
-  const handleCompleteTask7 = async () => {
+  const handleCompleteTask6 = async () => {
     const isScheduleCreated = await checkScheduleCreated();
     
     if (!isScheduleCreated) {
@@ -144,26 +146,22 @@ function TaskDetail() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'x-branch-code': (getBranchCode() || '').toUpperCase(),
         },
         body: JSON.stringify({ 
           terms,
           periods_per_shift: periodsPerShift,
+          periods_per_day: periodsPerDay,
           period_duration: periodDuration,
           short_break_duration: 10,
           total_shifts: shiftCount,
           shift_rotation: shiftRotation,
+          rotation_frequency: rotationFrequency,
           teaching_days_per_week: schoolDays.length,
           school_days: schoolDays,
           has_kg: hasKG,
-          has_evening_class: hasEveningClass,
-          shift1_morning_start: '07:00',
-          shift1_morning_end: '12:30',
-          shift1_afternoon_start: '12:30',
-          shift1_afternoon_end: '17:30',
-          shift2_morning_start: '07:00',
-          shift2_morning_end: '12:30',
-          shift2_afternoon_start: '12:30',
-          shift2_afternoon_end: '17:30'
+          shift1_start: shiftTimes[1].start, shift1_end: shiftTimes[1].end,
+          shift2_start: shiftTimes[2].start, shift2_end: shiftTimes[2].end,
         }),
       });
       
@@ -220,9 +218,252 @@ function TaskDetail() {
   // Language selection hook for Task 1
   const { selectedLanguages, toggleLanguage, availableLanguages } = useLanguageSelection();
 
+  // Track if task is already completed and edit mode
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
+
+  // Check if task is already completed
+  useEffect(() => {
+    const checkCompletion = async () => {
+      try {
+        const response = await api.get('/tasks/status');
+        if (response.data.success && response.data.completedTasks) {
+          setIsCompleted(response.data.completedTasks.includes(parseInt(taskId)));
+        }
+      } catch (error) {
+        const stored = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+        setIsCompleted(stored.includes(parseInt(taskId)));
+      } finally {
+        setCheckingStatus(false);
+      }
+    };
+    checkCompletion();
+    
+    // Load Task 5 data when on task 5 (once)
+    if (taskId === '5' && !dataLoaded) {
+      const loadTask5 = async () => {
+        try {
+          const h = { 'x-branch-code': (getBranchCode() || '').toUpperCase() };
+          const classSubjectsRes = await fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: h });
+          if (classSubjectsRes.ok) setClassSubjects(await classSubjectsRes.json());
+          const teachersRes = await fetch(`${API_BASE_URL}/school-setup/teachers-with-worktime`, { headers: h });
+          if (teachersRes.ok) {
+            const teachersData = await teachersRes.json();
+            setTeachers(teachersData);
+            const w = {}; teachersData.forEach(t => { w[t.name] = t.staff_work_time || 'Full Time'; });
+            setTeacherWorkTimes(w);
+          }
+          const checkRes = await fetch(`${API_BASE_URL}/mark-list/teacher-assignments`, { headers: h });
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            if (checkData.length > 0) { setMergeData(checkData); setStats({ insertedCount: checkData.length, teacherCount: new Set(checkData.map(item => item.teacher_name)).size, classSubjectCount: checkData.length }); }
+          }
+        } catch(e) { console.error(e); }
+        finally { setDataLoaded(true); }
+      };
+      loadTask5();
+    }
+  }, [taskId]);
+
+  // Task 4 read-only data
+  const [task4Subjects, setTask4Subjects] = useState([]);
+  const [task4Mappings, setTask4Mappings] = useState([]);
+  const [task4DataLoading, setTask4DataLoading] = useState(false);
+  useEffect(() => {
+    if (taskId === '4' && isCompleted) {
+      setTask4DataLoading(true);
+      const load = async () => {
+        try {
+          const h = { 'x-branch-code': (getBranchCode() || '').toUpperCase() };
+          const [s, m] = await Promise.all([
+            fetch(`${API_BASE_URL}/mark-list/subjects`, { headers: h }),
+            fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: h })
+          ]);
+          if (s.ok) setTask4Subjects(await s.json());
+          if (m.ok) setTask4Mappings(await m.json());
+        } catch (e) { console.error(e); }
+        finally { setTask4DataLoading(false); }
+      };
+      load();
+    }
+  }, [taskId, isCompleted]);
+
+  // Task 2 read-only state
+  const [mergeDataClasses, setMergeDataClasses] = useState([]);
+  const [classConfigsData, setClassConfigsData] = useState({});
+  const [task2CustomFields, setTask2CustomFields] = useState([]);
+  useEffect(() => {
+    if (taskId === '2' && isCompleted) {
+      const loadTask2 = async () => {
+        try {
+          const h = { 'x-branch-code': (getBranchCode() || '').toUpperCase() };
+          const res = await fetch(`${API_BASE_URL}/students/form-structure`, { headers: h });
+          if (res.ok) {
+            const data = await res.json();
+            setMergeDataClasses(data.classes || []);
+            setClassConfigsData(data.classConfigs || {});
+            setTask2CustomFields(data.customFields || []);
+          }
+        } catch(e) { console.error(e); }
+      };
+      loadTask2();
+    }
+  }, [taskId, isCompleted]);
+
+  // Task 2 read-only view when completed
+
+  // Load saved schedule config for display
+  const [savedConfig, setSavedConfig] = useState(null);
+  useEffect(() => {
+    if (taskId === '1' && isCompleted) {
+      const loadConfig = async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/schedule/config`, {
+            headers: { 'x-branch-code': (getBranchCode() || '').toUpperCase() }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setSavedConfig(data);
+            // Populate local state from saved server data
+            if (data.periods_per_shift) setPeriodsPerShift(data.periods_per_shift);
+            if (data.period_duration) setPeriodDuration(data.period_duration);
+            if (data.periods_per_day) setPeriodsPerDay(data.periods_per_day);
+            if (data.total_shifts) setShiftCount(data.total_shifts);
+            if (data.school_days) setSchoolDays(data.school_days);
+            if (data.terms) setTerms(data.terms);
+            if (data.shift_rotation !== undefined) setShiftRotation(data.shift_rotation);
+            if (data.rotation_frequency) setRotationFrequency(data.rotation_frequency);
+            if (data.has_kg !== undefined) setHasKG(data.has_kg);
+          }
+        } catch (e) {
+          console.error('Error loading saved config:', e);
+        }
+      };
+      loadConfig();
+    }
+  }, [taskId, isCompleted]);
+
+  if (checkingStatus) {
+    return <div className={styles.container}><p style={{textAlign:'center',padding:'3rem'}}>Loading task status...</p></div>;
+  }
+
+  // Navigation bar component
+  const TaskNav = () => (
+    <div style={{
+      display: 'flex', gap: '10px', marginBottom: '20px',
+      padding: '12px 16px', background: '#f5f5f5', borderRadius: '8px',
+      alignItems: 'center', flexWrap: 'wrap'
+    }}>
+      <button onClick={() => navigate('/tasks')} style={{
+        padding: '8px 16px', border: '1px solid #ccc', borderRadius: '6px',
+        background: 'white', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500
+      }}>
+        ← Task Dashboard
+      </button>
+      {currentTaskId > 1 && (
+        <button onClick={() => navigate(`/tasks/${currentTaskId - 1}`)} style={{
+          padding: '8px 16px', border: '1px solid #ccc', borderRadius: '6px',
+          background: 'white', cursor: 'pointer', fontSize: '0.875rem'
+        }}>
+          ← Previous
+        </button>
+      )}
+      {currentTaskId < TOTAL_TASKS && (
+        <button onClick={() => navigate(`/tasks/${currentTaskId + 1}`)} style={{
+          padding: '8px 16px', border: 'none', borderRadius: '6px',
+          background: 'linear-gradient(135deg, #667eea, #764ba2)',
+          color: 'white', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500
+        }}>
+          Next →
+        </button>
+      )}
+      <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#888' }}>
+        Task {currentTaskId} of {TOTAL_TASKS}
+      </span>
+    </div>
+  );
+
   if (taskId === '1') {
+    // Read-only view when completed and not editing
+    if (isCompleted && !isEditing) {
+      const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const selectedDayNames = schoolDays.map(d => dayNames[d]).join(', ');
+      
+      return (
+        <div className={styles.container}>
+          <TaskNav />
+          <h1 className={styles.title}>School Year Setup ✓</h1>
+          <div className={styles.completedBadge}>Completed</div>
+          
+          <div className={styles.readOnlySection}>
+            <h3>Current Configuration</h3>
+            <div className={styles.dataGrid}>
+              <div className={styles.dataItem}>
+                <span className={styles.dataLabel}>Academic Year</span>
+                <span className={styles.dataValue}>{academicYear || `${year}-${year+1}`}</span>
+              </div>
+              <div className={styles.dataItem}>
+                <span className={styles.dataLabel}>Number of Terms</span>
+                <span className={styles.dataValue}>{terms} Term{terms > 1 ? 's' : ''}</span>
+              </div>
+              <div className={styles.dataItem}>
+                <span className={styles.dataLabel}>School Days</span>
+                <span className={styles.dataValue}>{selectedDayNames}</span>
+              </div>
+              <div className={styles.dataItem}>
+                <span className={styles.dataLabel}>Number of Shifts</span>
+                <span className={styles.dataValue}>{shiftCount} Shift{shiftCount > 1 ? 's' : ''}</span>
+              </div>
+              {shiftCount === 2 && (
+                <div className={styles.dataItem}>
+                  <span className={styles.dataLabel}>Shift Rotation</span>
+                  <span className={styles.dataValue}>{shiftRotation ? 'Enabled' : 'Disabled'}</span>
+                </div>
+              )}
+              <div className={styles.dataItem}>
+                <span className={styles.dataLabel}>Periods Per Shift</span>
+                <span className={styles.dataValue}>{periodsPerShift}</span>
+              </div>
+              <div className={styles.dataItem}>
+                <span className={styles.dataLabel}>Period Duration</span>
+                <span className={styles.dataValue}>{periodDuration} minutes</span>
+              </div>
+              <div className={styles.dataItem}>
+                <span className={styles.dataLabel}>KG Classes</span>
+                <span className={styles.dataValue}>{hasKG ? 'Yes' : 'No'}</span>
+              </div>
+              {savedConfig && (
+                <>
+                  <div className={styles.dataItem}>
+                    <span className={styles.dataLabel}>Short Break Duration</span>
+                    <span className={styles.dataValue}>{savedConfig.short_break_duration || 10} min</span>
+                  </div>
+                  <div className={styles.dataItem}>
+                    <span className={styles.dataLabel}>Teaching Days/Week</span>
+                    <span className={styles.dataValue}>{savedConfig.teaching_days_per_week || schoolDays.length}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className={styles.actionSection}>
+            <button 
+              onClick={() => setIsEditing(true)}
+              className={styles.mergeButton}
+              style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}
+            >
+              Edit Configuration
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={styles.container}>
+        <TaskNav />
         <h1 className={styles.title}>School Year Setup</h1>
         <p className={styles.description}>
           Configure the academic year, number of terms, and form languages.
@@ -322,15 +563,40 @@ function TaskDetail() {
               <option value={1}>1 Shift (All classes same time)</option>
               <option value={2}>2 Shifts (Morning & Afternoon)</option>
             </select>
-            <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
-              {shiftCount === 1 
-                ? 'All classes will attend at the same time' 
-                : 'Classes will be divided into morning and afternoon shifts'}
-            </p>
+
+            {/* Edit Shift Times */}
+            {shiftCount >= 2 && (
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151' }}>Shift Schedule:</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {[1,2].map(s => {
+                    const t = shiftTimes[s];
+                    const bg = s === 1 ? '#ede9fe' : '#dbeafe';
+                    return (
+                      <div key={s} style={{ padding: '10px 14px', background: bg, borderRadius: 8, fontSize: '0.85rem', minWidth: 180 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>{t.label}</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input type="time" value={t.start}
+                            onChange={e => setShiftTimes(prev => ({ ...prev, [s]: { ...prev[s], start: e.target.value } }))}
+                            style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.8rem', width: 80 }}
+                          />
+                          <span>–</span>
+                          <input type="time" value={t.end}
+                            onChange={e => setShiftTimes(prev => ({ ...prev, [s]: { ...prev[s], end: e.target.value } }))}
+                            style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.8rem', width: 80 }}
+                          />
+                          <span style={{ fontSize: '0.7rem', color: '#6b7280' }}>ET</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* V2 Enhancement: Shift Rotation (only show if 2 shifts) */}
-          {shiftCount === 2 && (
+          {/* Shift Rotation */}
+          {shiftCount >= 2 && (
             <div className={styles.formGroup}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
                 <input
@@ -344,26 +610,53 @@ function TaskDetail() {
                 </span>
               </label>
               <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
-                When enabled, classes will alternate between morning and afternoon shifts weekly
+                Classes alternate between morning and afternoon shifts on a schedule
               </p>
+
+              {shiftRotation && (
+                <div style={{ marginTop: 10 }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, color: '#6b7280', marginBottom: 4 }}>
+                    Rotation Frequency
+                  </label>
+                  <select value={rotationFrequency} onChange={(e) => setRotationFrequency(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.85rem', background: 'white' }}>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+              )}
             </div>
           )}
 
-          {/* V2 Enhancement: Periods Per Shift */}
+          {/* Per-Day Periods */}
           <div className={styles.formGroup}>
-            <label htmlFor="periodsPerShift" className={styles.label}>Periods Per Shift:</label>
-            <input
-              type="number"
-              id="periodsPerShift"
-              value={periodsPerShift}
-              onChange={(e) => setPeriodsPerShift(parseInt(e.target.value))}
-              min="4"
-              max="10"
-              className={styles.select}
-            />
-            <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
-              Number of teaching periods in each shift (typically 6-8)
+            <label className={styles.label}>Periods Per Day:</label>
+            <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px', marginBottom: '12px' }}>
+              Set periods for each school day
             </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {[{k:0,l:'Sun'},{k:1,l:'Mon'},{k:2,l:'Tue'},{k:3,l:'Wed'},{k:4,l:'Thu'},{k:5,l:'Fri'},{k:6,l:'Sat'}].map(d => {
+                const isSchoolDay = schoolDays.includes(d.k);
+                return (
+                  <div key={d.k} style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    padding: '10px 14px', background: isSchoolDay ? '#f0fdf4' : '#f9fafb',
+                    borderRadius: 8, border: isSchoolDay ? '2px solid #86efac' : '2px solid #e5e7eb',
+                    opacity: isSchoolDay ? 1 : 0.5,
+                  }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: isSchoolDay ? '#166534' : '#9ca3af' }}>{d.l}</span>
+                    <input type="number" min={1} max={12} value={periodsPerDay[d.k] ?? 6}
+                      onChange={e => setPeriodsPerDay(prev => ({ ...prev, [d.k]: parseInt(e.target.value) || 1 }))}
+                      disabled={!isSchoolDay}
+                      style={{ width: 48, textAlign: 'center', padding: '4px 0',
+                        border: isSchoolDay ? '1px solid #86efac' : '1px solid #e5e7eb',
+                        borderRadius: 6, fontSize: 14, fontWeight: 600,
+                        background: isSchoolDay ? 'white' : '#f3f4f6' }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* V2 Enhancement: Period Duration */}
@@ -402,23 +695,6 @@ function TaskDetail() {
             </p>
           </div>
 
-          {/* V2 Enhancement: Evening Class Checkbox */}
-          <div className={styles.formGroup}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={hasEveningClass}
-                onChange={(e) => setHasEveningClass(e.target.checked)}
-                style={{ width: '18px', height: '18px' }}
-              />
-              <span className={styles.label} style={{ marginBottom: 0 }}>
-                School has Evening classes
-              </span>
-            </label>
-            <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
-              Enable this if your school offers evening classes for adult education or special programs
-            </p>
-          </div>
 
           {/* Language Selection Section */}
           <div className={styles.formGroup}>
@@ -525,9 +801,60 @@ function TaskDetail() {
     );
   }
 
+  // Task 2 read-only view when completed
+  if (taskId === '2' && isCompleted && !isEditing) {
+    return (
+      <div className={styles.container}>
+        <TaskNav />
+        <h1 className={styles.title}>Create Student Registration Form ✓</h1>
+        <div className={styles.completedBadge}>Completed</div>
+        <div className={styles.readOnlySection}>
+          <h3>Classes ({mergeDataClasses.length})</h3>
+          {mergeDataClasses.length > 0 ? (
+            <div style={{display:'flex', flexDirection:'column', gap:'0.5rem'}}>
+              {mergeDataClasses.map((cls, i) => {
+                const cfg = classConfigsData[cls] || {};
+                return (
+                  <div key={i} style={{
+                    display:'flex', justifyContent:'space-between', alignItems:'center',
+                    background:'#f8f9fa', borderRadius:'8px', padding:'0.5rem 0.75rem'
+                  }}>
+                    <span style={{fontWeight:500}}>{cls}</span>
+                    <div style={{display:'flex', gap:'0.5rem', fontSize:'0.8rem'}}>
+                      {cfg.shift ? <span style={{padding:'2px 6px', background:'#dbeafe', borderRadius:'4px'}}>Shift {cfg.shift}</span> : ''}
+                      {cfg.isKG ? <span style={{padding:'2px 6px', background:'#d1fae5', borderRadius:'4px'}}>KG</span> : ''}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : <p>No classes configured.</p>}
+          {task2CustomFields.length > 0 && (
+            <>
+              <h3 style={{marginTop:'1rem'}}>Custom Fields ({task2CustomFields.length})</h3>
+              <div style={{display:'flex', flexWrap:'wrap', gap:'0.5rem'}}>
+                {task2CustomFields.map((f, i) => (
+                  <span key={i} style={{padding:'0.3rem 0.8rem', background:'#f3e8ff', borderRadius:'20px', fontSize:'0.85rem'}}>
+                    {f.label} ({f.type}){f.required ? ' *' : ''}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          <button onClick={() => setIsEditing(true)}
+            style={{marginTop:'1.5rem', padding:'10px 24px', border:'none', borderRadius:'8px',
+              background:'linear-gradient(135deg, #667eea, #764ba2)', color:'white', cursor:'pointer', fontSize:'0.9rem', fontWeight:600}}>
+            Edit Configuration
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (taskId === '2') {
     return (
       <div className={styles.container}>
+        <TaskNav />
         <h1 className={styles.title}>Create Student Registration Form</h1>
         <p className={styles.description}>
           Set up classes and custom fields for the student registration system.
@@ -543,6 +870,7 @@ function TaskDetail() {
   if (taskId === '3') {
     return (
       <div className={styles.container}>
+        <TaskNav />
         <h1 className={styles.title}>Create Staff Registration Form</h1>
         <p className={styles.description}>
           Set up the staff type and custom fields for staff registration.
@@ -556,80 +884,108 @@ function TaskDetail() {
   }
 
   if (taskId === '4') {
+    // Read-only view when completed
+    if (isCompleted && !isEditing) {
+      return (
+        <div className={styles.container}>
+          <TaskNav />
+          <h1 className={styles.title}>Configure Subjects and Classes ✓</h1>
+          <div className={styles.completedBadge}>Completed</div>
+          {task4DataLoading ? <p style={{padding:'2rem', textAlign:'center'}}>Loading...</p> : (
+            <div className={styles.readOnlySection}>
+              <h3>Subjects ({task4Subjects.length})</h3>
+              <div style={{display:'flex', flexWrap:'wrap', gap:'0.5rem', marginBottom:'1rem'}}>
+                {task4Subjects.map(s => (
+                  <span key={s.id} style={{background:'#e5e7eb', padding:'0.3rem 0.8rem', borderRadius:'20px', fontSize:'0.85rem'}}>
+                    {s.subject_name}
+                  </span>
+                ))}
+              </div>
+              <h3>Class Mappings ({task4Mappings.length})</h3>
+              <div style={{display:'flex', flexWrap:'wrap', gap:'0.5rem'}}>
+                {task4Mappings.map((m, i) => (
+                  <span key={i} style={{background:'#dbeafe', padding:'0.3rem 0.8rem', borderRadius:'20px', fontSize:'0.85rem'}}>
+                    {m.subject_name} → {m.class_name}
+                  </span>
+                ))}
+              </div>
+              <button onClick={() => setIsEditing(true)}
+                style={{marginTop:'1.5rem', padding:'10px 24px', border:'none', borderRadius:'8px',
+                  background:'linear-gradient(135deg, #667eea, #764ba2)', color:'white', cursor:'pointer', fontSize:'0.9rem', fontWeight:600}}>
+                Edit Configuration
+              </button>
+            </div>
+          )}
+          {error && <p className={styles.error}>{error}</p>}
+        </div>
+      );
+    }
+    
+    // Wrap handleComplete to navigate to tasks after
+    const task4Complete = async () => {
+      await handleComplete();
+      navigate('/tasks');
+    };
+    
     return (
       <div className={styles.container}>
+        <TaskNav />
         <h1 className={styles.title}>Configure Subjects and Classes</h1>
         <p className={styles.description}>
           Set up subjects and map them to classes for your school.
         </p>
         <div className={styles.contentArea}>
-          <SubjectMappingSetup onComplete={handleComplete} />
+          <SubjectMappingSetup onComplete={task4Complete} />
         </div>
         {error && <p className={styles.error}>{error}</p>}
       </div>
     );
   }
 
+  // Task 5: Read-only view when completed
+  const task5Complete = async () => { await handleComplete(); };
+  if (taskId === '5' && isCompleted && !isEditing) {
+    return (
+      <div className={styles.container}>
+        <TaskNav />
+        <h1 className={styles.title}>Task 5: Assign Teachers to Classes and Subjects ✓</h1>
+        <div className={styles.completedBadge}>Completed</div>
+        <div className={styles.readOnlySection}>
+          <h3>Teacher Assignments ({mergeData.length})</h3>
+          {mergeData.length > 0 ? (
+            <div style={{display:'flex', flexDirection:'column', gap:'0.5rem'}}>
+              {mergeData.map((item, i) => (
+                <div key={i} style={{
+                  display:'flex', justifyContent:'space-between', alignItems:'center',
+                  background:'#f8f9fa', borderRadius:'8px', padding:'0.5rem 0.75rem'
+                }}>
+                  <span style={{fontWeight:500}}>{item.teacher_name}</span>
+                  <span style={{color:'#6b7280', fontSize:'0.85rem'}}>{item.subject_class}</span>
+                  <span style={{
+                    fontSize:'0.75rem', padding:'2px 8px', borderRadius:'12px',
+                    background: (item.staff_work_time || '').toLowerCase().includes('part') ? '#fef3c7' : '#d1fae5',
+                    color: (item.staff_work_time || '').toLowerCase().includes('part') ? '#92400e' : '#065f46'
+                  }}>
+                    {item.staff_work_time || 'Full Time'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : <p>No assignments found.</p>}
+          <button onClick={() => setIsEditing(true)}
+            style={{marginTop:'1.5rem', padding:'10px 24px', border:'none', borderRadius:'8px',
+              background:'linear-gradient(135deg, #667eea, #764ba2)', color:'white', cursor:'pointer', fontSize:'0.9rem', fontWeight:600}}>
+            Edit Assignments
+          </button>
+        </div>
+        {error && <p className={styles.error}>{error}</p>}
+      </div>
+    );
+  }
+  
+  // Task 5 note: data loads on first visit — no hook needed
+
   if (taskId === '5') {
-    const [mergeLoading, setMergeLoading] = useState(false);
-    const [mergeData, setMergeData] = useState([]);
-    const [stats, setStats] = useState(null);
-    const [dataLoaded, setDataLoaded] = useState(false);
-    const [classSubjects, setClassSubjects] = useState([]);
-    const [teachers, setTeachers] = useState([]);
-    const [assignments, setAssignments] = useState({});
-    const [teacherWorkTimes, setTeacherWorkTimes] = useState({});
-
-    // Load existing data on component mount
-    useEffect(() => {
-      const loadInitialData = async () => {
-        try {
-          // Check if teacher assignments already exist
-          const checkResponse = await fetch(`${API_BASE_URL}/mark-list/teacher-assignments`);
-          if (checkResponse.ok) {
-            const checkData = await checkResponse.json();
-            
-            if (checkData.length > 0) {
-              setMergeData(checkData);
-              setStats({
-                insertedCount: checkData.length,
-                teacherCount: new Set(checkData.map(item => item.teacher_name)).size,
-                classSubjectCount: checkData.length
-              });
-            }
-          }
-
-          // Load class-subject mappings
-          const classSubjectsResponse = await fetch(`${API_BASE_URL}/mark-list/subjects-classes`);
-          if (classSubjectsResponse.ok) {
-            const classSubjectsData = await classSubjectsResponse.json();
-            setClassSubjects(classSubjectsData);
-          }
-
-          // Load teachers from schedule system with work times
-          const teachersResponse = await fetch(`${API_BASE_URL}/school-setup/teachers-with-worktime`);
-          if (teachersResponse.ok) {
-            const teachersData = await teachersResponse.json();
-            setTeachers(teachersData);
-            
-            // Create work time mapping
-            const workTimeMap = {};
-            teachersData.forEach(teacher => {
-              workTimeMap[teacher.name] = teacher.staff_work_time || 'Full Time';
-            });
-            setTeacherWorkTimes(workTimeMap);
-          }
-
-        } catch (err) {
-          console.error('Error loading initial data:', err);
-          setError('Failed to load data. Please make sure Tasks 4 and 5 are completed.');
-        } finally {
-          setDataLoaded(true);
-        }
-      };
-
-      loadInitialData();
-    }, []);
 
     const handleTeacherAssignment = (classSubjectKey, teacherName) => {
       setAssignments(prev => ({
@@ -669,6 +1025,7 @@ function TaskDetail() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-branch-code': (getBranchCode() || '').toUpperCase(),
           },
           body: JSON.stringify({ assignments: assignmentData }),
         });
@@ -683,6 +1040,7 @@ function TaskDetail() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-branch-code': (getBranchCode() || '').toUpperCase(),
           },
           body: JSON.stringify({ 
             assignments: assignmentData,
@@ -702,11 +1060,16 @@ function TaskDetail() {
         });
         
         // Fetch the updated assignments to display
-        const dataResponse = await fetch(`${API_BASE_URL}/mark-list/teacher-assignments`);
+        const dataResponse = await fetch(`${API_BASE_URL}/mark-list/teacher-assignments`, {
+          headers: { 'x-branch-code': (getBranchCode() || '').toUpperCase() }
+        });
         if (dataResponse.ok) {
           const data = await dataResponse.json();
           setMergeData(data);
         }
+        
+        // Mark complete and navigate to tasks
+        task5Complete();
         
       } catch (err) {
         setError(err.message);
@@ -719,6 +1082,7 @@ function TaskDetail() {
 
     return (
       <div className={styles.container}>
+        <TaskNav />
         <h1 className={styles.title}>Task 5: Assign Teachers to Classes and Subjects</h1>
         <p className={styles.description}>
           Manually assign teachers to their respective classes and subjects for scheduling and period management.
@@ -734,46 +1098,66 @@ function TaskDetail() {
             </p>
 
             {classSubjects.length > 0 && teachers.length > 0 ? (
-              <div className={styles.assignmentGrid}>
-                <div className={styles.assignmentHeader}>
-                  <span>Class-Subject Combination</span>
-                  <span>Assigned Teacher (Work Time)</span>
-                </div>
-                {classSubjects.map((item, index) => {
-                  const classSubjectKey = `${item.class_name}|${item.subject_name}`;
-                  const assignedTeacher = assignments[classSubjectKey];
-                  const workTime = assignedTeacher ? teacherWorkTimes[assignedTeacher] : '';
-                  
-                  return (
-                    <div key={index} className={styles.assignmentRow}>
-                      <div className={styles.classSubjectInfo}>
-                        <span className={styles.className}>{item.class_name}</span>
-                        <span className={styles.subjectName}>{item.subject_name}</span>
-                      </div>
-                      <div className={styles.teacherSelection}>
-                        <select
-                          value={assignedTeacher || ''}
-                          onChange={(e) => handleTeacherAssignment(classSubjectKey, e.target.value)}
-                          className={styles.teacherSelect}
-                        >
-                          <option value="">Select Teacher</option>
-                          {teachers.map((teacher, idx) => (
-                            <option key={idx} value={teacher.name}>
-                              {teacher.name} ({teacher.role}) - {teacher.staff_work_time || 'Full Time'}
-                            </option>
-                          ))}
-                        </select>
-                        {assignedTeacher && workTime && (
-                          <span className={`${styles.workTimeBadge} ${
-                            workTime === 'Part Time' ? styles.partTime : styles.fullTime
-                          }`}>
-                            {workTime}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {Object.entries(
+                  classSubjects.reduce((acc, item) => {
+                    (acc[item.class_name] = acc[item.class_name] || []).push(item);
+                    return acc;
+                  }, {})
+                ).map(([cls, items]) => (
+                  <div key={cls} style={{
+                    background: '#fff', borderRadius: 12, padding: 16,
+                    border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                  }}>
+                    <h3 style={{ margin: '0 0 12px 0', fontSize: 15, fontWeight: 600 }}>
+                      {cls}
+                      <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 400, marginLeft: 8 }}>
+                        ({items.length} subject{items.length > 1 ? 's' : ''})
+                      </span>
+                    </h3>
+                    {items.map((item, idx) => {
+                      const classSubjectKey = `${item.class_name}|${item.subject_name}`;
+                      const assignedTeacher = assignments[classSubjectKey];
+                      const workTime = assignedTeacher ? teacherWorkTimes[assignedTeacher] : '';
+                      return (
+                        <div key={idx} style={{
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          padding: '8px 0',
+                          borderTop: idx === 0 ? 'none' : '1px solid #f3f4f6'
+                        }}>
+                          <span style={{ minWidth: 80, fontWeight: 500, fontSize: 14, color: '#374151' }}>
+                            {item.subject_name}
                           </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                          <select
+                            value={assignedTeacher || ''}
+                            onChange={(e) => handleTeacherAssignment(classSubjectKey, e.target.value)}
+                            style={{
+                              flex: 1, padding: '6px 10px', borderRadius: 6,
+                              border: '1px solid #d1d5db', fontSize: 13, background: '#fff'
+                            }}
+                          >
+                            <option value="">Select Teacher</option>
+                            {teachers.map((teacher, i) => (
+                              <option key={i} value={teacher.name}>
+                                {teacher.name} ({teacher.role})
+                              </option>
+                            ))}
+                          </select>
+                          {assignedTeacher && workTime && (
+                            <span style={{
+                              padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                              whiteSpace: 'nowrap',
+                              background: workTime === 'Part Time' ? '#fef3c7' : '#d1fae5',
+                              color: workTime === 'Part Time' ? '#92400e' : '#065f46'
+                            }}>
+                              {workTime}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             ) : (
               <div className={styles.emptyState}>
@@ -914,6 +1298,7 @@ function TaskDetail() {
   if (taskId === '6') {
     return (
       <div className={styles.container}>
+        <TaskNav />
         <h1 className={styles.title}>Task 6: Schedule Configuration & Generation</h1>
         <p className={styles.description}>
           Configure school schedule settings and generate timetables using teacher assignments from Task 5.
@@ -922,8 +1307,8 @@ function TaskDetail() {
         </p>
 
         <div className={styles.contentArea}>
-          <Task7 
-            onComplete={handleCompleteTask7}
+          <Task6 
+            onComplete={handleCompleteTask6}
             onScheduleGenerated={checkScheduleCreated}
           />
         </div>
@@ -940,6 +1325,7 @@ function TaskDetail() {
 
   return (
     <div className={styles.container}>
+      <TaskNav />
       <h1 className={styles.title}>Task {taskId}</h1>
       <p className={styles.description}>
         This is an empty task page. Click the button below to mark it as complete.

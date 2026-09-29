@@ -14,9 +14,10 @@ import {
   RefreshCw, ArrowUpRight, ArrowDownRight, Activity,
   CheckCircle, XCircle, AlertCircle, FileText, MessageSquare,
   Award, Target, BarChart3, PieChart as PieChartIcon, TrendingDown as TrendingDownIcon,
-  UserPlus, DollarSign as DollarSignIcon, Package, Wrench, Briefcase
+  UserPlus, DollarSign as DollarSignIcon, Package, Wrench, Briefcase, Banknote
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getCurrentEthiopianMonth } from '../../utils/ethiopianCalendar';
 
 const ModernDashboard = () => {
   const { theme, t } = useApp();
@@ -54,6 +55,7 @@ const ModernDashboard = () => {
   const [staffByType, setStaffByType] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [monthlyPayments, setMonthlyPayments] = useState({ summary: null, classes: [] });
 
   const COLORS = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#30cfd0', '#a8edea'];
 
@@ -78,7 +80,8 @@ const ModernDashboard = () => {
         evaluationsRes,
         postsRes,
         guardiansRes,
-        activityRes
+        activityRes,
+        attendanceTrendsRes
       ] = await Promise.all([
         api.get('/dashboard/enhanced-stats').catch((err) => {
           console.error('Dashboard stats error:', err.response?.status, err.response?.data?.error);
@@ -147,8 +150,36 @@ const ModernDashboard = () => {
         api.get('/reports/activity/recent?limit=10').catch((err) => {
           console.error('Activity report error:', err.response?.status, err.response?.data?.error);
           return { data: {} };
+        }),
+        api.get('/reports/attendance/trends').catch((err) => {
+          console.error('Attendance trends error:', err.response?.status, err.response?.data?.error);
+          return { data: [] };
         })
       ]);
+
+      // Monthly payment overview (per-class breakdown, in Birr)
+      const ethMonth = getCurrentEthiopianMonth()?.month || 1;
+      const monthlyRes = await api
+        .get(`/finance/monthly-payments-view/overview?currentMonth=${ethMonth}`)
+        .catch((err) => {
+          console.error('Monthly payment overview error:', err.response?.status, err.response?.data?.error);
+          return { data: { summary: null, classes: [] } };
+        });
+      const monthlyData = monthlyRes.data || { summary: null, classes: [] };
+      setMonthlyPayments({
+        summary: monthlyData.summary || null,
+        classes: (monthlyData.classes || []).map((cls) => ({
+          className: cls.className,
+          monthlyFee: Number(cls.monthlyFee) || 0,
+          totalStudents: cls.totalStudents || 0,
+          payingStudents: cls.payingStudents || 0,
+          totalPaid: Number(cls.totalPaid) || 0,
+          totalPending: Number(cls.totalPending) || 0,
+          unlockedTotalPaid: Number(cls.unlockedTotalPaid) || 0,
+          unlockedTotalPending: Number(cls.unlockedTotalPending) || 0,
+          totalInvoices: cls.totalInvoices || 0
+        }))
+      });
 
       const data = dashboardRes.data;
       const basicStats = data.basic || {};
@@ -156,7 +187,7 @@ const ModernDashboard = () => {
       const studentsData = studentsRes.data?.data || studentsRes.data || {};
       const staffData = staffRes.data?.data || staffRes.data || {};
       const financeData = financeRes.data?.data || financeRes.data || {};
-      const attendanceData = attendanceRes.data?.data || attendanceRes.data || {};
+      const attData = attendanceRes.data?.data || attendanceRes.data || {};
       const faultsData = faultsRes.data?.data || faultsRes.data || {};
       const hrData = hrRes.data?.data || hrRes.data || {};
       const inventoryData = inventoryRes.data?.data || inventoryRes.data || {};
@@ -168,24 +199,24 @@ const ModernDashboard = () => {
       // Set main stats
       setStats({
         students: {
-          total: basicStats.totalStudents || studentsData.total || studentsData.totalStudents || 0,
-          male: basicStats.gender?.male || studentsData.male || 0,
-          female: basicStats.gender?.female || studentsData.female || 0,
+          total: studentsData.total || studentsData.totalStudents || basicStats.totalStudents || 0,
+          male: studentsData.male ?? basicStats.gender?.male ?? 0,
+          female: studentsData.female ?? basicStats.gender?.female ?? 0,
           trend: studentsData.trend || 0
         },
         staff: {
-          total: basicStats.staffCount || staffData.total || staffData.totalStaff || 0,
+          total: staffData.total || staffData.totalStaff || basicStats.staffCount || 0,
           teachers: staffData.teachers || 0,
           trend: staffData.trend || 0
         },
         classes: {
-          total: basicStats.classes?.length || studentsData.classCount || 0
+          total: studentsData.classCount || basicStats.classes?.length || 0
         },
         attendance: {
-          rate: Number(attendanceData.attendanceRate) || 0,
-          present: attendanceData.present || 0,
-          absent: attendanceData.absent || 0,
-          trend: attendanceData.trend || 0
+          rate: Number(attData.attendanceRate ?? attData.rate) || 0,
+          present: attData.present || 0,
+          absent: attData.absent || 0,
+          trend: attData.trend || 0
         },
         revenue: {
           total: (financeData.revenue || 0) + (financeData.pending || 0),
@@ -199,7 +230,7 @@ const ModernDashboard = () => {
           trend: academicData.trend || 0
         },
         faults: {
-          total: faultsData.totalFaults || basicStats.totalFaults || 0,
+          total: faultsData.total || faultsData.totalFaults || basicStats.totalFaults || 0,
           thisWeek: faultsData.weeklyFaults || 0,
           critical: faultsData.criticalFaults || 0
         },
@@ -235,21 +266,23 @@ const ModernDashboard = () => {
         }
       });
 
-      // Generate attendance trend data (last 7 days) - only if we have data
-      const attendanceTrend = attendanceData.trend || [];
-      if (attendanceTrend.length === 0 && basicStats.totalStudents > 0) {
-        // Only generate sample data if we have students
+      // Attendance trend data (last 7 days)
+      const trends = attendanceTrendsRes.data?.data || attendanceTrendsRes.data || [];
+      if (Array.isArray(trends) && trends.length > 0) {
+        setAttendanceData(trends);
+      } else {
+        const fallback = [];
         for (let i = 6; i >= 0; i--) {
           const date = new Date();
           date.setDate(date.getDate() - i);
-          attendanceTrend.push({
+          fallback.push({
             date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             present: 0,
             absent: 0
           });
         }
+        setAttendanceData(fallback);
       }
-      setAttendanceData(attendanceTrend);
 
       // Generate performance trend data - only if we have data
       const perfTrend = academicData.performanceTrend || [];
@@ -440,7 +473,7 @@ const ModernDashboard = () => {
       {/* Header */}
       <div className={styles.header}>
         <div>
-          <h1>{t('dashboard') || 'Dashboard Overview'}</h1>
+          <h1>{t('dashboard.title') || 'Dashboard Overview'}</h1>
           <p className={styles.subtitle}>
             <Clock size={16} />
             Last updated: {lastUpdated.toLocaleTimeString()}
@@ -491,29 +524,12 @@ const ModernDashboard = () => {
           onClick={() => navigate('/mark-list-view')}
         />
         <StatCard
-          icon={DollarSign}
-          title="Revenue"
-          value={`${(stats.revenue.collected / 1000).toFixed(0)}K Birr`}
-          subtitle={`${(stats.revenue.pending / 1000).toFixed(0)}K Pending`}
-          trend={stats.revenue.trend}
-          color="#8B5CF6"
-          onClick={() => navigate('/finance')}
-        />
-        <StatCard
           icon={BookOpen}
           title="Active Classes"
           value={stats.classes.total}
           subtitle="All classes active"
           color="#EC4899"
           onClick={() => navigate('/schedule')}
-        />
-        <StatCard
-          icon={AlertTriangle}
-          title="Student Faults"
-          value={stats.faults.total}
-          subtitle={`${stats.faults.thisWeek} This Week • ${stats.faults.critical} Critical`}
-          color="#EF4444"
-          onClick={() => navigate('/student-faults')}
         />
         <StatCard
           icon={CheckCircle}
@@ -532,12 +548,12 @@ const ModernDashboard = () => {
           onClick={() => navigate('/post')}
         />
         <StatCard
-          icon={Package}
-          title="Inventory Items"
-          value={stats.inventory.totalItems}
-          subtitle={`${stats.inventory.lowStock} Low Stock • ${stats.inventory.outOfStock} Out`}
-          color="#14B8A6"
-          onClick={() => navigate('/inventory')}
+          icon={AlertCircle}
+          title="Student Faults"
+          value={stats.faults.total}
+          subtitle={`${stats.faults.thisWeek} This Week`}
+          color="#EF4444"
+          onClick={() => navigate('/faults')}
         />
         <StatCard
           icon={Wrench}
@@ -551,8 +567,9 @@ const ModernDashboard = () => {
           icon={Users}
           title="Guardians"
           value={stats.guardians.total}
-          subtitle={`${stats.guardians.engagement}% Engagement`}
+          subtitle={stats.guardians.total > 0 ? `${stats.guardians.total} Registered` : '0 Registered'}
           color="#3B82F6"
+          onClick={() => navigate('/list-guardian')}
         />
       </div>
 
@@ -622,19 +639,75 @@ const ModernDashboard = () => {
           transition={{ delay: 0.3 }}
         >
           <div className={styles.chartHeader}>
-            <h3><DollarSign size={20} /> Revenue Overview</h3>
+            <h3><Banknote size={20} /> Revenue Overview (Birr)</h3>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={revenueData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
               <XAxis dataKey="month" stroke="#6B7280" />
-              <YAxis stroke="#6B7280" />
-              <Tooltip />
+              <YAxis stroke="#6B7280" tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+              <Tooltip formatter={(value) => `${Number(value).toLocaleString()} Birr`} />
               <Legend />
               <Bar dataKey="collected" fill="#10B981" radius={[8, 8, 0, 0]} />
               <Bar dataKey="pending" fill="#F59E0B" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+        </motion.div>
+
+        {/* Monthly Payment Report */}
+        <motion.div
+          className={styles.chartCard}
+          onClick={() => navigate('/finance/monthly-payments')}
+          whileHover={{ y: -4 }}
+          style={{ cursor: 'pointer' }}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+        >
+          <div className={styles.chartHeader}>
+            <h3><Banknote size={20} /> Monthly Payment Report (Birr)</h3>
+            {monthlyPayments.summary && (
+              <span className={styles.reportSub}>
+                {monthlyPayments.summary.totalClasses || 0} classes •{' '}
+                {(monthlyPayments.summary.unlockedTotalPaid || 0).toLocaleString()} Birr collected •{' '}
+                {(monthlyPayments.summary.unlockedTotalPending || 0).toLocaleString()} Birr pending
+              </span>
+            )}
+          </div>
+          {monthlyPayments.classes.length > 0 ? (
+            <div className={styles.tableContainer}>
+              <table className={styles.dataTable}>
+                <thead>
+                  <tr>
+                    <th>Class</th>
+                    <th>Students</th>
+                    <th>Monthly Fee</th>
+                    <th>Collected</th>
+                    <th>Pending</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyPayments.classes.map((cls, index) => (
+                    <tr key={index}>
+                      <td><strong>{cls.className}</strong></td>
+                      <td>{cls.payingStudents}</td>
+                      <td>{Number(cls.monthlyFee).toLocaleString()} Birr</td>
+                      <td style={{ color: '#10B981' }}>
+                        {Number(cls.unlockedTotalPaid || cls.totalPaid || 0).toLocaleString()} Birr
+                      </td>
+                      <td style={{ color: '#F59E0B' }}>
+                        {Number(cls.unlockedTotalPending || cls.totalPending || 0).toLocaleString()} Birr
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className={styles.emptyMessage}>
+              No monthly payment data available yet. Generate invoices from Payment Settings.
+            </p>
+          )}
         </motion.div>
 
         {/* Gender Distribution */}

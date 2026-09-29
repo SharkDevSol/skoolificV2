@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Tag } from 'lucide-react';
+import { getBranchCode } from '../../../utils/branchCode';
 import styles from './FeeManagement.module.css';
 
 import Card from '../../../COMPONENTS/Card/Card';
@@ -15,6 +16,8 @@ const FeeManagement = () => {
   const [showFeeTypesSection, setShowFeeTypesSection] = useState(false);
   const [customFeeTypes, setCustomFeeTypes] = useState([]);
 
+  const branchHeaders = () => ({ 'x-branch-code': getBranchCode() });
+
   useEffect(() => {
     fetchFeeStructures();
     fetchCustomFeeTypes();
@@ -22,30 +25,17 @@ const FeeManagement = () => {
 
   const fetchFeeStructures = async () => {
     try {
-      // Try both 'authToken' and 'token' keys for compatibility
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      
-      // Check if token is valid (not null, undefined, or the string "null")
       if (!token || token === 'null' || token === 'undefined') {
-        console.error('No valid token found. Please log in again.');
-        console.log('Checked localStorage keys: authToken, token');
         setLoading(false);
         return;
       }
-      
-      console.log('Token found, length:', token.length);
-      
       const response = await fetch('/api/simple-fees', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}`, ...branchHeaders() }
       });
       if (response.ok) {
         const data = await response.json();
         setFeeStructures(data.data);
-      } else {
-        console.error('Failed to fetch:', response.status, response.statusText);
-        if (response.status === 401 || response.status === 403) {
-          console.error('Authentication failed. Please log in again.');
-        }
       }
     } catch (error) {
       console.error('Error fetching fee structures:', error);
@@ -58,7 +48,7 @@ const FeeManagement = () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
       const response = await fetch('/api/simple-fees', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}`, ...branchHeaders() }
       });
       if (response.ok) {
         const data = await response.json();
@@ -105,7 +95,7 @@ const FeeManagement = () => {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
       const response = await fetch(`/api/simple-fees/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}`, ...branchHeaders() }
       });
       if (response.ok) {
         fetchFeeStructures();
@@ -271,7 +261,9 @@ const FeeModal = ({ fee, onClose, onSuccess }) => {
     isRecurring: fee?.isRecurring || false,
     dueDate: fee?.dueDate || ''
   });
+  const branchHeaders = () => ({ 'x-branch-code': getBranchCode() });
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
   const [metadata, setMetadata] = useState({
     classes: [],
     academicYears: [],
@@ -288,7 +280,7 @@ const FeeModal = ({ fee, onClose, onSuccess }) => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
       const response = await fetch('/api/simple-fees/metadata', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}`, ...branchHeaders() }
       });
       
       if (response.ok) {
@@ -321,6 +313,20 @@ const FeeModal = ({ fee, onClose, onSuccess }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setErrors({});
+
+    const newErrors = {};
+    if (!formData.name.trim()) newErrors.name = 'Fee name is required';
+    if (formData.classNames.length === 0) newErrors.classes = 'Select at least one class';
+    if (!formData.amount || parseFloat(formData.amount) <= 0) newErrors.amount = 'Amount must be greater than 0';
+    if (formData.feeType === 'CUSTOM' && !formData.customFeeName.trim()) newErrors.customFeeName = 'Custom fee type name is required';
+    if (formData.academicYear && formData.academicYear.length !== 4) newErrors.academicYear = 'Invalid academic year';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      setLoading(false);
+      return;
+    }
 
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
@@ -331,7 +337,8 @@ const FeeModal = ({ fee, onClose, onSuccess }) => {
         method,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          ...branchHeaders()
         },
         body: JSON.stringify(formData)
       });
@@ -342,12 +349,12 @@ const FeeModal = ({ fee, onClose, onSuccess }) => {
         alert(`Fee structure ${fee ? 'updated' : 'created'} successfully!`);
         onSuccess();
       } else {
-        alert(result.error || 'Operation failed');
+        setErrors({ api: result.error || 'Operation failed. Please try again.' });
         console.error('Error response:', result);
       }
     } catch (error) {
       console.error('Error:', error);
-      alert('An error occurred');
+      setErrors({ api: 'Network error. Please check your connection and try again.' });
     } finally {
       setLoading(false);
     }
@@ -376,6 +383,12 @@ const FeeModal = ({ fee, onClose, onSuccess }) => {
           <button className={styles.closeButton} onClick={onClose}>×</button>
         </div>
         
+        {errors.api && (
+          <div style={{ padding: '0.75rem 1rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', marginBottom: '1rem', fontSize: '0.875rem' }}>
+            {errors.api}
+          </div>
+        )}
+        
         {loadingMetadata ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <p>Loading form data...</p>
@@ -390,7 +403,9 @@ const FeeModal = ({ fee, onClose, onSuccess }) => {
                 value={formData.name}
                 onChange={(e) => setFormData({...formData, name: e.target.value})}
                 placeholder="e.g., Grade 1 Tuition Fee"
+                style={errors.name ? { borderColor: '#ef4444' } : {}}
               />
+              {errors.name && <span style={{ color: '#ef4444', fontSize: '0.8125rem', marginTop: '0.25rem', display: 'block' }}>{errors.name}</span>}
             </div>
 
             {/* Multi-select Classes */}

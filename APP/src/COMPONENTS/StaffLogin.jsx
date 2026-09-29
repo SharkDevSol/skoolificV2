@@ -6,6 +6,7 @@ import { Building2, User as UserIcon, Lock } from 'lucide-react';
 import styles from './StaffLogin.module.css';
 import Input from './Input/Input';
 import Button from './Button/Button';
+import { getBranchCode, setBranchCode, isFixedBranch } from '../utils/branchCode';
 import ThemeToggle from './ThemeToggle/ThemeToggle';
 import LanguageSelector from './LanguageSelector/LanguageSelector';
 import Toast from './Toast/Toast';
@@ -25,7 +26,7 @@ const StaffLogin = () => {
 
   // Load saved branch code from localStorage on mount
   useEffect(() => {
-    const savedBranchCode = localStorage.getItem('branchCode');
+    const savedBranchCode = getBranchCode();
     if (savedBranchCode) {
       setCredentials(prev => ({ ...prev, branchCode: savedBranchCode }));
     }
@@ -49,13 +50,12 @@ const StaffLogin = () => {
     return () => clearInterval(timerRef.current);
   }, [lockoutSeconds]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setCredentials(prev => ({ ...prev, [name]: value }));
+  const handleInputChange = (field, value) => {
+        setCredentials(prev => ({ ...prev, [field]: value }));
     
     // Clear error for this field when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
@@ -72,7 +72,7 @@ const StaffLogin = () => {
     
     // Validate all fields
     const newErrors = {};
-    if (!credentials.branchCode) newErrors.branchCode = t('auth.branchCode', 'Branch code') + ' ' + t('common.required', 'Required').toLowerCase();
+    if (!isFixedBranch() && !credentials.branchCode) newErrors.branchCode = t('auth.branchCode', 'Branch code') + ' ' + t('common.required', 'Required').toLowerCase();
     if (!credentials.username) newErrors.username = t('auth.username', 'Username') + ' ' + t('common.required', 'Required').toLowerCase();
     if (!credentials.password) newErrors.password = t('auth.password', 'Password') + ' ' + t('common.required', 'Required').toLowerCase();
     
@@ -88,18 +88,22 @@ const StaffLogin = () => {
     setIsLoading(true);
     
     try {
-      const response = await axios.post('/api/v2/auth/login', {
+      const branchCodeClean = (credentials.branchCode || '').toUpperCase().trim();
+      const usernameClean = (credentials.username || '').trim();
+      const response = await axios.post('/api/v2/branches/login', {
         ...credentials,
+        branchCode: branchCodeClean,
+        username: usernameClean,
         userType: 'staff'
       });
       
-      if (response.data.message === 'Login successful') {
+      if (response.data.message === 'Login successful' || response.data.success) {
         if (response.data.token) localStorage.setItem('authToken', response.data.token);
         localStorage.setItem('staffUser', JSON.stringify(response.data.user));
         localStorage.setItem('staffProfile', JSON.stringify(response.data.profile));
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('userType', 'staff');
-        localStorage.setItem('branchCode', credentials.branchCode);
+        setBranchCode(branchCodeClean, true);
         navigate('/app/staff');
       }
     } catch (error) {
@@ -144,24 +148,26 @@ const StaffLogin = () => {
           )}
           
           <form onSubmit={handleSubmit} className={styles.form}>
-            <Input
-              label={t('auth.branchCode', 'Branch Code')}
-              name="branchCode"
-              value={credentials.branchCode}
-              onChange={handleInputChange}
-              onBlur={() => handleBlur('branchCode')}
-              icon={<Building2 size={20} />}
-              placeholder={t('auth.branchCodePlaceholder', 'Enter branch code')}
-              error={touched.branchCode && errors.branchCode}
-              disabled={isLoading || isLocked}
-              required
-            />
+            {!isFixedBranch() && (
+              <Input
+                label={t('auth.branchCode', 'Branch Code')}
+                name="branchCode"
+                value={credentials.branchCode}
+                onChange={(value) => handleInputChange('branchCode', value)}
+                onBlur={() => handleBlur('branchCode')}
+                icon={<Building2 size={20} />}
+                placeholder={t('auth.branchCodePlaceholder', 'Enter branch code')}
+                error={touched.branchCode && errors.branchCode}
+                disabled={isLoading || isLocked}
+                required
+              />
+            )}
             
             <Input
               label={t('auth.username', 'Username')}
               name="username"
               value={credentials.username}
-              onChange={handleInputChange}
+              onChange={(value) => handleInputChange('username', value)}
               onBlur={() => handleBlur('username')}
               icon={<UserIcon size={20} />}
               placeholder={t('auth.usernamePlaceholder', 'Enter your username')}
@@ -176,7 +182,7 @@ const StaffLogin = () => {
               type="password"
               name="password"
               value={credentials.password}
-              onChange={handleInputChange}
+              onChange={(value) => handleInputChange('password', value)}
               onBlur={() => handleBlur('password')}
               icon={<Lock size={20} />}
               placeholder={t('auth.passwordPlaceholder', 'Enter your password')}

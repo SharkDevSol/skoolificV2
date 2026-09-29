@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { FiAlertCircle, FiUser, FiCalendar, FiFilter, FiDownload, FiSearch, FiBarChart2, FiTrendingUp, FiUsers, FiFileText, FiPlus, FiX, FiSave, FiTrash2 } from 'react-icons/fi';
 import axios from 'axios';
 import styles from './FaultsPage.module.css';
+import { useDebounce } from '../../hooks/useDebounce';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api'));
 
 const FaultsPage = () => {
   const [faults, setFaults] = useState([]);
@@ -12,6 +13,7 @@ const FaultsPage = () => {
   const [selectedClass, setSelectedClass] = useState('all');
   const [selectedType, setSelectedType] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 300);
   const [dateFilter, setDateFilter] = useState('all');
   const [stats, setStats] = useState({
     totalFaults: 0,
@@ -25,7 +27,7 @@ const FaultsPage = () => {
   const [addForm, setAddForm] = useState({
     className: '',
     student_name: '',
-    fault_type: 'Late Arrival',
+    fault_type: '',
     fault_level: 'Minor',
     description: '',
     date: new Date().toISOString().split('T')[0]
@@ -120,7 +122,7 @@ const FaultsPage = () => {
       formData.append('reported_by', 'Admin');
       await axios.post(`${API_BASE_URL}/faults/add-fault`, formData, getAuthConfig());
       setShowAddModal(false);
-      setAddForm({ className: '', student_name: '', fault_type: 'Late Arrival', fault_level: 'Minor', description: '', date: new Date().toISOString().split('T')[0] });
+      setAddForm({ className: '', student_name: '', fault_type: '', fault_level: 'Minor', description: '', date: new Date().toISOString().split('T')[0] });
       setModalStudents([]);
       fetchAllFaults();
     } catch (err) {
@@ -220,7 +222,7 @@ const FaultsPage = () => {
     return faults.filter(fault => {
       const matchesClass = selectedClass === 'all' || fault.className === selectedClass;
       const matchesType = selectedType === 'all' || (fault.type || fault.fault_type) === selectedType;
-      const matchesSearch = searchTerm === '' || 
+      const matchesSearch = debouncedSearch === '' || 
         fault.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         fault.description.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -529,9 +531,10 @@ const FaultsPage = () => {
 
               <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:'1rem' }}>
                 <div>
-                  <label style={{ display:'block', fontSize:'0.875rem', fontWeight:600, color:'#374151', marginBottom:'0.4rem' }}>Fault Type *</label>
+                  <label style={{ display:'block', fontSize:'0.875rem', fontWeight:600, color:'#374151', marginBottom:'0.4rem' }}>Fault Type (optional)</label>
                   <select value={addForm.fault_type} onChange={e => setAddForm(f => ({ ...f, fault_type: e.target.value }))}
                     style={{ width:'100%', padding:'0.75rem', border:'2px solid #e5e7eb', borderRadius:'10px', fontSize:'0.9375rem' }}>
+                    <option value="">Not specified</option>
                     {faultTypes.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>

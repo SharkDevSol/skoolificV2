@@ -4,6 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import styles from './ScheduleDashboard.module.css';
+import { useDebounce } from '../../hooks/useDebounce';
+import { getCached, setCache, clearCache } from '../../utils/apiCache';
 
 import Select from '../../COMPONENTS/Select/Select';
 import Button from '../../COMPONENTS/Button/Button';
@@ -54,14 +56,24 @@ const ScheduleDashboard = () => {
     try {
       console.log('Starting comprehensive data fetch...');
       
-      // Fetch all data in parallel
-      const [scheduleResponse, conflictsResponse, configResponse, debugResponse, classesResponse] = await Promise.all([
-        axios.get('/api/schedule/schedule'),
-        axios.get('/api/schedule/conflicts'),
-        axios.get('/api/schedule/config'),
-        axios.get('/api/schedule/debug-schedule-status'),
-        axios.get('/api/schedule/all-classes')
-      ]);
+      const cacheKey = `schedule_${activeShift}`;
+      let scheduleResponse, classesResponse;
+      
+      const cached = getCached(cacheKey);
+      if (cached && forceRefresh === 0) {
+        scheduleResponse = { data: cached.schedule };
+        classesResponse = { data: cached.classes };
+      } else {
+        const [sRes, cRes] = await Promise.all([
+          axios.get('/api/schedule/schedule'),
+          axios.get('/api/schedule/all-classes')
+        ]);
+        scheduleResponse = sRes;
+        classesResponse = cRes;
+        setCache(cacheKey, { schedule: sRes.data, classes: cRes.data }, 30000);
+      }
+
+      const conflictsResponse = await axios.get('/api/schedule/conflicts');
 
       console.log('=== DATA FETCH COMPLETE ===');
       console.log('Schedule slots:', scheduleResponse.data.length);
@@ -100,7 +112,7 @@ const ScheduleDashboard = () => {
 
     } catch (error) {
       console.error('Error fetching all data:', error);
-      setError('Failed to load schedule data. Please check if the schedule was generated in Task 7.');
+      setError('Failed to load schedule data. Please check if the schedule was generated in Task 6.');
       setSystemStatus('error');
     } finally {
       setLoading(false);
@@ -235,7 +247,7 @@ const ScheduleDashboard = () => {
           class: className,
           shift: activeShift,
           message: `No schedule data found for ${className} in Shift ${activeShift}`,
-          suggestion: 'Check if this class is assigned to the correct shift in Task 7 configuration',
+          suggestion: 'Check if this class is assigned to the correct shift in Task 6 configuration',
           priority: 'high'
         });
       }
@@ -398,7 +410,7 @@ const ScheduleDashboard = () => {
       console.log('Part-time schedule debug:', response.data);
       
       if (response.data.part_time_slots.length === 0) {
-        setError('❌ No part-time teacher slots found in schedule. Please regenerate schedule in Task 7.');
+        setError('❌ No part-time teacher slots found in schedule. Please regenerate schedule in Task 6.');
       } else {
         setSuccess(`✅ Found ${response.data.part_time_slots.length} part-time teacher slots across ${response.data.summary.days.length} days`);
       }
@@ -588,7 +600,7 @@ const ScheduleDashboard = () => {
       case 'healthy':
         return '✅ System is healthy and schedule is loaded';
       case 'no_schedule':
-        return '❌ No schedule generated. Please complete Task 7.';
+        return '❌ No schedule generated. Please complete Task 6.';
       case 'part_time_issues':
         return '⚠️ Part-time teachers detected but may have scheduling issues';
       case 'no_classes':
@@ -805,12 +817,12 @@ const ScheduleDashboard = () => {
             <div className={styles.noScheduleMessage}>
               <div className={styles.noScheduleIcon}>📋</div>
               <h4>No Schedule Generated</h4>
-              <p>You haven't generated a schedule yet. Please complete Task 7 to create your school timetable.</p>
+              <p>You haven't generated a schedule yet. Please complete Task 6 to create your school timetable.</p>
               <button 
-                onClick={() => navigate('/tasks/7')}
+                onClick={() => navigate('/tasks/6')}
                 className={styles.primaryButton}
               >
-                Go to Task 7 to Generate Schedule
+                Go to Task 6 to Generate Schedule
               </button>
             </div>
           ) : (

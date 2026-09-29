@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FiChevronRight, FiUser, FiCalendar, FiAward } from 'react-icons/fi';
 import styles from './WardCarousel.module.css';
+import { classIdLabel } from '../../utils/classId';
 
 const WardCarousel = ({ wards, onWardSelect, selectedWardId }) => {
   const [expandedWardId, setExpandedWardId] = useState(null);
@@ -27,7 +28,7 @@ const WardCarousel = ({ wards, onWardSelect, selectedWardId }) => {
             <div className={styles.wardHeader}>
               {ward.image_student ? (
                 <img
-                  src={`https://v2.skoolific.com/Uploads/${ward.image_student}`}
+                  src={`/Uploads/${ward.image_student}`}
                   alt={`${ward.student_name}'s profile`}
                   className={styles.wardAvatar}
                 />
@@ -38,7 +39,7 @@ const WardCarousel = ({ wards, onWardSelect, selectedWardId }) => {
               )}
               <div className={styles.wardInfo}>
                 <h4 className={styles.wardName}>{ward.student_name}</h4>
-                <p className={styles.wardClass}>Class: {ward.class} | Roll: {ward.class_id}</p>
+                <p className={styles.wardClass}>Class: {ward.class} | Roll: {classIdLabel(ward.class_id) || '-'}</p>
               </div>
               <FiChevronRight className={`${styles.chevron} ${expandedWardId === ward.id ? styles.rotated : ''}`} />
             </div>

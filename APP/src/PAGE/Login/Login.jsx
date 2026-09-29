@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
@@ -6,121 +6,101 @@ import { Building2, User as UserIcon, Lock } from 'lucide-react';
 import styles from './Login.module.css';
 import { getPermissionPath } from '../../config/adminPermissions';
 import { ValidationRules, ErrorMessages } from '../../utils/validation';
-import Input from '../../components/Input/Input';
-import Button from '../../components/Button/Button';
-import ThemeToggle from '../../components/ThemeToggle/ThemeToggle';
-import LanguageSelector from '../../components/LanguageSelector/LanguageSelector';
-import Toast from '../../components/Toast/Toast';
+import Input from '../../COMPONENTS/Input/Input';
+import Button from '../../COMPONENTS/Button/Button';
+import { getBranchCode, setBranchCode, isFixedBranch } from '../../utils/branchCode';
+import ThemeToggle from '../../COMPONENTS/ThemeToggle/ThemeToggle';
+import LanguageSelector from '../../COMPONENTS/LanguageSelector/LanguageSelector';
+import Toast from '../../COMPONENTS/Toast/Toast';
+
+const REMEMBER_KEY = 'rememberedCredentials';
 
 const Login = () => {
   const { t } = useTranslation();
-  const [credentials, setCredentials] = useState({
-    username: '',
-    password: '',
-    branchCode: ''
-  });
+  const [credentials, setCredentials] = useState({ username: '', password: '', branchCode: '' });
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
-  const [showToast, setShowToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
-  const [toastType, setToastType] = useState('error');
+  const [toast, setToast] = useState({ show: false, message: '', type: 'error' });
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Redirect if already logged in
   useEffect(() => {
     const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
     if (isLoggedIn) {
       const from = location.state?.from?.pathname || '/';
       navigate(from, { replace: true });
+      return;
     }
-    
-    // Load saved branch code from localStorage
-    const savedBranchCode = localStorage.getItem('branchCode');
-    if (savedBranchCode) {
-      setCredentials(prev => ({ ...prev, branchCode: savedBranchCode }));
+
+    const saved = localStorage.getItem(REMEMBER_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setCredentials(prev => ({ ...prev, ...parsed }));
+        setRememberMe(true);
+      } catch {
+        // ignore malformed saved credentials
+      }
+    } else {
+      // Use rememberedBranchCode for login form pre-fill (won't affect API calls)
+      const savedBranchCode = isFixedBranch() ? getBranchCode() : (localStorage.getItem('rememberedBranchCode') || getBranchCode());
+      if (savedBranchCode) {
+        setCredentials(prev => ({ ...prev, branchCode: savedBranchCode }));
+      }
+    }
+
+    // Single-branch builds: the branch code is fixed, never read from storage
+    if (isFixedBranch()) {
+      setCredentials(prev => ({ ...prev, branchCode: getBranchCode() }));
     }
   }, [navigate, location]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    
-    // Convert branch code to uppercase automatically
-    const processedValue = name === 'branchCode' ? value.toUpperCase() : value;
-    
-    setCredentials(prev => ({
-      ...prev,
-      [name]: processedValue
-    }));
-    
-    // Clear error for this field when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
+  const handleInputChange = (field, value) => {
+    const processedValue = field === 'branchCode' ? value.toUpperCase() : value;
+    setCredentials(prev => ({ ...prev, [field]: processedValue }));
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
   const handleBlur = (field) => {
     setTouched(prev => ({ ...prev, [field]: true }));
-    
-    // Validate field on blur
-    let error = '';
     const value = credentials[field];
-    
+    let error = '';
+
     if (field === 'branchCode') {
-      if (!ValidationRules.required(value)) {
-        error = ErrorMessages.required;
-      }
+      if (!ValidationRules.required(value)) error = ErrorMessages.required;
     } else if (field === 'username') {
-      if (!ValidationRules.required(value)) {
-        error = ErrorMessages.required;
-      } else if (!ValidationRules.minLength(3)(value)) {
-        error = ErrorMessages.minLength(3);
-      }
+      if (!ValidationRules.required(value)) error = ErrorMessages.required;
+      else if (!ValidationRules.minLength(3)(value)) error = ErrorMessages.minLength(3);
     } else if (field === 'password') {
-      if (!ValidationRules.required(value)) {
-        error = ErrorMessages.required;
-      } else if (!ValidationRules.minLength(6)(value)) {
-        error = ErrorMessages.minLength(6);
-      }
+      if (!ValidationRules.required(value)) error = ErrorMessages.required;
+      else if (!ValidationRules.minLength(6)(value)) error = ErrorMessages.minLength(6);
     }
-    
+
     setErrors(prev => ({ ...prev, [field]: error }));
+  };
+
+  const showToast = (message, type = 'error') => {
+    setToast({ show: true, message, type });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Mark all fields as touched
     setTouched({ username: true, password: true, branchCode: true });
-    
-    // Validate all fields
+
     const newErrors = {};
-    
-    if (!ValidationRules.required(credentials.branchCode)) {
-      newErrors.branchCode = ErrorMessages.required;
-    }
-    
-    if (!ValidationRules.required(credentials.username)) {
-      newErrors.username = ErrorMessages.required;
-    } else if (!ValidationRules.minLength(3)(credentials.username)) {
-      newErrors.username = ErrorMessages.minLength(3);
-    }
-    
-    if (!ValidationRules.required(credentials.password)) {
-      newErrors.password = ErrorMessages.required;
-    } else if (!ValidationRules.minLength(6)(credentials.password)) {
-      newErrors.password = ErrorMessages.minLength(6);
-    }
-    
+    if (!isFixedBranch() && !ValidationRules.required(credentials.branchCode)) newErrors.branchCode = ErrorMessages.required;
+    if (!ValidationRules.required(credentials.username)) newErrors.username = ErrorMessages.required;
+    else if (!ValidationRules.minLength(3)(credentials.username)) newErrors.username = ErrorMessages.minLength(3);
+    if (!ValidationRules.required(credentials.password)) newErrors.password = ErrorMessages.required;
+    else if (!ValidationRules.minLength(6)(credentials.password)) newErrors.password = ErrorMessages.minLength(6);
+
     setErrors(newErrors);
-    
-    // If there are errors, don't submit
     if (Object.keys(newErrors).length > 0) {
-      setToastMessage(t('auth.fixErrors', 'Please fix the errors before submitting'));
-      setToastType('error');
-      setShowToast(true);
+      showToast(t('auth.fixErrors', 'Please fix the errors before submitting'));
       return;
     }
 
@@ -129,51 +109,54 @@ const Login = () => {
     try {
       const response = await axios.post('/api/v2/branches/login', {
         ...credentials,
-        branchCode: credentials.branchCode.toUpperCase(), // Convert to uppercase
+        branchCode: credentials.branchCode.toUpperCase(),
         userType: 'admin'
       });
-      
+
       if (response.data.message === 'Login successful' || response.data.success) {
-        const user = response.data.user;
-        const token = response.data.token;
-        
-        // Store JWT token for API authentication
+        const { user, token } = response.data;
+
         if (token) {
           localStorage.setItem('authToken', token);
+          localStorage.setItem(`branch_${credentials.branchCode}_authToken`, token);
         }
-        
         localStorage.setItem('adminUser', JSON.stringify(user));
+        localStorage.setItem(`branch_${credentials.branchCode}_adminUser`, JSON.stringify(user));
         localStorage.setItem('userType', user.userType || 'admin');
+        localStorage.setItem(`branch_${credentials.branchCode}_userType`, user.userType || 'admin');
         localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('branchCode', credentials.branchCode);
-        
-        // Store permissions for sub-accounts
+        localStorage.setItem(`branch_${credentials.branchCode}_isLoggedIn`, 'true');
+        setBranchCode(credentials.branchCode, true);
+
         if (user.permissions) {
           localStorage.setItem('userPermissions', JSON.stringify(user.permissions));
+          localStorage.setItem(`branch_${credentials.branchCode}_userPermissions`, JSON.stringify(user.permissions));
         } else {
           localStorage.removeItem('userPermissions');
+          localStorage.removeItem(`branch_${credentials.branchCode}_userPermissions`);
         }
-        
-        // Determine redirect path based on user type and permissions
+
+        if (rememberMe) {
+          localStorage.setItem(REMEMBER_KEY, JSON.stringify({
+            username: credentials.username,
+            branchCode: credentials.branchCode
+          }));
+        } else {
+          localStorage.removeItem(REMEMBER_KEY);
+        }
+
         let redirectPath = '/';
-        
-        if (user.userType === 'sub-account' && user.permissions && user.permissions.length > 0) {
-          // For sub-accounts, redirect to their first permitted page
+        if (user.userType === 'sub-account' && user.permissions?.length > 0) {
           const firstPermittedPath = getPermissionPath(user.permissions[0]);
-          if (firstPermittedPath) {
-            redirectPath = firstPermittedPath;
-          }
+          if (firstPermittedPath) redirectPath = firstPermittedPath;
         } else if (user.userType === 'admin') {
-          // Primary admin goes to home/dashboard
           redirectPath = location.state?.from?.pathname || '/';
         }
-        
+
         navigate(redirectPath, { replace: true });
       }
     } catch (error) {
-      setToastMessage(error.response?.data?.error || t('auth.loginFailed', 'Login failed. Please check your credentials.'));
-      setToastType('error');
-      setShowToast(true);
+      showToast(error.response?.data?.error || t('auth.loginFailed', 'Login failed. Please check your credentials.'));
     } finally {
       setIsLoading(false);
     }
@@ -193,26 +176,28 @@ const Login = () => {
             <h1 className={styles.title}>{t('auth.adminPortalTitle', 'School Management System')}</h1>
             <p className={styles.subtitle}>{t('auth.adminPortalSubtitle', 'Admin Login')}</p>
           </div>
-          
+
           <form onSubmit={handleSubmit} className={styles.form}>
-            <Input
-              label={t('auth.branchCode', 'Branch Code')}
-              name="branchCode"
-              value={credentials.branchCode}
-              onChange={handleInputChange}
-              onBlur={() => handleBlur('branchCode')}
-              icon={<Building2 size={20} />}
-              placeholder={t('auth.branchCodePlaceholder', 'Enter branch code')}
-              error={touched.branchCode && errors.branchCode}
-              disabled={isLoading}
-              required
-            />
-            
+            {!isFixedBranch() && (
+              <Input
+                label={t('auth.branchCode', 'Branch Code')}
+                name="branchCode"
+                value={credentials.branchCode}
+                onChange={(v) => handleInputChange('branchCode', v)}
+                onBlur={() => handleBlur('branchCode')}
+                icon={<Building2 size={20} />}
+                placeholder={t('auth.branchCodePlaceholder', 'Enter branch code')}
+                error={touched.branchCode && errors.branchCode}
+                disabled={isLoading}
+                required
+              />
+            )}
+
             <Input
               label={t('auth.username', 'Username')}
               name="username"
               value={credentials.username}
-              onChange={handleInputChange}
+              onChange={(v) => handleInputChange('username', v)}
               onBlur={() => handleBlur('username')}
               icon={<UserIcon size={20} />}
               placeholder={t('auth.adminUsernamePlaceholder', 'Enter admin username')}
@@ -221,13 +206,13 @@ const Login = () => {
               autoComplete="username"
               required
             />
-            
+
             <Input
               label={t('auth.password', 'Password')}
               type="password"
               name="password"
               value={credentials.password}
-              onChange={handleInputChange}
+              onChange={(v) => handleInputChange('password', v)}
               onBlur={() => handleBlur('password')}
               icon={<Lock size={20} />}
               placeholder={t('auth.passwordPlaceholder', 'Enter your password')}
@@ -239,8 +224,8 @@ const Login = () => {
 
             <div className={styles.options}>
               <label className={styles.rememberMe}>
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                 />
@@ -248,9 +233,9 @@ const Login = () => {
               </label>
               <a href="#" className={styles.forgotPassword}>{t('auth.forgotPassword', 'Forgot password?')}</a>
             </div>
-            
-            <Button 
-              type="submit" 
+
+            <Button
+              type="submit"
               variant="primary"
               size="lg"
               loading={isLoading}
@@ -259,7 +244,7 @@ const Login = () => {
               {t('auth.signIn', 'Sign In')}
             </Button>
           </form>
-          
+
           <div className={styles.footer}>
             <p>© 2025 Skoolific. {t('common.allRightsReserved', 'All rights reserved.')}</p>
           </div>
@@ -267,10 +252,10 @@ const Login = () => {
       </div>
 
       <Toast
-        isOpen={showToast}
-        onClose={() => setShowToast(false)}
-        message={toastMessage}
-        type={toastType}
+        isOpen={toast.show}
+        onClose={() => setToast(prev => ({ ...prev, show: false }))}
+        message={toast.message}
+        type={toast.type}
         duration={5000}
         position="top-right"
       />

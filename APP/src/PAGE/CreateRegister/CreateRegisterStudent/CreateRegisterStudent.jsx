@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import axios from 'axios';
+import api from '../../../utils/api';
 import * as XLSX from 'xlsx';
 import Webcam from 'react-webcam';
 import { useTranslation } from 'react-i18next';
+import { getBranchCode } from '../../../utils/branchCode';
 import styles from './CreateRegisterStudent.module.css';
 
 import Card from '../../../COMPONENTS/Card/Card';
@@ -25,14 +27,13 @@ import {
   FileSpreadsheet,
   Plus,
   Search,
-  Trash2,
   User,
   Users,
   X
 } from 'lucide-react';
 
 // API base URL - use environment variable or fallback to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
+const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 
 const AddStudentS = () => {
   const { t } = useTranslation();
@@ -80,6 +81,7 @@ const AddStudentS = () => {
   const [showCamera, setShowCamera] = useState(false);
   const [cameraMode, setCameraMode] = useState(null);
   const webcamRef = useRef(null);
+  const excelInputRef = useRef(null);
   
   // Multi-select states
   const [multiSelectValues, setMultiSelectValues] = useState({});
@@ -123,7 +125,7 @@ const AddStudentS = () => {
     // Safely check if customFields exists and is an array
     const customFields = formStructure.customFields;
     if (customFields && Array.isArray(customFields)) {
-      const customField = customFields.find(field => field && field.name === column.column_name);
+      const customField = customFields.find(field => field && String(field.name).toLowerCase() === String(column.column_name).toLowerCase());
       if (customField && customField.type) {
         return customField.type;
       }
@@ -153,7 +155,7 @@ const AddStudentS = () => {
   const getFieldOptions = (column) => {
     const customFields = formStructure.customFields;
     if (customFields && Array.isArray(customFields)) {
-      const customField = customFields.find(field => field && field.name === column.column_name);
+      const customField = customFields.find(field => field && String(field.name).toLowerCase() === String(column.column_name).toLowerCase());
       if (customField && Array.isArray(customField.options)) {
         return customField.options;
       }
@@ -225,7 +227,7 @@ const AddStudentS = () => {
 
   useEffect(() => {
     setIsLoading(true);
-    axios.get(`${API_BASE_URL}/students/classes`, { timeout: 10000 })
+    api.get(`/students/classes`, { timeout: 10000 })
       .then(response => {
         if (response.data && Array.isArray(response.data) && response.data.length > 0) {
           setAvailableClasses(response.data);
@@ -245,7 +247,7 @@ const AddStudentS = () => {
       .finally(() => setIsLoading(false));
 
     // Fetch form structure with custom field metadata
-    axios.get(`${API_BASE_URL}/students/form-structure`, { timeout: 10000 })
+    api.get(`/students/form-structure`, { timeout: 10000 })
       .then(response => {
         // Ensure we have a valid structure with arrays
         const data = response.data || {};
@@ -261,7 +263,7 @@ const AddStudentS = () => {
       });
       
     // V2 Enhancement: Fetch Task1 configuration
-    axios.get(`${API_BASE_URL}/schedule/config`)
+    api.get(`/schedule/config`)
       .then(response => {
         if (response.data) {
           setTask1Config(response.data);
@@ -272,8 +274,7 @@ const AddStudentS = () => {
         console.error('Error fetching Task1 config:', error);
         // Set default config if fetch fails
         setTask1Config({
-          has_kg: false,
-          has_evening_class: false
+          has_kg: false
         });
       });
   }, [setValue]);
@@ -309,7 +310,7 @@ const AddStudentS = () => {
     if (!className) return;
     setIsLoading(true);
     try {
-      const response = await axios.get(`${API_BASE_URL}/students/columns/${className}`, { timeout: 10000 });
+      const response = await api.get(`/students/columns/${className}`, { timeout: 10000 });
       if (response.data && Array.isArray(response.data)) {
         setTableColumns(response.data.filter(col => !['username', 'password', 'guardian_username', 'guardian_password'].includes(col.column_name)));
       } else {
@@ -335,7 +336,7 @@ const AddStudentS = () => {
     
     try {
       setIsLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/students/search-guardian/${encodeURIComponent(phone)}`, { timeout: 10000 });
+      const response = await api.get(`/students/search-guardian/${encodeURIComponent(phone)}`, { timeout: 10000 });
       setFetchedGuardian({
         name: response.data.guardian_name,
         phone,
@@ -399,26 +400,6 @@ const AddStudentS = () => {
     fetchColumns(className);
   };
 
-  const handleDeleteForm = async () => {
-    if (window.confirm('Are you sure you want to delete the form structure? This will drop all class tables.')) {
-      setIsLoading(true);
-      try {
-        await axios.delete(`${API_BASE_URL}/students/delete-form`);
-        setAvailableClasses([]);
-        setTableColumns([]);
-        setSelectedClass('');
-        setValue('class', '');
-        setPageError('');
-        setShowSuccess(false);
-        setFormStructure({ classes: [], customFields: [] });
-      } catch (error) {
-        setPageError(t('students.registration.failedToDeleteForm', 'Failed to delete form') + `: ${error.message}`);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
   const handleDownload = async () => {
     if (!selectedClass) return;
     try {
@@ -466,7 +447,7 @@ const AddStudentS = () => {
           }
           
           // Send data to backend for bulk import
-          const response = await axios.post(`${API_BASE_URL}/students/bulk-import`, {
+          const response = await api.post(`/students/bulk-import`, {
             className: selectedClass,
             students: data
           }, { timeout: 30000 });
@@ -523,6 +504,13 @@ const AddStudentS = () => {
       return;
     }
 
+    // Explicit guard: never submit without a class
+    if (!data.class) {
+      toast.error(t('students.registration.classRequired', 'Class is required'));
+      setCurrentStep(1);
+      return;
+    }
+
     setIsLoading(true);
     setPageError('');
     setShowSuccess(false);
@@ -547,10 +535,17 @@ const AddStudentS = () => {
         formData.append(key, value.toString());
       });
 
-      const response = await axios.post(`${API_BASE_URL}/students/add-student`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const branchCode = getBranchCode();
+      const response = await api.post(`/students/add-student`, formData, {
+        headers: { 'X-Branch-Code': branchCode, 'Content-Type': 'multipart/form-data' },
         timeout: 10000
       });
+      
+      // Check if the response indicates an error
+      if (response.data.error) {
+        throw new Error(response.data.message || response.data.error);
+      }
+      
       setNewCredentials({
         student_username: response.data.student_username,
         student_password: response.data.student_password,
@@ -562,8 +557,16 @@ const AddStudentS = () => {
       reset();
       setFetchedGuardian(null);
       setMultiSelectValues({});
+      // Return to step 1 and re-select the first class for a fresh registration
+      setCurrentStep(1);
+      if (availableClasses.length > 0) {
+        setSelectedClass(availableClasses[0]);
+        setValue('class', availableClasses[0]);
+        fetchColumns(availableClasses[0]);
+      }
     } catch (err) {
-      const errorMsg = err.response?.data?.details || err.response?.data?.error || err.message;
+      const errorMsg = err.response?.data?.message || err.response?.data?.error || err.message;
+      console.error('Registration error:', err);
       setPageError(errorMsg);
       toast.error(errorMsg);
     } finally {
@@ -589,10 +592,10 @@ const AddStudentS = () => {
         fieldsToValidate = ['isGuardianExisting', 'guardian_phone', 'guardian_name', 'guardian_relation'];
         break;
       case 3: // Custom Fields
-        // Validate all custom fields
+        // Validate all custom fields (non-nullable) PLUS old_or_new / student_type (always required)
         fieldsToValidate = tableColumns
-          .filter(col => !['id', 'school_id', 'class_id', 'image_student', 'student_name', 'smachine_id', 'age', 'gender', 'class', 'guardian_name', 'guardian_phone', 'guardian_relation', 'username', 'password', 'guardian_username', 'guardian_password', 'is_active', 'is_free', 'exemption_type', 'exemption_reason'].includes(col.column_name))
-          .filter(col => col.is_nullable === 'NO')
+          .filter(col => !['id', 'school_id', 'class_id', 'image_student', 'student_name', 'smachine_id', 'age', 'gender', 'class', 'guardian_name', 'guardian_phone', 'guardian_relation', 'username', 'password', 'guardian_username', 'guardian_password', 'is_active', 'is_free', 'exemption_type', 'exemption_reason', 'phone'].includes(col.column_name))
+          .filter(col => col.is_nullable === 'NO' || ['old_or_new', 'student_type'].includes(String(col.column_name).toLowerCase()))
           .map(col => col.column_name);
         break;
       default:
@@ -602,11 +605,31 @@ const AddStudentS = () => {
     // Validate current step fields
     const isValid = await trigger(fieldsToValidate);
     
-    if (isValid) {
-      setCurrentStep(prev => Math.min(prev + 1, totalSteps));
-    } else {
+    if (!isValid) {
       toast.error(t('students.registration.fixValidationErrors', 'Please fix the validation errors before continuing.'));
+      return;
     }
+
+    // On step 1, check that the student machine ID is not already used by another student
+    if (currentStep === 1) {
+      const mid = String(getValues('smachine_id') || '').trim();
+      if (mid) {
+        try {
+          const resp = await api.get(`/student-list/check-machine-id/${encodeURIComponent(mid)}`, { timeout: 10000 });
+          if (resp.data && resp.data.exists) {
+            toast.error(
+              t('students.registration.machineIdExists', 'This Machine ID is already used') +
+              (resp.data.student_name ? ` — "${resp.data.student_name}"${resp.data.class_name ? ` in ${resp.data.class_name}` : ''}` : '')
+            );
+            return;
+          }
+        } catch (e) {
+          console.warn('Machine ID check failed (continuing):', e?.message);
+        }
+      }
+    }
+
+    setCurrentStep(prev => Math.min(prev + 1, totalSteps));
   };
 
   const handlePreviousStep = () => {
@@ -725,7 +748,9 @@ const AddStudentS = () => {
 
   // Render custom field based on type
   const renderCustomField = (column) => {
-    const isRequired = column.is_nullable === 'NO';
+    // "old_or_new" (student type: Old/New) is always required regardless of DB nullability
+    const isAlwaysRequired = ['old_or_new', 'student_type'].includes(String(column.column_name).toLowerCase());
+    const isRequired = isAlwaysRequired || column.is_nullable === 'NO';
     const validationRules = isRequired ? { required: `${column.column_name.replace(/_/g, ' ')} ${t('common.required', 'Required')}` } : {};
     const fieldType = getFieldType(column);
 
@@ -743,7 +768,7 @@ const AddStudentS = () => {
         
         {fieldType === 'multi-select' ? (
           renderMultiSelectField(column)
-        ) : fieldType === 'select' ? (
+        ) : fieldType === 'select' || fieldType === 'option' || fieldType === 'radio' ? (
           renderSelectField(column, validationRules)
         ) : fieldType === 'checkbox' ? (
           <Controller
@@ -872,6 +897,7 @@ const AddStudentS = () => {
                   <input
                     type="file"
                     accept=".xlsx,.xls"
+                    ref={excelInputRef}
                     onChange={handleExcelUpload}
                     className={styles.hiddenFileInput}
                     disabled={isLoading}
@@ -881,6 +907,7 @@ const AddStudentS = () => {
                     variant="secondary"
                     icon={<FileSpreadsheet size={18} />}
                     disabled={isLoading}
+                    onClick={() => excelInputRef.current?.click()}
                   >
                     {t('common.upload', 'Upload')} Excel
                   </Button>
@@ -1066,38 +1093,22 @@ const AddStudentS = () => {
                 />
               </div>
 
-              {task1Config && (task1Config.has_kg || task1Config.has_evening_class) && (
+              {task1Config?.has_kg && (
                 <div className={styles.studentType}>
                   <div className={styles.studentTypeTitle}>{t('students.registration.studentType', 'Student type')}</div>
                   <div className={styles.studentTypeOptions}>
-                    {task1Config.has_kg && (
-                      <Controller
-                        name="is_kg"
-                        control={control}
-                        render={({ field }) => (
-                          <Checkbox
-                            label={t('students.registration.isKg', 'Kindergarten (KG) student')}
-                            checked={!!field.value}
-                            onChange={(checked) => field.onChange(checked)}
-                            disabled={isLoading}
-                          />
-                        )}
-                      />
-                    )}
-                    {task1Config.has_evening_class && (
-                      <Controller
-                        name="is_evening_class"
-                        control={control}
-                        render={({ field }) => (
-                          <Checkbox
-                            label={t('students.registration.isEvening', 'Evening class student')}
-                            checked={!!field.value}
-                            onChange={(checked) => field.onChange(checked)}
-                            disabled={isLoading}
-                          />
-                        )}
-                      />
-                    )}
+                    <Controller
+                      name="is_kg"
+                      control={control}
+                      render={({ field }) => (
+                        <Checkbox
+                          label={t('students.registration.isKg', 'Kindergarten (KG) student')}
+                          checked={!!field.value}
+                          onChange={(checked) => field.onChange(checked)}
+                          disabled={isLoading}
+                        />
+                      )}
+                    />
                   </div>
                 </div>
               )}
@@ -1282,17 +1293,6 @@ const AddStudentS = () => {
                 disabled={isLoading}
               >
                 {t('common.previous', 'Previous')}
-              </Button>
-            )}
-            {availableClasses.length > 0 && currentStep === 1 && (
-              <Button
-                type="button"
-                variant="danger"
-                icon={<Trash2 size={18} />}
-                onClick={handleDeleteForm}
-                disabled={isLoading}
-              >
-                {t('students.registration.deleteForm', 'Delete form')}
               </Button>
             )}
           </div>

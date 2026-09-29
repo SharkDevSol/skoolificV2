@@ -36,7 +36,7 @@ const StaffFormBuilder = ({ onSuccess }) => {
   const [optionCount, setOptionCount] = useState(2);
   const [tempOptions, setTempOptions] = useState(['', '']);
 
-  const staffTypes = ['Supportive Staff', 'Administrative Staff', 'Teachers'];
+  const staffTypes = ['Supportive Staff', 'Administrative Staff', 'Teachers', 'Finance'];
   
   // Field types with clear distinction
   const fieldTypes = [
@@ -224,11 +224,6 @@ const StaffFormBuilder = ({ onSuccess }) => {
   const handleCreateForm = async () => {
     if (!staffType || !className) {
       setErrorMessage('Please select staff type and enter form name');
-      return;
-    }
-
-    if (customFields.length === 0) {
-      setErrorMessage('Please add at least one custom field to the form.');
       return;
     }
 
@@ -845,7 +840,7 @@ const StaffFormBuilder = ({ onSuccess }) => {
       {/* Create Form Button */}
       <motion.button 
         onClick={handleCreateForm} 
-        disabled={isLoading || !staffType || !className || customFields.length === 0} 
+        disabled={isLoading || !staffType || !className} 
         style={{
           ...styles.button, 
           backgroundColor: isLoading ? '#6c757d' : '#28a745',
@@ -853,7 +848,7 @@ const StaffFormBuilder = ({ onSuccess }) => {
           justifyContent: 'center',
           fontSize: '18px',
           padding: '18px',
-          opacity: (isLoading || !staffType || !className || customFields.length === 0) ? 0.6 : 1
+          opacity: (isLoading || !staffType || !className) ? 0.6 : 1
         }}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}

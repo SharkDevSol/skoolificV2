@@ -123,8 +123,7 @@ const AdminSubAccounts = () => {
   const validateForm = () => {
     const newErrors = {};
     if (!formData.name.trim()) newErrors.name = 'Name is required';
-    if (!formData.email.trim()) newErrors.email = 'Email is required';
-    else if (!/^\S+@\S+\.\S+$/.test(formData.email)) newErrors.email = 'Invalid email format';
+    if (formData.email.trim() && !/^\S+@\S+\.\S+$/.test(formData.email)) newErrors.email = 'Invalid email format';
     if (!formData.username.trim()) newErrors.username = 'Username is required';
     if (!editingAccount && !formData.password) newErrors.password = 'Password is required';
     else if (formData.password && formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
@@ -368,7 +367,7 @@ const AdminSubAccounts = () => {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label>{t('email')} *</label>
+                    <label>{t('email')} ({t('optional', 'optional')})</label>
                     <input
                       type="email"
                       name="email"

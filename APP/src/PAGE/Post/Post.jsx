@@ -16,10 +16,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FaChalkboardTeacher, FaUserGraduate, FaUserShield, FaHeart } from 'react-icons/fa';
 import { useApp } from '../../context/AppContext';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://v2.skoolific.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
 
 const Post = () => {
-  const { t: appT } = useApp();
+  const { profile, t: appT } = useApp();
   const { t } = useTranslation();
   const [posts, setPosts] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -27,7 +27,7 @@ const Post = () => {
     title: '',
     body: '',
     link: '',
-    author_name: 'Current User',
+    author_name: profile?.name || 'Administrator',
     author_type: 'staff',
     author_id: 1,
     audiences: JSON.stringify([{ type: 'all' }]),
@@ -45,7 +45,7 @@ const Post = () => {
 
   const fetchPosts = async () => {
     try {
-      const response = await api.get('/api/posts/feed?role=staff');
+      const response = await api.get('/posts/feed?role=staff');
       setPosts(response.data);
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -88,13 +88,24 @@ const Post = () => {
       return;
     }
 
+    const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+    const staffUser = JSON.parse(localStorage.getItem('staffUser') || '{}');
+    
+    let authorName = profile?.name || adminUser.name || staffUser.name || 'Administrator';
+    if (authorName.toLowerCase() === 'current user') {
+      authorName = 'Administrator';
+    }
+    
+    const authorId = adminUser.id || staffUser.id || 1;
+    const authorType = adminUser.role || staffUser.staffType || 'staff';
+
     const data = new FormData();
     data.append('title', formData.title);
-    data.append('body', formData.body);
-    data.append('link', formData.link);
-    data.append('author_name', formData.author_name);
-    data.append('author_type', formData.author_type);
-    data.append('author_id', formData.author_id);
+    data.append('body', formData.body || formData.title || ' ');
+    data.append('link', formData.link || '');
+    data.append('author_name', authorName);
+    data.append('author_type', authorType);
+    data.append('author_id', authorId);
     data.append('audiences', formData.audiences);
 
     formData.media.forEach((file) => {
@@ -103,7 +114,7 @@ const Post = () => {
 
     setUploading(true);
     try {
-      await api.post('/api/posts', data, {
+      await api.post('/posts', data, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setIsCreating(false);
@@ -112,7 +123,7 @@ const Post = () => {
         title: '',
         body: '',
         link: '',
-        author_name: 'Current User',
+        author_name: authorName,
         author_type: 'staff',
         author_id: 1,
         audiences: JSON.stringify([{ type: 'all' }]),
@@ -120,7 +131,7 @@ const Post = () => {
       });
     } catch (error) {
       console.error('Error creating post:', error);
-      alert(`Failed to create post: ${error.response?.data?.details || error.message}`);
+      alert(`Failed to create post: ${error.response?.data?.error || error.response?.data?.details || error.message}`);
     } finally {
       setUploading(false);
     }
@@ -128,7 +139,7 @@ const Post = () => {
 
   const handleLike = async (postId) => {
     try {
-      await api.put(`/api/posts/${postId}/like`);
+      await api.put(`/posts/${postId}/like`);
       setLikedPosts(prev => new Set([...prev, postId]));
       fetchPosts();
     } catch (error) {
@@ -446,10 +457,18 @@ const Post = () => {
                       className={styles.authorAvatar}
                       style={{ background: getAuthorColor(post.author_type) }}
                     >
-                      {getAuthorIcon(post.author_type)}
+                      {post.author_image ? (
+                        <img src={post.author_image} alt={post.author_name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                      ) : (
+                        <span style={{ color: 'white', fontWeight: 'bold', fontSize: '1.2rem' }}>
+                          {(post.author_name && post.author_name.toLowerCase() !== 'current user' && post.author_name.toLowerCase() !== 'administrator') ? post.author_name.charAt(0).toUpperCase() : ((profile?.name && profile.name.toLowerCase() !== 'current user') ? profile.name.charAt(0).toUpperCase() : 'A')}
+                        </span>
+                      )}
                     </div>
                     <div className={styles.authorDetails}>
-                      <span className={styles.authorName}>{post.author_name}</span>
+                      <span className={styles.authorName}>
+                        {(post.author_name && post.author_name.toLowerCase() !== 'current user' && post.author_name.toLowerCase() !== 'administrator') ? post.author_name : ((profile?.name && profile.name.toLowerCase() !== 'current user') ? profile.name : 'Administrator')}
+                      </span>
                       <span className={styles.postTime}>{formatDate(post.created_at)}</span>
                     </div>
                   </div>

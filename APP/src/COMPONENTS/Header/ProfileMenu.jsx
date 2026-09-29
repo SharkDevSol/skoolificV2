@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { User, LogOut, Settings, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { getBranchCode } from '../../utils/branchCode';
 import styles from './ProfileMenu.module.css';
 
 /**
@@ -18,6 +19,8 @@ const ProfileMenu = ({ user, onLogout, onProfileClick, className = '' }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+
+  const branchCode = getBranchCode();
 
   const profileMenuClasses = [
     styles.profileMenu,
@@ -99,7 +102,14 @@ const ProfileMenu = ({ user, onLogout, onProfileClick, className = '' }) => {
         </div>
 
         <div className={styles.userInfo}>
-          <span className={styles.userName}>{user?.name || t('common.user', 'User')}</span>
+          <div className={styles.userNameRow}>
+            <span className={styles.userName}>{user?.name || t('common.user', 'User')}</span>
+            {branchCode && (
+              <span className={styles.branchBadge} title={`Connected to branch: ${branchCode}`}>
+                {branchCode}
+              </span>
+            )}
+          </div>
           <span className={styles.userRole}>{user?.role || ''}</span>
         </div>
 
@@ -129,6 +139,9 @@ const ProfileMenu = ({ user, onLogout, onProfileClick, className = '' }) => {
             <div className={styles.dropdownUserInfo}>
               <p className={styles.dropdownUserName}>{user?.name || t('common.user', 'User')}</p>
               <p className={styles.dropdownUserRole}>{user?.role || ''}</p>
+              {branchCode && (
+                <p className={styles.dropdownBranchBadge}>Branch: {branchCode}</p>
+              )}
             </div>
           </div>
 
