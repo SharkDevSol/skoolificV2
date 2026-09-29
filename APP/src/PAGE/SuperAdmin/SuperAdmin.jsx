@@ -172,6 +172,7 @@ const SuperAdmin = () => {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [fails, setFails] = useState(0);
 
   const [branches, setBranches] = useState([]);
   const [branch, setBranch] = useState('ALL');
@@ -222,6 +223,9 @@ const SuperAdmin = () => {
       localStorage.setItem('superAdminUser', res.data?.user?.username || loginForm.username);
       setIsLoggedIn(true);
     } catch (err) {
+      // FIX: after a failed super-admin login, offer the admin panel login
+      // (the user may be a branch admin, not a super admin)
+      setFails(n => n + 1);
       setLoginError(err.response?.data?.error || t('loginFailed') || 'Login failed');
     } finally {
       setLoginLoading(false);
@@ -322,6 +326,15 @@ const SuperAdmin = () => {
           <h1 className={styles.loginTitle}>{t('appName')}</h1>
           <p className={styles.loginSub}>{t('loginSub')}</p>
           {loginError && <div className={styles.loginError}>{loginError}</div>}
+          {loginError && fails >= 1 && (
+            <button
+              type="button"
+              className={styles.adminLoginLink}
+              onClick={() => { window.location.href = '/'; }}
+            >
+              Go to Admin Panel login →
+            </button>
+          )}
           <form onSubmit={handleLogin}>
             <input
               className={styles.loginInput}

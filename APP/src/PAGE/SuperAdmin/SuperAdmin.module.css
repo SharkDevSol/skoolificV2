@@ -14,12 +14,12 @@
   flex-direction: column;
   position: relative;
   box-shadow: 0 0 40px rgba(178, 30, 35, 0.15);
-  --bg: #faf3ee;
+  --bg: #f7f5f2;
   --card: #ffffff;
-  --text: #3b1a14;
-  --muted: #8a7670;
-  --line: #f2e9e3;
-  --track: #f2e9e3;
+  --text: #2b2118;
+  --muted: #6e6259;
+  --line: #e8e2da;
+  --track: #ede7e0;
   --inputBg: #ffffff;
   --chipText: #ffffff;
 }
@@ -563,44 +563,36 @@
   max-width: 480px;
   background: var(--card);
   border-top: 1px solid var(--line);
-  /* FIX: horizontally scrollable on small screens (320-480px) so all
-     items stay accessible without overlapping */
+  /* all 8 items visible on screen — no scrolling */
   display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  padding: 6px 4px calc(8px + env(safe-area-inset-bottom));
+  padding: 5px 2px calc(8px + env(safe-area-inset-bottom));
   z-index: 30;
   box-shadow: 0 -4px 16px rgba(59, 26, 20, 0.08);
 }
 
-.nav::-webkit-scrollbar { display: none; }
-
 .navItem {
-  /* equal width but never squeezed: min-width keeps labels intact, and the
-     bar scrolls horizontally when 8 items can't fit */
-  flex: 1 0 auto;
-  min-width: 62px;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 6px 6px;
+  gap: 2px;
+  padding: 5px 1px;
   background: none;
   border: none;
   cursor: pointer;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.15;
   text-align: center;
-  white-space: nowrap;
-  border-radius: 12px;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.navItem svg { font-size: 18px; flex-shrink: 0; }
+.navItem span, .navItem svg { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.navItem svg { font-size: 17px; flex-shrink: 0; }
 
 .navItemActive {
   color: #8b1a1a;
@@ -608,6 +600,24 @@
   font-weight: 700;
 }
 .appDark .navItemActive { color: #ffb04d; background: #3a2210; }
+
+/* FIX: link to the admin panel login after a failed super-admin login */
+.adminLoginLink {
+  display: block;
+  width: 100%;
+  margin: 10px 0 4px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+.adminLoginLink:hover { border-color: var(--accent, #8b1a1a); }
+.appDark .adminLoginLink { background: #241814; color: #f3e9e4; }
 
 /* ---------- Settings ---------- */
 .settingGroup {
