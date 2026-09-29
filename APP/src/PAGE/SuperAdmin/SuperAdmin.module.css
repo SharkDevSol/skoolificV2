@@ -52,13 +52,14 @@
 }
 
 .logo {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   background: linear-gradient(135deg, #f7941e, #ffb04d);
   color: #8b1a1a;
   font-weight: 800;
-  font-size: 20px;
+  font-size: 17px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -89,9 +90,9 @@
   background: rgba(255, 255, 255, 0.15);
   border: 1px solid rgba(255, 255, 255, 0.4);
   color: #fff;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -264,10 +265,12 @@
 .statLabel {
   font-size: 12px;
   font-weight: 600;
-  color: var(--muted);
+  /* light mode: readable (was pale grey) */
+  color: #6e6259;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+.appDark .statLabel { color: var(--muted); }
 
 /* ---------- Hero card ---------- */
 .hero {
@@ -582,7 +585,8 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--muted);
+  /* light mode: dark readable text (was pale grey, invisible on white) */
+  color: #5c554e;
   font-size: 8.5px;
   font-weight: 600;
   line-height: 1.15;
@@ -590,6 +594,7 @@
   border-radius: 10px;
   overflow: hidden;
 }
+.appDark .navItem { color: #b3a29a; }
 
 .navItem span, .navItem svg { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .navItem svg { font-size: 17px; flex-shrink: 0; }
@@ -629,7 +634,8 @@
   margin: 0 0 10px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--muted);
+  /* light mode: readable (was pale grey on white) */
+  color: #6e6259;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   display: flex;

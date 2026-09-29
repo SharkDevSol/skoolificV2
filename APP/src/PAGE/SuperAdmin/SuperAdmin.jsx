@@ -143,14 +143,14 @@ const LANGS = [
 ];
 
 const TABS = [
-  { key: 'home', labelKey: 'home', icon: FiHome },
-  { key: 'students', labelKey: 'students', icon: FiUsers },
-  { key: 'attendance', labelKey: 'attendance', icon: FiCheckCircle },
-  { key: 'marks', labelKey: 'marks', icon: FiClipboard },
-  { key: 'faults', labelKey: 'faults', icon: FiAlertTriangle },
-  { key: 'finance', labelKey: 'finance', icon: FiDollarSign },
-  { key: 'sms', labelKey: 'sms', icon: FiMessageSquare },
-  { key: 'settings', labelKey: 'settings', icon: FiSettings }
+  { key: 'home', labelKey: 'home', icon: FiHome, short: 'Home' },
+  { key: 'students', labelKey: 'students', icon: FiUsers, short: 'Stud' },
+  { key: 'attendance', labelKey: 'attendance', icon: FiCheckCircle, short: 'Atten' },
+  { key: 'marks', labelKey: 'marks', icon: FiClipboard, short: 'Marks' },
+  { key: 'faults', labelKey: 'faults', icon: FiAlertTriangle, short: 'Faults' },
+  { key: 'finance', labelKey: 'finance', icon: FiDollarSign, short: 'Fin' },
+  { key: 'sms', labelKey: 'sms', icon: FiMessageSquare, short: 'SMS' },
+  { key: 'settings', labelKey: 'settings', icon: FiSettings, short: 'Set' }
 ];
 
 const fmt = (n) => {
@@ -172,7 +172,6 @@ const SuperAdmin = () => {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
-  const [fails, setFails] = useState(0);
 
   const [branches, setBranches] = useState([]);
   const [branch, setBranch] = useState('ALL');
@@ -223,9 +222,7 @@ const SuperAdmin = () => {
       localStorage.setItem('superAdminUser', res.data?.user?.username || loginForm.username);
       setIsLoggedIn(true);
     } catch (err) {
-      // FIX: after a failed super-admin login, offer the admin panel login
-      // (the user may be a branch admin, not a super admin)
-      setFails(n => n + 1);
+      // stay on the super-admin page — never redirect to the admin login
       setLoginError(err.response?.data?.error || t('loginFailed') || 'Login failed');
     } finally {
       setLoginLoading(false);
@@ -326,15 +323,6 @@ const SuperAdmin = () => {
           <h1 className={styles.loginTitle}>{t('appName')}</h1>
           <p className={styles.loginSub}>{t('loginSub')}</p>
           {loginError && <div className={styles.loginError}>{loginError}</div>}
-          {loginError && fails >= 1 && (
-            <button
-              type="button"
-              className={styles.adminLoginLink}
-              onClick={() => { window.location.href = '/'; }}
-            >
-              Go to Admin Panel login →
-            </button>
-          )}
           <form onSubmit={handleLogin}>
             <input
               className={styles.loginInput}
@@ -1008,7 +996,7 @@ const SuperAdmin = () => {
               <p className={styles.subtitle}>{currentBranchName}</p>
             </div>
             <button className={styles.logoutBtn} onClick={handleLogout} title={t('logout')}>
-              <FiLogOut />
+              <FiLogOut size={15} />
             </button>
           </div>
           <BranchSelector />
@@ -1033,7 +1021,7 @@ const SuperAdmin = () => {
                 onClick={() => setTab(tb.key)}
               >
                 <Icon />
-                {t(tb.labelKey)}
+                <span>{tb.short}</span>
               </button>
             );
           })}
