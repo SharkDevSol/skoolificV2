@@ -996,7 +996,7 @@ const SuperAdmin = () => {
               <p className={styles.subtitle}>{currentBranchName}</p>
             </div>
             <button className={styles.logoutBtn} onClick={handleLogout} title={t('logout')}>
-              <FiLogOut size={15} />
+              <FiLogOut size={12} />
             </button>
           </div>
           <BranchSelector />

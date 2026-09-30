@@ -14,12 +14,13 @@
   flex-direction: column;
   position: relative;
   box-shadow: 0 0 40px rgba(178, 30, 35, 0.15);
-  --bg: #f7f5f2;
+  --bg: #ffffff;
   --card: #ffffff;
-  --text: #2b2118;
-  --muted: #6e6259;
-  --line: #e8e2da;
-  --track: #ede7e0;
+  /* FIX: light mode = BLACK text/icons everywhere (user request) */
+  --text: #000000;
+  --muted: #3a3a3a;
+  --line: #d9d9d9;
+  --track: #e6e6e6;
   --inputBg: #ffffff;
   --chipText: #ffffff;
 }
@@ -90,14 +91,14 @@
   background: rgba(255, 255, 255, 0.15);
   border: 1px solid rgba(255, 255, 255, 0.4);
   color: #fff;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 13px;
   flex-shrink: 0;
 }
 
@@ -265,8 +266,8 @@
 .statLabel {
   font-size: 12px;
   font-weight: 600;
-  /* light mode: readable (was pale grey) */
-  color: #6e6259;
+  /* light mode: BLACK (user request) */
+  color: #000000;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -585,8 +586,8 @@
   background: none;
   border: none;
   cursor: pointer;
-  /* light mode: dark readable text (was pale grey, invisible on white) */
-  color: #5c554e;
+  /* light mode: BLACK text/icons (user request) */
+  color: #000000;
   font-size: 8.5px;
   font-weight: 600;
   line-height: 1.15;
@@ -596,7 +597,7 @@
 }
 .appDark .navItem { color: #b3a29a; }
 
-.navItem span, .navItem svg { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.navItem span, .navItem svg { max-width: 100%; }
 .navItem svg { font-size: 17px; flex-shrink: 0; }
 
 .navItemActive {
@@ -634,8 +635,8 @@
   margin: 0 0 10px;
   font-size: 12px;
   font-weight: 700;
-  /* light mode: readable (was pale grey on white) */
-  color: #6e6259;
+  /* light mode: BLACK (user request) */
+  color: #000000;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   display: flex;
