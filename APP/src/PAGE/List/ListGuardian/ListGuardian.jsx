@@ -33,7 +33,15 @@ const ListGuardian = () => {
   const fetchGuardians = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('/api/guardian-list/guardians');
+      // FIX: send the branch header (raw axios missed it -> always showed
+      // IQRA1's guardians). Use the same branch source as the app.
+      let branch = sessionStorage.getItem('branchCode')
+        || localStorage.getItem('rememberedBranchCode') || '';
+      if (branch.includes(',')) branch = branch.split(',')[0].trim();
+      branch = branch.toUpperCase();
+      const response = await axios.get('/api/guardian-list/guardians', {
+        headers: { 'x-branch-code': branch },
+      });
       setGuardians(response.data);
       setFilteredGuardians(response.data);
     } catch (error) {
@@ -66,7 +74,10 @@ const ListGuardian = () => {
       'Email': guardian.guardian_email || '',
       'Relation': guardian.guardian_relation || '',
       'Username': guardian.guardian_username || '',
-      'Students': (guardian.students || []).map(s => s.student_name).join(', ')
+      // FIX: students WITH their class (e.g. "khalid (G1)")
+      'Students': (guardian.students || []).map(s =>
+        `${s.student_name || s.name || ''}${s.class || s.class_name ? ` (${s.class || s.class_name})` : ''}`
+      ).join(', ')
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
