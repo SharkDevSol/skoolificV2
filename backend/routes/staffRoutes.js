@@ -330,7 +330,9 @@ const initializeFormMetadata = async () => {
 const sanitizeStaffTypeToSchema = (type) =>
   `staff_${type.replace(/\s+/g, '_').toLowerCase()}`;
 const sanitizeClassName = (name) =>
-  name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+  // FIX: PRESERVE case - class tables keep their real case (staff_teachers.G1);
+  // lowercasing made IQRA5 queries miss them
+  name.replace(/[^a-zA-Z0-9_]/g, '_');
 
 const BASE_COLUMNS = new Set([
   'global_staff_id',
