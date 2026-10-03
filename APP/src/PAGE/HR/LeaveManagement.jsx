@@ -7,12 +7,31 @@ import axios from 'axios';
 const branchAxios = (() => {
   const inst = axios.create();
   inst.interceptors.request.use((config) => {
-    // FIX: use the SAME keys the app uses (getBranchCode logic):
-    // sessionStorage first, then rememberedBranchCode — uppercase
+    // FIX: use the SAME keys the app uses + derive the branch from the
+    // logged-in account when nothing is stored (the main admin login keeps
+    // the branch only in branch_<code>_* keys)
     let branch = sessionStorage.getItem('branchCode')
       || localStorage.getItem('rememberedBranchCode') || '';
     if (branch.includes(',')) branch = branch.split(',')[0].trim();
     branch = branch.toUpperCase();
+    if (!branch) {
+      // derive from the logged-in admin/staff session keys
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('branch_') && key.endsWith('_isLoggedIn')
+            && localStorage.getItem(key) === 'true') {
+          branch = key.slice('branch_'.length, -'_isLoggedIn'.length).toUpperCase();
+          break;
+        }
+      }
+    }
+    if (!branch) {
+      // last resort: the adminUser object may carry a branch
+      try {
+        const au = JSON.parse(localStorage.getItem('adminUser') || '{}');
+        if (au.branchCode) branch = String(au.branchCode).toUpperCase();
+      } catch (_) {}
+    }
     if (branch) config.headers['x-branch-code'] = branch;
     return config;
   });
