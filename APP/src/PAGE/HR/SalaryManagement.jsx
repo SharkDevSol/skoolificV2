@@ -7,10 +7,13 @@ import axios from 'axios';
 const branchAxios = (() => {
   const inst = axios.create();
   inst.interceptors.request.use((config) => {
-    const branch = localStorage.getItem('branchCode')
-      || localStorage.getItem('branch_' + (localStorage.getItem('branchCode') || '') + '_code')
-      || sessionStorage.getItem('branchCode') || '';
-    if (branch) config.headers['x-branch-code'] = branch.toUpperCase();
+    // FIX: use the SAME keys the app uses (getBranchCode logic):
+    // sessionStorage first, then rememberedBranchCode — uppercase
+    let branch = sessionStorage.getItem('branchCode')
+      || localStorage.getItem('rememberedBranchCode') || '';
+    if (branch.includes(',')) branch = branch.split(',')[0].trim();
+    branch = branch.toUpperCase();
+    if (branch) config.headers['x-branch-code'] = branch;
     return config;
   });
   return inst;
