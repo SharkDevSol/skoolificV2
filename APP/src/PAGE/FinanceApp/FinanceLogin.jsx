@@ -32,7 +32,12 @@ const FinanceLogin = ({ onLogin }) => {
         localStorage.setItem('financeUser', JSON.stringify(user));
         // Set auth + branchCode for underlying components that use the api.js interceptor
         localStorage.setItem('authToken', token);
-        sessionStorage.setItem('branchCode', user.branchCode);
+        if (user.branchCode) {
+          localStorage.setItem(`branch_${user.branchCode}_authToken`, token);
+          sessionStorage.setItem(`branch_${user.branchCode}_authToken`, token);
+          sessionStorage.setItem('branchCode', user.branchCode);
+          localStorage.setItem('branchCode', user.branchCode);
+        }
         localStorage.setItem('isLoggedIn', 'true');
         if (onLogin) onLogin(user);
         navigate('/app/finance/');

@@ -20,6 +20,11 @@ const FinanceSettings = ({ user, onUserUpdate, onLogout }) => {
   const forceLogoutAfterChange = () => {
     setLoggingOut(true);
     setTimeout(() => {
+      const branchCode = user?.branchCode;
+      if (branchCode) {
+        localStorage.removeItem(`branch_${branchCode}_authToken`);
+        sessionStorage.removeItem(`branch_${branchCode}_authToken`);
+      }
       localStorage.removeItem('financeToken');
       localStorage.removeItem('financeUser');
       localStorage.removeItem('authToken');

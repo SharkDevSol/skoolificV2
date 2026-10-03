@@ -1,5 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+
+// FIX: branch-aware axios — every request sends x-branch-code from the
+// session (raw axios missed it -> "Branch code is required" errors)
+const branchAxios = (() => {
+  const inst = axios.create();
+  inst.interceptors.request.use((config) => {
+    const branch = localStorage.getItem('branchCode')
+      || localStorage.getItem('branch_' + (localStorage.getItem('branchCode') || '') + '_code')
+      || sessionStorage.getItem('branchCode') || '';
+    if (branch) config.headers['x-branch-code'] = branch.toUpperCase();
+    return config;
+  });
+  return inst;
+})();
+// class names must be sane (filters DB garbage like '<' from old rows)
+const saneClass = (c) => typeof c === 'string' && c.trim().length >= 2 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
+
 import styles from '../Finance/PaymentManagement.module.css';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -46,7 +63,7 @@ const AttendanceTimeSettings = () => {
   const fetchSettings = async () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      const response = await axios.get(
+      const response = await branchAxios.get(
         `${API_URL}/hr/attendance/time-settings`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
@@ -74,7 +91,7 @@ const AttendanceTimeSettings = () => {
   const fetchStaffSpecificTimes = async () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      const response = await axios.get(
+      const response = await branchAxios.get(
         `${API_URL}/hr/attendance/staff-specific-times`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
@@ -95,12 +112,12 @@ const AttendanceTimeSettings = () => {
       
       for (const staffType of types) {
         try {
-          const classesResponse = await axios.get(
+          const classesResponse = await branchAxios.get(
             `/api/staff/classes?staffType=${encodeURIComponent(staffType)}`
           );
           
-          for (const className of classesResponse.data) {
-            const dataResponse = await axios.get(
+          for (const className of (classesResponse.data || []).filter(saneClass)) {
+            const dataResponse = await branchAxios.get(
               `/api/staff/data/${staffType}/${className}`
             );
             
@@ -178,7 +195,7 @@ const AttendanceTimeSettings = () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
       
-      const response = await axios.post(
+      const response = await branchAxios.post(
         `${API_URL}/hr/attendance/staff-specific-times`,
         {
           staffId: staffFormData.staffId,
@@ -260,7 +277,7 @@ const AttendanceTimeSettings = () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
       
-      const response = await axios.post(
+      const response = await branchAxios.post(
         `${API_URL}/hr/attendance/time-settings`,
         {
           standardCheckIn: formData.standardCheckIn,

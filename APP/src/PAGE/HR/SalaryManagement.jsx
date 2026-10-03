@@ -1,6 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
+
+// FIX: branch-aware axios — every request sends x-branch-code from the
+// session (raw axios missed it -> "Branch code is required" errors)
+const branchAxios = (() => {
+  const inst = axios.create();
+  inst.interceptors.request.use((config) => {
+    const branch = localStorage.getItem('branchCode')
+      || localStorage.getItem('branch_' + (localStorage.getItem('branchCode') || '') + '_code')
+      || sessionStorage.getItem('branchCode') || '';
+    if (branch) config.headers['x-branch-code'] = branch.toUpperCase();
+    return config;
+  });
+  return inst;
+})();
+// class names must be sane (filters DB garbage like '<' from old rows)
+const saneClass = (c) => typeof c === 'string' && c.trim().length >= 2 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
+
 import { Plus, RefreshCw } from 'lucide-react';
 import styles from './SalaryManagement.module.css';
 import AddSalaryCompleteModal from './components/AddSalaryCompleteModal';
@@ -49,13 +66,13 @@ const SalaryManagement = () => {
       
       for (const staffType of types) {
         try {
-          const classesResponse = await axios.get(
+          const classesResponse = await branchAxios.get(
             `${API_URL}/staff/classes?staffType=${encodeURIComponent(staffType)}`
           );
           
-          for (const className of classesResponse.data) {
+          for (const className of (classesResponse.data || []).filter(saneClass)) {
             try {
-              const dataResponse = await axios.get(
+              const dataResponse = await branchAxios.get(
                 `${API_URL}/staff/data/${staffType}/${className}`
               );
               const staffData = dataResponse.data.data || [];
@@ -96,7 +113,7 @@ const SalaryManagement = () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
       
-      const response = await axios.get(`${API_URL}/hr/salary/all-salaries`, {
+      const response = await branchAxios.get(`${API_URL}/hr/salary/all-salaries`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       

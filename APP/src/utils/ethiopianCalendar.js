@@ -142,7 +142,8 @@ export function getCurrentEthiopianYear() {
  */
 export function getCurrentEthiopianMonth() {
   const eth = gregorianToEthiopian(new Date());
-  return { month: eth.month, name: eth.monthName, nameEn: eth.monthNameEn };
+  // FIX: include the year (the HR attendance page read .year -> undefined)
+  return { month: eth.month, year: eth.year, name: eth.monthName, nameEn: eth.monthNameEn };
 }
 
 /**

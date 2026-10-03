@@ -21,18 +21,40 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Super Admin priority
     const superAdminToken = localStorage.getItem('superAdminToken');
     if (superAdminToken && config.url?.startsWith('/super-admin')) {
       config.headers.Authorization = `Bearer ${superAdminToken}`;
     }
+
+    // Finance App priority:
+    // If on /app/finance route, or calling finance endpoints, use financeToken
+    const isFinance = typeof window !== 'undefined' && (window.location.pathname.startsWith('/app/finance') || window.location.pathname === '/finance-app');
+    const financeToken = localStorage.getItem('financeToken');
+    if (financeToken && (isFinance || config.url?.startsWith('/finance') || config.url?.includes('/finance/'))) {
+      config.headers.Authorization = `Bearer ${financeToken}`;
+    }
+
+    // Super Finance priority
+    const isSuperFinance = typeof window !== 'undefined' && window.location.pathname.startsWith('/app/super-finance');
     const superFinanceToken = localStorage.getItem('superFinanceToken');
-    if (superFinanceToken && config.url?.startsWith('/super-finance')) {
+    if (superFinanceToken && (isSuperFinance || config.url?.startsWith('/super-finance'))) {
       config.headers.Authorization = `Bearer ${superFinanceToken}`;
     }
+
     // Add branch code header if available
-    if (branchCode) {
-      config.headers['x-branch-code'] = branchCode;
+    let effectiveBranch = branchCode;
+    if (!effectiveBranch && isFinance && financeToken) {
+      try {
+        const fu = JSON.parse(localStorage.getItem('financeUser') || '{}');
+        if (fu?.branchCode) effectiveBranch = fu.branchCode;
+      } catch {}
     }
+    if (effectiveBranch) {
+      config.headers['x-branch-code'] = effectiveBranch;
+    }
+
     // Never force JSON content-type for FormData requests (breaks file uploads)
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];

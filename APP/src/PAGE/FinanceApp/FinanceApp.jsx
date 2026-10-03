@@ -20,7 +20,16 @@ const PageLoader = () => {
 
 const FinanceApp = () => {
   const { t } = useTranslation();
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      const token = localStorage.getItem('financeToken');
+      const userData = localStorage.getItem('financeUser');
+      if (token && userData) {
+        return JSON.parse(userData);
+      }
+    } catch {}
+    return null;
+  });
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('financeDarkMode') === 'true');
   const [checked, setChecked] = useState(false);
   const location = useLocation();
@@ -39,27 +48,26 @@ const FinanceApp = () => {
   useEffect(() => {
     const token = localStorage.getItem('financeToken');
     const userData = localStorage.getItem('financeUser');
-    const hasAuthToken = !!localStorage.getItem('authToken');
 
-    if (token && userData && hasAuthToken) {
+    if (token && userData) {
       try {
         const parsed = JSON.parse(userData);
         setUser(parsed);
         // Restore auth + branch for underlying components
         localStorage.setItem('authToken', token);
-        sessionStorage.setItem('branchCode', parsed.branchCode);
+        if (parsed.branchCode) {
+          localStorage.setItem(`branch_${parsed.branchCode}_authToken`, token);
+          sessionStorage.setItem(`branch_${parsed.branchCode}_authToken`, token);
+          sessionStorage.setItem('branchCode', parsed.branchCode);
+          localStorage.setItem('branchCode', parsed.branchCode);
+        }
         localStorage.setItem('isLoggedIn', 'true');
       } catch {}
-    } else if (token && userData && !hasAuthToken) {
-      // Token exists but authToken was cleared (e.g. by api.js interceptor on 403)
-      // Redirect to Finance App login
-      localStorage.removeItem('financeToken');
-      localStorage.removeItem('financeUser');
     }
     setChecked(true);
   }, []);
 
-  const isLoginPage = location.pathname === '/app/finance/login';
+  const isLoginPage = location.pathname.replace(/\/+$/, '') === '/app/finance/login';
 
   if (!checked) return null;
 

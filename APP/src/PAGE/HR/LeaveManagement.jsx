@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
+
+// FIX: branch-aware axios — every request sends x-branch-code from the
+// session (raw axios missed it -> "Branch code is required" errors)
+const branchAxios = (() => {
+  const inst = axios.create();
+  inst.interceptors.request.use((config) => {
+    const branch = localStorage.getItem('branchCode')
+      || localStorage.getItem('branch_' + (localStorage.getItem('branchCode') || '') + '_code')
+      || sessionStorage.getItem('branchCode') || '';
+    if (branch) config.headers['x-branch-code'] = branch.toUpperCase();
+    return config;
+  });
+  return inst;
+})();
+// class names must be sane (filters DB garbage like '<' from old rows)
+const saneClass = (c) => typeof c === 'string' && c.trim().length >= 2 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
+
 import { Plus } from 'lucide-react';
 import styles from './LeaveManagement.module.css';
 import { getCurrentEthiopianMonth, getEthiopianMonthName } from '../../utils/ethiopianCalendar';
@@ -52,15 +69,15 @@ const LeaveManagement = () => {
       
       for (const staffType of types) {
         try {
-          const classesResponse = await axios.get(
+          const classesResponse = await branchAxios.get(
             `${API_URL}/staff/classes?staffType=${encodeURIComponent(staffType)}`
           );
           
           console.log(`📚 Classes for ${staffType}:`, classesResponse.data);
           
-          for (const className of classesResponse.data) {
+          for (const className of (classesResponse.data || []).filter(saneClass)) {
             try {
-              const dataResponse = await axios.get(
+              const dataResponse = await branchAxios.get(
                 `${API_URL}/staff/data/${staffType}/${className}`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
               );
@@ -108,7 +125,7 @@ const LeaveManagement = () => {
       
       console.log(`📋 Fetching attendance issues for ${ethiopianMonths[selectedEthMonth - 1]} ${selectedEthYear}, filter: ${filter}`);
       
-      const response = await axios.get(
+      const response = await branchAxios.get(
         `${API_URL}/hr/leave/attendance-issues?ethMonth=${selectedEthMonth}&ethYear=${selectedEthYear}&status=${filter}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
@@ -137,7 +154,7 @@ const LeaveManagement = () => {
       
       console.log(`🏖️ Fetching leave records for ${ethiopianMonths[selectedEthMonth - 1]} ${selectedEthYear}`);
       
-      const response = await axios.get(
+      const response = await branchAxios.get(
         `${API_URL}/hr/leave/leave-records?ethMonth=${selectedEthMonth}&ethYear=${selectedEthYear}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
@@ -159,7 +176,7 @@ const LeaveManagement = () => {
       
       console.log('📊 Fetching approval stats...');
       
-      const response = await axios.get(
+      const response = await branchAxios.get(
         `${API_URL}/hr/leave/approval-stats`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
@@ -195,7 +212,7 @@ const LeaveManagement = () => {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
       const endpoint = type === 'approve' ? 'approve-permission' : 'reject-permission';
       
-      const response = await axios.post(
+      const response = await branchAxios.post(
         `${API_URL}/hr/leave/${endpoint}`,
         {
           attendanceId: selectedIssue.attendance_id,
@@ -915,7 +932,7 @@ const LeaveRequestModal = ({ staffList, onClose, onSuccess }) => {
         return;
       }
 
-      const response = await axios.post(
+      const response = await branchAxios.post(
         `${API_URL}/hr/leave/grant-leave`,
         {
           staffId: staff.id,

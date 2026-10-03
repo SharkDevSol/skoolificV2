@@ -240,7 +240,7 @@ const SuperAdmin = () => {
     setError('');
     try {
       const b = branch === 'ALL' ? 'ALL' : branch;
-      const [branchesRes, stuRes, attRes, mkRes, fltRes, finRes, regRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get('/super-admin/branches', { timeout: 60000 }),
         api.get('/super-admin/report/students', { timeout: 90000, params: { branchCode: b } }),
         api.get('/super-admin/report/attendance', { timeout: 90000, params: {
@@ -260,20 +260,40 @@ const SuperAdmin = () => {
         }})
       ]);
 
-      if (branchesRes.data.branches) {
+      const [branchesRes, stuRes, attRes, mkRes, fltRes, finRes, regRes] = results;
+
+      if (branchesRes.status === 'fulfilled' && branchesRes.value?.data?.branches) {
         const ALLOWED = ['IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
+        const all = branchesRes.value.data.branches;
+        const matched = all.filter((x) => ALLOWED.includes(String(x.branch_code).toUpperCase()));
         setBranches(
-          branchesRes.data.branches
-            .filter((x) => ALLOWED.includes(String(x.branch_code).toUpperCase()))
-            .map((x) => ({ code: x.branch_code, name: x.branch_name }))
+          (matched.length > 0 ? matched : all).map((x) => ({ code: x.branch_code, name: x.branch_name }))
         );
       }
-      setStudents(stuRes.data.data);
-      setAttendance(attRes.data.data);
-      setMarks(mkRes.data.data);
-      setFaults(fltRes.data.data);
-      setFinance(finRes.data.data);
-      setRegistrations(regRes.data.data);
+      if (stuRes.status === 'fulfilled' && stuRes.value?.data?.data) {
+        setStudents(stuRes.value.data.data);
+      }
+      if (attRes.status === 'fulfilled' && attRes.value?.data?.data) {
+        setAttendance(attRes.value.data.data);
+      }
+      if (mkRes.status === 'fulfilled' && mkRes.value?.data?.data) {
+        setMarks(mkRes.value.data.data);
+      }
+      if (fltRes.status === 'fulfilled' && fltRes.value?.data?.data) {
+        setFaults(fltRes.value.data.data);
+      }
+      if (finRes.status === 'fulfilled' && finRes.value?.data?.data) {
+        setFinance(finRes.value.data.data);
+      }
+      if (regRes.status === 'fulfilled' && regRes.value?.data?.data) {
+        setRegistrations(regRes.value.data.data);
+      }
+
+      // Check if all failed with 401
+      const is401 = results.some(r => r.status === 'rejected' && r.reason?.response?.status === 401);
+      if (is401) {
+        handleLogout();
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load reports');
       if (err.response?.status === 401) handleLogout();

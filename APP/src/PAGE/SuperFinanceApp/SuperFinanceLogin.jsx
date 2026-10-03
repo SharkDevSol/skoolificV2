@@ -34,6 +34,9 @@ const SuperFinanceLogin = ({ onLogin }) => {
         // Default branch = first allowed branch
         const firstBranch = (user.branches?.[0]?.branchCode) || (user.allowedBranches?.[0] || 'BRANCH1');
         sessionStorage.setItem('branchCode', firstBranch);
+        localStorage.setItem('branchCode', firstBranch);
+        localStorage.setItem(`branch_${firstBranch}_authToken`, token);
+        sessionStorage.setItem(`branch_${firstBranch}_authToken`, token);
         if (onLogin) onLogin(user);
         navigate('/app/super-finance/');
       }

@@ -90,7 +90,16 @@ const SECTION_PATH_PREFIXES = [
 
 const SuperFinanceApp = () => {
   const { t, i18n } = useTranslation();
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      const token = localStorage.getItem('superFinanceToken');
+      const userData = localStorage.getItem('superFinanceUser');
+      if (token && userData) {
+        return JSON.parse(userData);
+      }
+    } catch {}
+    return null;
+  });
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('financeDarkMode') === 'true');
   const [checked, setChecked] = useState(false);
   const [branchCode, setBranchCodeState] = useState(() => sessionStorage.getItem('branchCode') || '');
@@ -113,9 +122,8 @@ const SuperFinanceApp = () => {
   useEffect(() => {
     const token = localStorage.getItem('superFinanceToken');
     const userData = localStorage.getItem('superFinanceUser');
-    const hasAuthToken = !!localStorage.getItem('authToken');
 
-    if (token && userData && hasAuthToken) {
+    if (token && userData) {
       try {
         const parsed = JSON.parse(userData);
         setUser(parsed);
@@ -125,14 +133,11 @@ const SuperFinanceApp = () => {
         // Default branch = first allowed branch (or previously selected one)
         const savedBranch = sessionStorage.getItem('branchCode');
         const firstBranch = (parsed.branches?.[0]?.branchCode) || (parsed.allowedBranches?.[0] || 'BRANCH1');
-        if (!savedBranch) {
-          sessionStorage.setItem('branchCode', firstBranch);
-          setBranchCodeState(firstBranch);
-        }
+        const effectiveBranch = savedBranch || firstBranch;
+        sessionStorage.setItem('branchCode', effectiveBranch);
+        setBranchCodeState(effectiveBranch);
+        localStorage.setItem(`branch_${effectiveBranch}_authToken`, token);
       } catch {}
-    } else if (token && userData && !hasAuthToken) {
-      localStorage.removeItem('superFinanceToken');
-      localStorage.removeItem('superFinanceUser');
     }
     setChecked(true);
   }, []);
