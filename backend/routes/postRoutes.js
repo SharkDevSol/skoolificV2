@@ -229,6 +229,33 @@ router.put('/:id/like', async (req, res) => {
 });
 
 // GET /api/posts/feed - Central feed
+// FIX: the admin panel calls GET /api/posts (no /feed) - same feed
+router.get('/', async (req, res) => {
+  const userRole = getUserRole(req);
+  const audienceArray = getAudienceArrayForRole(userRole);
+  try {
+    const audienceList = audienceArray.map(a => `'${a}'`).join(', ');
+    const query = `
+      SELECT p.*, array_agg(pa.audience_type ORDER BY pa.audience_type) as audiences
+      FROM posts_schema.posts p
+      LEFT JOIN posts_schema.post_audiences pa ON p.id = pa.post_id
+      WHERE EXISTS (
+        SELECT 1 FROM posts_schema.post_audiences pa2 
+        WHERE pa2.post_id = p.id 
+        AND pa2.audience_type IN (${audienceList})
+      )
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+      LIMIT 50
+    `;
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching feed:', error);
+    res.status(500).json({ error: 'Failed to fetch posts', details: error.message });
+  }
+});
+
 router.get('/feed', async (req, res) => {
   const userRole = getUserRole(req);
   const audienceArray = getAudienceArrayForRole(userRole);
