@@ -133,7 +133,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ 
   storage, 
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB per file (matches nginx)
   fileFilter: multerFileFilter // Use centralized file validation
 }).array('media', 10);
 
@@ -153,7 +153,16 @@ const getAudienceArrayForRole = (role) => {
 };
 
 // POST /api/posts - Create post (protected route with upload rate limiting)
-router.post('/', authenticateWithBranch, uploadLimiter, upload, async (req, res) => {
+const uploadSafe = (req, res, next) => {
+  upload(req, res, (err) => {
+    if (err) {
+      const limit = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(limit ? 413 : 400).json({ error: limit ? 'File too large (max 50MB)' : (err.message || 'Upload failed') });
+    }
+    next();
+  });
+};
+router.post('/', authenticateWithBranch, uploadLimiter, uploadSafe, async (req, res) => {
   const { title, body, link, author_type, author_id, audiences } = req.body;
   const author_name = req.body.author_name || 'Anonymous User';
   if (!title || !body || !author_type || !author_id) {
