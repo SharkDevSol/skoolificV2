@@ -2,24 +2,27 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'storage_service.dart';
-import 'api_service.dart';
 import '../constants/api_constants.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../app/app_shell.dart';
+import '../../main.dart' show rootNavigatorKey;
 
 /// 6.2/6.3/7.2/8.2: FCM push notification service.
 /// Shows notifications in the system tray even when the app is closed.
 class PushService {
   static Future<void> init() async {
     try {
-      await Firebase.initializeApp();
+      try {
+        await Firebase.initializeApp();
+      } catch (_) {}
       final fcm = FirebaseMessaging.instance;
 
       // Ask permission (Android 13+)
-      await fcm.requestPermission(
-        alert: true, badge: true, sound: true,
+      final settings = await fcm.requestPermission(
+        alert: true, badge: true, sound: true, provisional: false,
       );
+      debugPrint('🔔 FCM permission status: ${settings.authorizationStatus}');
 
       // T4: show banner + sound when a push arrives while the app is OPEN
       try {
@@ -38,11 +41,36 @@ class PushService {
       // Refresh handling (token can rotate)
       fcm.onTokenRefresh.listen(registerToken);
 
-      // Foreground messages -> show in-app banner via snack bar is handled
-      // by the caller; we just store the latest for the notifications tab.
+      // Foreground messages -> show in-app banner via snack bar + store locally
       FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
         debugPrint('📥 foreground push: ${msg.notification?.title}');
         _storeLocal(msg);
+        final title = msg.notification?.title ?? msg.data['title']?.toString();
+        final body = msg.notification?.body ?? msg.data['body']?.toString();
+        if (title != null && title.isNotEmpty) {
+          final ctx = rootNavigatorKey.currentContext;
+          if (ctx != null) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              SnackBar(
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    if (body != null && body.isNotEmpty)
+                      Text(body, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 4),
+                action: SnackBarAction(
+                  label: 'View',
+                  onPressed: () => _handleNotificationTap(msg.data),
+                ),
+              ),
+            );
+          }
+        }
       });
 
       // When user taps a notification while app is in background

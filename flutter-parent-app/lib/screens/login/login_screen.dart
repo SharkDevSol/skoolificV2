@@ -10,6 +10,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/storage_service.dart' as storage;
 import '../../core/services/api_service.dart' as api_svc;
 import '../../core/services/push_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../app/app_provider.dart';
 import '../../app/app_shell.dart';
 import '../../models/models.dart';
@@ -150,11 +151,17 @@ class _LoginScreenState extends State<LoginScreen> {
           user: jsonEncode(res['user'] ?? {}),
           branchCode: branch,
         );
-        // FIX 6: re-register FCM token NOW that we know the username,
-        // so backend pushes reach this phone
-        final fcmToken = storage.StorageService.fcmToken;
-        if (fcmToken != null && fcmToken.isNotEmpty) {
-          await PushService.registerToken(fcmToken);
+        // Ensure FCM token is registered with the backend for this guardian
+        try {
+          final fcmToken = await FirebaseMessaging.instance.getToken();
+          if (fcmToken != null && fcmToken.isNotEmpty) {
+            await PushService.registerToken(fcmToken);
+          }
+        } catch (_) {
+          final savedToken = storage.StorageService.fcmToken;
+          if (savedToken != null && savedToken.isNotEmpty) {
+            await PushService.registerToken(savedToken);
+          }
         }
         if (mounted) {
           context.read<AppProvider>().user = User.fromJson(

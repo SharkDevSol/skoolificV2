@@ -102,6 +102,29 @@ class ApiService {
   }
 
   Future<List<Ward>> guardianWards(String username) async {
+    // 1. Direct profile fetch (returns all wards for this guardian)
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianProfile}/$username'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['student'] is List) {
+          final list = (data['student'] as List)
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+          if (list.isNotEmpty) return list;
+        } else if (data is List) {
+          final list = data
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+          if (list.isNotEmpty) return list;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fallback to guardianList if profile failed
     try {
       final res = await get(
         Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianList}'),
@@ -109,9 +132,6 @@ class ApiService {
       );
       if (res.statusCode == 200) {
         final list = jsonDecode(res.body) as List;
-        // FIX: match by username first; fall back to the guardian's phone
-        // (the login profile may carry the phone as the username) so wards
-        // always load after login
         Map<String, dynamic>? me;
         for (final g in list) {
           if (g is Map && g['guardian_username']?.toString() == username) {
@@ -134,7 +154,7 @@ class ApiService {
         }
         if (me != null && me['students'] is List) {
           return (me['students'] as List)
-              .map((s) => Ward.fromJson(s))
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
               .toList();
         }
       }
@@ -174,20 +194,36 @@ class ApiService {
     }
   }
 
-  Future<List<Post>> guardianPosts(String schoolId) async {
+  Future<List<Post>> guardianPosts([String? schoolId]) async {
+    // 1. If schoolId is provided and numeric, try guardian profile posts
+    final numericId = schoolId != null ? int.tryParse(schoolId) : null;
+    if (numericId != null) {
+      try {
+        final res = await get(
+          Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianPosts}/$numericId'),
+          headers: _headers(),
+        );
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final list = data is List ? data : (data['posts'] is List ? data['posts'] : []);
+          final posts = (list as List).map((p) => Post.fromJson(p)).toList();
+          if (posts.isNotEmpty) return posts;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fallback to general feed (/api/posts/feed)
     try {
-      final res = await get(
-        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianPosts}/$schoolId'),
+      final feedRes = await get(
+        Uri.parse('${ApiConstants.baseUrl}/api/posts/feed'),
         headers: _headers(),
       );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+      if (feedRes.statusCode == 200) {
+        final data = jsonDecode(feedRes.body);
         final list = data is List ? data : (data['posts'] is List ? data['posts'] : []);
         return (list as List).map((p) => Post.fromJson(p)).toList();
       }
-    } catch (e) {
-      // Ignore
-    }
+    } catch (_) {}
     return [];
   }
 
@@ -248,7 +284,11 @@ class ApiService {
   }
 
   // 8.1: chat conversations — GET /api/chats/conversations?userId=
-  Future<List<ChatConversation>> conversations(String userId) async {
+  Future<List<ChatConversation>> conversations(
+    String userId, {
+    String myUsername = '',
+    String myName = '',
+  }) async {
     final res = await get(
       Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}?userId=$userId'),
       headers: _headers(),
@@ -260,13 +300,24 @@ class ApiService {
           : (data['conversations'] is List
               ? data['conversations']
               : (data['data'] is List ? data['data'] : <dynamic>[]));
-      return (list as List).map((c) => ChatConversation.fromJson(c)).toList();
+      return (list as List)
+          .map((c) => ChatConversation.fromJson(
+                c,
+                myUsername: myUsername.isNotEmpty ? myUsername : userId,
+                myName: myName,
+              ))
+          .toList();
     }
     return [];
   }
 
   // 8.1: messages in a conversation — GET /api/chats/conversations/:id/messages
-  Future<List<ChatMessage>> conversationMessages(String conversationId, String myUsername) async {
+  Future<List<ChatMessage>> conversationMessages(
+    String conversationId,
+    String myUsername, {
+    String myUserId = '',
+    String myName = '',
+  }) async {
     final res = await get(
       Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
       headers: _headers(),
@@ -276,7 +327,14 @@ class ApiService {
       final list = data is List
           ? data
           : (data['messages'] is List ? data['messages'] : <dynamic>[]);
-      return (list as List).map((m) => ChatMessage.fromJson(m, myUsername)).toList();
+      return (list as List)
+          .map((m) => ChatMessage.fromJson(
+                m,
+                myUsername,
+                myUserId: myUserId,
+                myName: myName,
+              ))
+          .toList();
     }
     return [];
   }
@@ -284,37 +342,37 @@ class ApiService {
   // 8.1: send message — POST /api/chats/conversations/:id/messages
   Future<void> sendMessage(String conversationId, String content) async {
     int senderId = 0;
-        String senderName = '';
-        String senderType = 'guardian';
-        String senderUsername = '';
+    String senderName = '';
+    String senderType = 'guardian';
+    String senderUsername = '';
 
-        final userJson = StorageService.user;
-        if (userJson != null && userJson.isNotEmpty) {
-          try {
-            final parsed = jsonDecode(userJson) as Map<String, dynamic>;
-            senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
-            senderName = parsed['name']?.toString() ?? parsed['guardian_name']?.toString() ?? '';
-            senderType = parsed['role']?.toString() ?? 'guardian';
-            senderUsername = parsed['username']?.toString() ?? '';
-          } catch (_) {}
-        }
+    final userJson = StorageService.user;
+    if (userJson != null && userJson.isNotEmpty) {
+      try {
+        final parsed = jsonDecode(userJson) as Map<String, dynamic>;
+        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+        senderName = parsed['name']?.toString() ?? parsed['guardian_name']?.toString() ?? '';
+        senderType = 'guardian';
+        senderUsername = parsed['username']?.toString() ?? '';
+      } catch (_) {}
+    }
 
-        final res = await http.post(
-          Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
-          headers: _headers(),
-          body: jsonEncode({
-            'content': content,
-            'messageText': content, // backend expects messageText
-            'senderId': senderId,
-            'senderUsername': senderUsername, // FIX: the model's isMine matches this
-            'senderType': senderType,
-            'senderName': senderName
-          }),
-        );
-        if (res.statusCode != 200 && res.statusCode != 201) {
-          throw ApiException('Could not send message');
-        }
-      }
+    final res = await http.post(
+      Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
+      headers: _headers(),
+      body: jsonEncode({
+        'content': content,
+        'messageText': content, // backend expects messageText
+        'senderId': senderId.toString(),
+        'senderUsername': senderUsername,
+        'senderType': 'guardian',
+        'senderName': senderName
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw ApiException('Could not send message');
+    }
+  }
 
   // FIX (1B): send message WITH media — multipart/form-data with files.
   // Backend accepts upload.array('attachments', 5).

@@ -4,6 +4,9 @@
 *.pyc
 *.swp
 .DS_Store
+android/key.properties
+**/upload-keystore/*.jks
+.android/
 .atom/
 .build/
 .buildlog/
@@ -50,6 +53,9 @@ app.*.map.json
 # Build outputs (APKs released separately, versioned)
 build/
 .dart_tool/
+
+# Release binaries (1.7+ GB, distributed outside git)
+APKs/
 
 # Local env
 *.env

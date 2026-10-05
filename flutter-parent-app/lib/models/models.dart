@@ -501,18 +501,20 @@ class ChatConversation {
     this.unreadCount = 0,
   });
 
-  factory ChatConversation.fromJson(Map<String, dynamic> j) {
-    // Accept several shapes from the backend
+  factory ChatConversation.fromJson(
+    Map<String, dynamic> j, {
+    String myUsername = '',
+    String myName = '',
+  }) {
     final participants = j['participants'];
-    // FIX (1A): backend now sends display_title (admin's real profile name
-    // for admin_guardian, the other participant's name otherwise) — use it
-    // FIRST so the admin chat shows a proper name, not "Conversation"
+
     String title = j['display_title']?.toString() ??
         j['title']?.toString() ??
         j['conversation_title']?.toString() ??
         j['other_participant']?.toString() ??
         j['name']?.toString() ??
-        'Conversation';
+        '';
+
     // T6: admin broadcast — use the admin's full name
     if (j['type'] == 'class_broadcast' && j['admin_name'] != null) {
       title = j['admin_name'].toString();
@@ -527,12 +529,23 @@ class ChatConversation {
         title = teacher['user_name'].toString();
       }
     }
+    // For admin / school chats: title should be the OTHER participant's name (admin / staff name, e.g. 'Shark')
     if ((title.isEmpty || title == 'Conversation') && participants is List) {
-      final names = participants
-          .map((p) => p is Map ? (p['user_name']?.toString() ?? p['name']?.toString() ?? p['username']?.toString() ?? '') : p.toString())
-          .where((s) => s.isNotEmpty)
-          .toList();
-      if (names.isNotEmpty) title = names.join(', ');
+      final other = participants.firstWhere(
+        (p) =>
+            p is Map &&
+            (p['user_type'] != 'guardian' ||
+                (myUsername.isNotEmpty &&
+                    p['user_id'] != myUsername &&
+                    p['user_id'] != 'guardian_$myUsername')),
+        orElse: () => null,
+      );
+      if (other is Map && (other['user_name'] ?? other['name'] ?? '').toString().isNotEmpty) {
+        title = (other['user_name'] ?? other['name']).toString();
+      }
+    }
+    if (title.isEmpty || title == 'Conversation') {
+      title = 'School Administration';
     }
     return ChatConversation(
       id: j['id']?.toString() ?? j['conversation_id']?.toString() ?? '',
@@ -565,31 +578,50 @@ class ChatMessage {
     this.attachments = const [],
   });
 
-  factory ChatMessage.fromJson(Map<String, dynamic> j, String myUsername) => ChatMessage(
-        id: j['id']?.toString() ?? '',
-        senderName: j['sender_name']?.toString() ??
-            j['senderName']?.toString() ??
-            j['sender']?.toString() ??
-            '',
-        // FIX: backend sends 'message_text' — fall through content/message/body
-        content: j['content']?.toString() ??
-            j['message_text']?.toString() ??
-            j['message']?.toString() ??
-            j['body']?.toString() ??
-            '',
-        time: j['created_at']?.toString() ?? j['time']?.toString() ?? j['timestamp']?.toString(),
-        isMine: (j['sender_username']?.toString() ??
-                j['sender_id']?.toString() ??
-                j['sender']?.toString() ??
-                '') ==
-            myUsername,
-        attachments: (j['attachments'] is List)
-            ? (j['attachments'] as List)
-                .whereType<Map<String, dynamic>>()
-                .map(ChatAttachment.fromJson)
-                .toList()
-            : const [],
-      );
+  factory ChatMessage.fromJson(
+    Map<String, dynamic> j,
+    String myUsername, {
+    String myUserId = '',
+    String myName = '',
+  }) {
+    final senderType = (j['sender_type'] ?? j['senderType'] ?? '').toString().toLowerCase();
+    final senderUser = (j['sender_username'] ?? j['senderUsername'] ?? '').toString();
+    final senderId = (j['sender_id'] ?? j['senderId'] ?? '').toString();
+    final senderName = (j['sender_name'] ?? j['senderName'] ?? '').toString();
+
+    // In Parent APK:
+    // Any message sent by 'guardian' is MINE (right side, primary color).
+    // Any message sent by 'admin', 'teacher', 'staff' is from the school (left side).
+    bool isMine = false;
+    if (senderType == 'guardian') {
+      isMine = true;
+    } else if (senderType == 'admin' || senderType == 'teacher' || senderType == 'staff') {
+      isMine = false;
+    } else {
+      isMine = (senderUser.isNotEmpty && senderUser == myUsername) ||
+          (senderId.isNotEmpty && (senderId == myUsername || (myUserId.isNotEmpty && senderId == myUserId))) ||
+          (myName.isNotEmpty && senderName.isNotEmpty && senderName.toLowerCase() == myName.toLowerCase());
+    }
+
+    return ChatMessage(
+      id: j['id']?.toString() ?? '',
+      senderName: senderName,
+      // FIX: backend sends 'message_text' — fall through content/message/body
+      content: j['content']?.toString() ??
+          j['message_text']?.toString() ??
+          j['message']?.toString() ??
+          j['body']?.toString() ??
+          '',
+      time: j['created_at']?.toString() ?? j['time']?.toString() ?? j['timestamp']?.toString(),
+      isMine: isMine,
+      attachments: (j['attachments'] is List)
+          ? (j['attachments'] as List)
+              .whereType<Map<String, dynamic>>()
+              .map(ChatAttachment.fromJson)
+              .toList()
+          : const [],
+    );
+  }
 }
 
 // FIX (1B): a chat attachment (image/video/file)
@@ -601,23 +633,35 @@ class ChatAttachment {
   ChatAttachment({required this.name, required this.url, this.fileType = ''});
 
   bool get isImage => fileType.startsWith('image/') ||
+      _hasExt(name, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']) ||
       _hasExt(url, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
   bool get isVideo => fileType.startsWith('video/') ||
-      _hasExt(url, ['mp4', 'mov', 'webm', 'avi', 'mkv']);
+      _hasExt(name, ['mp4', 'mov', 'webm', 'avi', 'mkv', '3gp', 'm4v']) ||
+      _hasExt(url, ['mp4', 'mov', 'webm', 'avi', 'mkv', '3gp', 'm4v']);
 
-  static bool _hasExt(String url, List<String> exts) {
-    final clean = url.toLowerCase().split('?').first;
+  static bool _hasExt(String str, List<String> exts) {
+    final clean = str.toLowerCase().split('?').first;
     return exts.any((e) => clean.endsWith('.$e'));
   }
 
-  factory ChatAttachment.fromJson(Map<String, dynamic> j) => ChatAttachment(
-        name: (j['name'] ?? j['original_name'] ?? j['filename'] ?? 'file').toString(),
-        // relative URL -> absolute against the API base
-        url: (j['url'] ?? '').toString().startsWith('http')
-            ? (j['url'] ?? '').toString()
-            : 'https://iqra.skoolific.com${j['url'] ?? ''}',
-        fileType: (j['file_type'] ?? '').toString(),
-      );
+  factory ChatAttachment.fromJson(Map<String, dynamic> j) {
+    final rawUrl = (j['url'] ?? '').toString();
+    final filename = (j['filename'] ?? '').toString();
+    final id = j['id']?.toString() ?? '';
+    String url = '';
+    if (rawUrl.isNotEmpty) {
+      url = rawUrl.startsWith('http') ? rawUrl : 'https://iqra.skoolific.com$rawUrl';
+    } else if (id.isNotEmpty) {
+      url = 'https://iqra.skoolific.com/api/chats/attachments/$id';
+    } else if (filename.isNotEmpty) {
+      url = 'https://iqra.skoolific.com/uploads/chat-attachments/$filename';
+    }
+    return ChatAttachment(
+      name: (j['original_name'] ?? j['name'] ?? j['filename'] ?? 'file').toString(),
+      url: url,
+      fileType: (j['file_type'] ?? j['fileType'] ?? '').toString(),
+    );
+  }
 }
 
 // === HELPERS ===

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../core/services/storage_service.dart';
 import '../core/services/api_service.dart';
+import '../core/services/push_service.dart';
 import '../models/models.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -121,9 +122,7 @@ class AppProvider extends ChangeNotifier {
           api.guardianWards(user!.username).then((v) => <String, dynamic>{'wards': v}).catchError((_) => <String, dynamic>{}),
           api.guardianMarks(user!.username).then((v) => <String, dynamic>{'marks': v}).catchError((_) => <String, dynamic>{}),
           api.guardianPayments(user!.username).then((v) => <String, dynamic>{'payments': v}).catchError((_) => <String, dynamic>{}),
-          api.guardianPosts(user!.branchCode.isNotEmpty
-              ? user!.branchCode
-              : (StorageService.branchCode ?? '')).then((v) => <String, dynamic>{'posts': v}).catchError((_) => <String, dynamic>{}),
+          api.guardianPosts(selectedWard?.schoolId).then((v) => <String, dynamic>{'posts': v}).catchError((_) => <String, dynamic>{}),
         ]);
         // wards
         try {
@@ -233,7 +232,7 @@ class AppProvider extends ChangeNotifier {
         _saveCache('payments', payments);
       } catch (_) {}
       try {
-        _allPosts = await ApiService().guardianPosts(user!.branchCode);
+        _allPosts = await ApiService().guardianPosts(selectedWard?.schoolId);
         _saveCache('posts', _allPosts);
       } catch (_) {}
       notifyListeners();
@@ -246,6 +245,7 @@ class AppProvider extends ChangeNotifier {
   GuardianPaymentsResponse? cachedPaymentsFor(String username) => _paymentsCache[username];
 
   List<Post> get cachedPosts => _allPosts;
+  List<Post> get posts => _allPosts;
 
   AttendanceMonth? cachedAttendance(String key) => _attendanceCache[key];
   void cacheAttendance(String key, AttendanceMonth data) {
@@ -343,6 +343,8 @@ class AppProvider extends ChangeNotifier {
     locale = loc;
     StorageService.setLocale(loc.languageCode);
     notifyListeners();
+    // Re-register FCM token with new language so push notifications switch language immediately!
+    PushService.ensureRegistered();
   }
 
   Future<void> logout() async {

@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/app_widgets.dart';
 import '../../core/services/storage_service.dart';
 import '../../models/models.dart';
 import '../../app/app_shell.dart';
+import '../../app/app_provider.dart';
 import '../../core/l10n/app_localizations.dart';
 
 // T8: notifications page — tap a notification opens the right page (marks,
@@ -33,6 +35,39 @@ class _NotificationsTabState extends State<NotificationsTab> {
         _items = list.map((n) => NotificationItem.fromJson(n)).toList();
       }
     } catch (_) {}
+
+    // Also include school announcements / posts from AppProvider
+    try {
+      final prov = Provider.of<AppProvider>(context, listen: false);
+      if (prov.posts.isNotEmpty) {
+        for (final p in prov.posts) {
+          final exists = _items.any((n) => n.id == 'post_${p.id}');
+          if (!exists) {
+            _items.add(NotificationItem(
+              id: 'post_${p.id}',
+              title: p.title.isNotEmpty ? p.title : 'School Announcement',
+              body: p.body,
+              time: p.createdAt ?? DateTime.now().toIso8601String(),
+              read: true,
+              type: 'posts',
+            ));
+          }
+        }
+      }
+    } catch (_) {}
+
+    // If still empty, show a welcome & setup notification
+    if (_items.isEmpty) {
+      _items.add(NotificationItem(
+        id: 'welcome_notice',
+        title: 'IQRA Parent Portal',
+        body: 'Welcome! Real-time alerts for student attendance, exam marks, and school announcements will appear here.',
+        time: DateTime.now().toIso8601String(),
+        read: false,
+        type: 'general',
+      ));
+    }
+
     if (mounted) setState(() => _loading = false);
   }
 
@@ -219,6 +254,9 @@ class _NotificationsTabState extends State<NotificationsTab> {
       case 'faults':
       case 'discipline':
         return Icons.gavel_outlined;
+      case 'post':
+      case 'posts':
+        return Icons.campaign_outlined;
       default:
         return Icons.notifications_active;
     }

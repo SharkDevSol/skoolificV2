@@ -16,8 +16,8 @@ import '../../screens/settings/settings_tab.dart';
 import '../../screens/discipline/discipline_tab.dart';
 import '../../screens/messages/messages_tab.dart';
 import '../../screens/notifications/notifications_tab.dart';
-// FIX 5: NotificationsTab now lives in its own file (real page, not a placeholder)
 import '../../screens/eval_book/eval_book_tab.dart';
+import '../core/services/payment_reminder_service.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -86,6 +86,13 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
           builder: (_) => const FirstLaunchLanguageDialog(),
         );
       }
+      // Check 3-day unpaid months payment reminder
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          final prov = Provider.of<AppProvider>(context, listen: false);
+          PaymentReminderService.checkAndRemind(context, prov);
+        }
+      });
     });
   }
 
@@ -104,7 +111,9 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      Provider.of<AppProvider>(context, listen: false).silentRefresh();
+      final prov = Provider.of<AppProvider>(context, listen: false);
+      prov.silentRefresh();
+      PaymentReminderService.checkAndRemind(context, prov);
     }
   }
 
@@ -235,7 +244,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
-                      'IQRA Parent',
+                      'iqra parent V0.0.1',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
+import 'package:open_filex/open_filex.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
 import '../../app/app_provider.dart';
@@ -39,7 +40,11 @@ class _MessagesTabState extends State<MessagesTab> {
     }
     if (mounted) setState(() => _loading = true);
     try {
-      _conversations = await ApiService().conversations(app.user!.username);
+      _conversations = await ApiService().conversations(
+        app.user!.username,
+        myUsername: app.user!.username,
+        myName: app.user!.name,
+      );
       _error = null;
     } catch (e) {
       _error = e.toString();
@@ -198,9 +203,15 @@ class _ChatScreenState extends State<_ChatScreen> {
   Future<void> _load() async {
     final app = Provider.of<AppProvider>(context, listen: false);
     final myUsername = app.user?.username ?? '';
+    final myUserId = app.user?.id.toString() ?? '';
+    final myName = app.user?.name ?? '';
     try {
-      _messages = await ApiService()
-          .conversationMessages(widget.conversation.id, myUsername);
+      _messages = await ApiService().conversationMessages(
+        widget.conversation.id,
+        myUsername,
+        myUserId: myUserId,
+        myName: myName,
+      );
     } catch (_) {}
     if (mounted) {
       setState(() => _loading = false);
@@ -433,115 +444,24 @@ class _ChatScreenState extends State<_ChatScreen> {
   }
 }
 
-// FIX (1B): renders a chat attachment — image inline, video/file as link
+// Renders a chat attachment — image inline with download button, video playable via device player, file runnable via device viewer
 class _AttachmentView extends StatelessWidget {
   final ChatAttachment att;
   final bool isMine;
   final bool isDark;
   const _AttachmentView({required this.att, required this.isMine, required this.isDark});
 
-  @override
-  Widget build(BuildContext context) {
-    if (att.isImage) {
-      return GestureDetector(
-        // FIX (2B): tap the image -> fullscreen zoomable view
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            fullscreenDialog: true,
-            builder: (_) => _FullscreenImageViewer(url: att.url, title: att.name),
-          ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Image.network(
-            att.url,
-            width: 220,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _fileChip(context),
-            loadingBuilder: (_, child, progress) =>
-                progress == null ? child : const SizedBox(
-              width: 220, height: 120,
-              child: Center(child: AppLoadingIndicator()),
-            ),
-          ),
-        ),
-      );
-    }
-    return _fileChip(context);
-  }
-
-  Widget _fileChip(BuildContext context) {
-    final icon = att.isVideo ? Icons.play_circle_outline : Icons.insert_drive_file_outlined;
-    return InkWell(
-      onTap: () async {
-        try {
-          if (att.isVideo) {
-            // FIX (2B): videos -> download then open in the phone's video player
-            final local = await _saveToDownloads(att);
-            if (local != null) {
-              final ok = await launchUrl(Uri.file(local.path), mode: LaunchMode.externalApplication);
-              if (!ok) {
-                await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
-              }
-            } else {
-              await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
-            }
-          } else {
-            await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
-          }
-        } catch (_) {}
-      },
-      onLongPress: () => _showSaveSheet(context),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white12 : Colors.black.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: isMine ? Colors.white : AppColors.primary),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                att.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isMine ? Colors.white : (isDark ? Colors.white : AppColors.text),
-                ),
-              ),
-            ),
-            // FIX (2B): save button on every file chip
-            const SizedBox(width: 4),
-            Icon(Icons.download_outlined, size: 16,
-                color: isMine ? Colors.white70 : (isDark ? Colors.white70 : Colors.black54)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showSaveSheet(BuildContext context) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saving...'), duration: Duration(seconds: 1)),
-    );
-    final local = await _saveToDownloads(att);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(local != null ? 'Saved: ${local.path.split('/').last}' : 'Save failed'),
-    ));
-  }
-
-  Future<File?> _saveToDownloads(ChatAttachment a) async {
+  static Future<File?> _saveToDownloads(ChatAttachment a) async {
     try {
+      if (a.url.isEmpty) return null;
       final res = await http.get(Uri.parse(a.url)).timeout(const Duration(seconds: 60));
       if (res.statusCode != 200) return null;
-      final dir = await getExternalStorageDirectory(); // app downloads dir
-      final folder = Directory('${dir?.path ?? ''}/SavedFiles');
+      Directory? dir;
+      try {
+        dir = await getExternalStorageDirectory();
+      } catch (_) {}
+      dir ??= await getApplicationDocumentsDirectory();
+      final folder = Directory('${dir.path}/SavedFiles');
       if (!folder.existsSync()) folder.createSync(recursive: true);
       final safeName = a.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
       final f = File('${folder.path}/$safeName');
@@ -551,9 +471,221 @@ class _AttachmentView extends StatelessWidget {
       return null;
     }
   }
+
+  Future<void> _downloadFile(BuildContext context) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Downloading...'), duration: Duration(seconds: 1)),
+    );
+    final local = await _saveToDownloads(att);
+    if (!context.mounted) return;
+    if (local != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Saved: ${local.path.split('/').last}'),
+        backgroundColor: Colors.green[700],
+        duration: const Duration(seconds: 3),
+      ));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Download failed. Check your connection.'),
+        backgroundColor: Colors.redAccent,
+      ));
+    }
+  }
+
+  Future<void> _openVideo(BuildContext context) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Opening video in player...'), duration: Duration(seconds: 2)),
+      );
+      final local = await _saveToDownloads(att);
+      if (local != null && local.existsSync()) {
+        final result = await OpenFilex.open(local.path);
+        if (result.type != ResultType.done) {
+          // Fallback to URL launcher
+          await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+        }
+      } else {
+        await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not play video: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openFile(BuildContext context) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Opening file...'), duration: Duration(seconds: 2)),
+      );
+      final local = await _saveToDownloads(att);
+      if (local != null && local.existsSync()) {
+        final result = await OpenFilex.open(local.path);
+        if (result.type != ResultType.done) {
+          await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+        }
+      } else {
+        await launchUrl(Uri.parse(att.url), mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open file: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (att.isImage) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        child: Stack(
+          children: [
+            GestureDetector(
+              // Tap image -> fullscreen zoomable viewer
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  fullscreenDialog: true,
+                  builder: (_) => _FullscreenImageViewer(url: att.url, title: att.name),
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  att.url,
+                  width: 230,
+                  height: 180,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _fileChip(context),
+                  loadingBuilder: (_, child, progress) =>
+                      progress == null
+                          ? child
+                          : const SizedBox(
+                              width: 230,
+                              height: 150,
+                              child: Center(child: AppLoadingIndicator()),
+                            ),
+                ),
+              ),
+            ),
+            // Quick download overlay button on image
+            Positioned(
+              bottom: 8,
+              right: 8,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _downloadFile(context),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.65),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.download_rounded, size: 14, color: Colors.white),
+                        SizedBox(width: 4),
+                        Text('Save', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return _fileChip(context);
+  }
+
+  Widget _fileChip(BuildContext context) {
+    final isVideo = att.isVideo;
+    final icon = isVideo ? Icons.play_circle_fill : Icons.insert_drive_file_rounded;
+    final iconColor = isMine
+        ? Colors.white
+        : (isVideo ? const Color(0xFF0288D1) : AppColors.primary);
+
+    return InkWell(
+      onTap: () {
+        if (isVideo) {
+          _openVideo(context);
+        } else {
+          _openFile(context);
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isMine
+              ? Colors.white.withOpacity(0.18)
+              : (isDark ? Colors.white12 : Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isMine
+                ? Colors.white24
+                : (isDark ? Colors.white10 : Colors.black.withOpacity(0.08)),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 22, color: iconColor),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    att.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isMine ? Colors.white : (isDark ? Colors.white : AppColors.text),
+                    ),
+                  ),
+                  Text(
+                    isVideo ? 'Tap to play video' : 'Tap to open file',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isMine ? Colors.white70 : (isDark ? Colors.white54 : AppColors.textMuted),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(Icons.download_rounded, size: 18,
+                  color: isMine ? Colors.white70 : (isDark ? Colors.white70 : Colors.black54)),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Download',
+              onPressed: () => _downloadFile(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// FIX (2B): fullscreen zoomable image viewer
+// Fullscreen zoomable image viewer with download option
 class _FullscreenImageViewer extends StatefulWidget {
   final String url;
   final String title;
@@ -572,11 +704,51 @@ class _FullscreenImageViewerState extends State<_FullscreenImageViewer> {
     super.dispose();
   }
 
+  Future<void> _saveImage() async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Downloading image...'), duration: Duration(seconds: 1)),
+      );
+      final res = await http.get(Uri.parse(widget.url)).timeout(const Duration(seconds: 60));
+      if (res.statusCode == 200) {
+        Directory? dir;
+        try {
+          dir = await getExternalStorageDirectory();
+        } catch (_) {}
+        dir ??= await getApplicationDocumentsDirectory();
+        final folder = Directory('${dir.path}/SavedFiles');
+        if (!folder.existsSync()) folder.createSync(recursive: true);
+        final safeName = widget.title.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+        final f = File('${folder.path}/$safeName');
+        await f.writeAsBytes(res.bodyBytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Image saved: $safeName'),
+              backgroundColor: Colors.green[700],
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Download failed'), backgroundColor: Colors.redAccent),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Save failed'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: isDark ? Colors.black : Colors.black,
+      backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -585,29 +757,9 @@ class _FullscreenImageViewerState extends State<_FullscreenImageViewer> {
             maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
-            icon: const Icon(Icons.download_outlined, color: Colors.white),
-            onPressed: () async {
-              try {
-                final res = await http.get(Uri.parse(widget.url))
-                    .timeout(const Duration(seconds: 60));
-                if (res.statusCode == 200) {
-                  final dir = await getExternalStorageDirectory();
-                  final folder = Directory('${dir?.path ?? ''}/SavedFiles');
-                  if (!folder.existsSync()) folder.createSync(recursive: true);
-                  final safeName = widget.title.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-                  await File('${folder.path}/$safeName').writeAsBytes(res.bodyBytes);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Image saved')));
-                  }
-                }
-              } catch (_) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Save failed')));
-                }
-              }
-            },
+            icon: const Icon(Icons.download_rounded, color: Colors.white),
+            tooltip: 'Download',
+            onPressed: _saveImage,
           ),
         ],
       ),
@@ -634,7 +786,7 @@ class _FullscreenImageViewerState extends State<_FullscreenImageViewer> {
               widget.url,
               fit: BoxFit.contain,
               loadingBuilder: (_, child, progress) =>
-                  progress == null ? child : const Center(child: CircularProgressIndicator()),
+                  progress == null ? child : const Center(child: CircularProgressIndicator(color: Colors.white)),
               errorBuilder: (_, __, ___) => const Center(
                 child: Text('Could not load image', style: TextStyle(color: Colors.white54)),
               ),
