@@ -14,9 +14,6 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.skoolific.iqraStaff
     integrations:
       app_store_connect: OneCo Solutions
     triggering:
@@ -28,8 +25,14 @@ workflows:
           include: true
     working_directory: flutter-staff-app
     scripts:
-      - name: Set up code signing settings on Xcode project
-        script: xcode-project use-profiles
+      - name: Set up keychain and code signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "com.skoolific.iqraStaff" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
       - name: Fetch dependencies
         script: flutter pub get
       - name: Install pods
