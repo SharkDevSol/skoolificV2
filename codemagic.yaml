@@ -32,7 +32,7 @@ workflows:
             --type IOS_APP_STORE \
             --create
           keychain add-certificates
-          xcode-project use-profiles
+          xcode-project use-profiles --project ios/Runner.xcodeproj --archive-method app-store --code-signing-setup-verbose-logging
       - name: Fetch dependencies
         script: flutter pub get
       - name: Install pods
