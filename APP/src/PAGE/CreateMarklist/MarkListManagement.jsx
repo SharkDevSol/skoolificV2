@@ -2,10 +2,30 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useNavigate } from 'react-router-dom';
+import { getBranchCode } from '../../utils/branchCode';
 import SubjectMappingSetup from './SubjectMappingSetup';
 import './CreateMarklist/MarkListFrontend.css';
 
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
+
+const getHeaders = (extra = {}) => {
+  const branchCode = getBranchCode();
+  const token = (branchCode ? localStorage.getItem(`branch_${branchCode}_authToken`) : null) || localStorage.getItem('authToken');
+  const h = { ...extra };
+  if (branchCode) h['x-branch-code'] = branchCode;
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+};
+
+const DEFAULT_MARK_COMPONENTS = [
+  { name: 'practical_1', percentage: 5 },
+  { name: 'test_1', percentage: 10 },
+  { name: 'practical_2', percentage: 5 },
+  { name: 'test_2', percentage: 10 },
+  { name: 'mid', percentage: 25 },
+  { name: 'book', percentage: 5 },
+  { name: 'final', percentage: 40 }
+];
 
 const MarkListForm = () => {
   const { t } = useApp();
@@ -17,15 +37,16 @@ const MarkListForm = () => {
   const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedTerm, setSelectedTerm] = useState(1);
-  const [markComponents, setMarkComponents] = useState([
-    { name: 'practical_1', percentage: 5 },
-    { name: 'test_1', percentage: 10 },
-    { name: 'practical_2', percentage: 5 },
-    { name: 'test_2', percentage: 10 },
-    { name: 'mid', percentage: 25 },
-    { name: 'book', percentage: 5 },
-    { name: 'final', percentage: 40 }
-  ]);
+  const [markComponents, setMarkComponents] = useState(() => {
+    try {
+      const saved = localStorage.getItem('skoolific_custom_mark_components');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_MARK_COMPONENTS;
+  });
   const [markList, setMarkList] = useState([]);
   const [formConfig, setFormConfig] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -39,10 +60,11 @@ const MarkListForm = () => {
 
   const fetchInitialData = async () => {
     try {
+      const headers = getHeaders();
       const [classesRes, mappingsRes, configRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/mark-list/classes`),
-        fetch(`${API_BASE_URL}/mark-list/subjects-classes`),
-        fetch(`${API_BASE_URL}/schedule/config`)
+        fetch(`${API_BASE_URL}/mark-list/classes`, { headers }),
+        fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers }),
+        fetch(`${API_BASE_URL}/schedule/config`, { headers })
       ]);
 
       const [classesData, mappingsData, configData] = await Promise.all([
@@ -79,32 +101,33 @@ const MarkListForm = () => {
     const loadConfig = async () => {
       try {
         const response = await fetch(
-          `${API_BASE_URL}/mark-list/mark-list/${selectedSubject}/${selectedClass}/${selectedTerm}`
+          `${API_BASE_URL}/mark-list/mark-list/${encodeURIComponent(selectedSubject)}/${encodeURIComponent(selectedClass)}/${selectedTerm}`,
+          { headers: getHeaders() }
         );
         if (response.ok) {
           const data = await response.json();
-          if (data.config && data.config.mark_components) {
+          if (viewMode === 'view' && data.config && data.config.mark_components) {
             setMarkComponents(data.config.mark_components);
           }
-          setMarkList(data.markList);
+          setMarkList(data.markList || []);
           setFormConfig(data.config);
-          setViewMode('view');
           setFormExists(true);
         } else {
-          // No existing mark list - reset to default components and show create form
+          // No existing mark list - keep user's configured markComponents so they stay on the last form created!
           setFormExists(false);
-          setMarkComponents([
-            { name: 'practical_1', percentage: 5 },
-            { name: 'test_1', percentage: 10 },
-            { name: 'practical_2', percentage: 5 },
-            { name: 'test_2', percentage: 10 },
-            { name: 'mid', percentage: 25 },
-            { name: 'book', percentage: 5 },
-            { name: 'final', percentage: 40 }
-          ]);
+          setMarkComponents(prev => {
+            if (Array.isArray(prev) && prev.length > 0) return prev;
+            try {
+              const saved = localStorage.getItem('skoolific_custom_mark_components');
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+              }
+            } catch {}
+            return DEFAULT_MARK_COMPONENTS;
+          });
           setMarkList([]);
           setFormConfig(null);
-          setViewMode('create');
         }
       } catch (error) {
         console.error('Error loading config:', error);
@@ -115,19 +138,39 @@ const MarkListForm = () => {
 
   const handleComponentChange = (index, field, value) => {
     const newComponents = [...markComponents];
-    newComponents[index][field] = field === 'percentage' ? parseInt(value) || 0 : value;
+    newComponents[index] = {
+      ...newComponents[index],
+      [field]: field === 'percentage' ? parseInt(value) || 0 : value
+    };
     setMarkComponents(newComponents);
+    try {
+      localStorage.setItem('skoolific_custom_mark_components', JSON.stringify(newComponents));
+    } catch {}
   };
 
   const addComponent = () => {
-    setMarkComponents([...markComponents, { name: '', percentage: 0 }]);
+    const updated = [...markComponents, { name: '', percentage: 0 }];
+    setMarkComponents(updated);
+    try {
+      localStorage.setItem('skoolific_custom_mark_components', JSON.stringify(updated));
+    } catch {}
   };
 
   const removeComponent = (index) => {
     if (markComponents.length > 1) {
-      const newComponents = markComponents.filter((_, i) => i !== index);
-      setMarkComponents(newComponents);
+      const updated = markComponents.filter((_, i) => i !== index);
+      setMarkComponents(updated);
+      try {
+        localStorage.setItem('skoolific_custom_mark_components', JSON.stringify(updated));
+      } catch {}
     }
+  };
+
+  const resetToDefaultComponents = () => {
+    setMarkComponents(DEFAULT_MARK_COMPONENTS);
+    try {
+      localStorage.removeItem('skoolific_custom_mark_components');
+    } catch {}
   };
 
   const getTotalPercentage = () => {
@@ -159,7 +202,9 @@ const MarkListForm = () => {
 
     // Pre-check for existing form
     try {
-      const checkRes = await fetch(`${API_BASE_URL}/mark-list/mark-list/${selectedSubject}/${selectedClass}/${selectedTerm}`);
+      const checkRes = await fetch(`${API_BASE_URL}/mark-list/mark-list/${encodeURIComponent(selectedSubject)}/${encodeURIComponent(selectedClass)}/${selectedTerm}`, {
+        headers: getHeaders()
+      });
       if (checkRes.ok) {
         setMessage(`Mark list already exists for ${selectedSubject} - ${selectedClass} - Term ${selectedTerm}. Delete it first if you want to recreate.`);
         setFormExists(true);
@@ -171,9 +216,7 @@ const MarkListForm = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/mark-list/create-mark-forms`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           subjectName: selectedSubject,
           className: selectedClass,
@@ -186,7 +229,10 @@ const MarkListForm = () => {
       
       if (response.ok) {
         setMessage(`Mark list form created successfully! ${result.studentsCount} students added.`);
-        setViewMode('view');
+        try {
+          localStorage.setItem('skoolific_custom_mark_components', JSON.stringify(markComponents));
+        } catch {}
+        // Keep form on screen without removing it; components remain preserved
         setFormExists(true);
         await loadMarkList();
       } else if (response.status === 409) {
@@ -209,8 +255,11 @@ const MarkListForm = () => {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/mark-list/delete-mark-form/${selectedSubject}/${selectedClass}/${selectedTerm}`,
-        { method: 'DELETE' }
+        `${API_BASE_URL}/mark-list/delete-mark-form/${encodeURIComponent(selectedSubject)}/${encodeURIComponent(selectedClass)}/${selectedTerm}`,
+        {
+          method: 'DELETE',
+          headers: getHeaders()
+        }
       );
       const result = await response.json();
       if (response.ok) {
@@ -235,7 +284,8 @@ const MarkListForm = () => {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/mark-list/mark-list/${selectedSubject}/${selectedClass}/${selectedTerm}`
+        `${API_BASE_URL}/mark-list/mark-list/${encodeURIComponent(selectedSubject)}/${encodeURIComponent(selectedClass)}/${selectedTerm}`,
+        { headers: getHeaders() }
       );
       
       if (response.ok) {
@@ -286,9 +336,7 @@ const MarkListForm = () => {
 
       const response = await fetch(`${API_BASE_URL}/mark-list/update-marks`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           subjectName: selectedSubject,
           className: selectedClass,
@@ -338,12 +386,23 @@ const MarkListForm = () => {
             </button>
           </div>
         )}
-        <div className="mode-toggle">
+        <div className="mode-toggle" style={{ display: 'flex', gap: '8px' }}>
           <button 
+            type="button"
             className={viewMode === 'create' ? 'active' : ''}
             onClick={() => setViewMode('create')}
           >
             Create Form
+          </button>
+          <button 
+            type="button"
+            className={viewMode === 'view' ? 'active' : ''}
+            onClick={() => {
+              setViewMode('view');
+              loadMarkList();
+            }}
+          >
+            View / Enter Marks
           </button>
         </div>
       </div>
@@ -410,7 +469,27 @@ const MarkListForm = () => {
 
       {viewMode === 'create' && (
         <div className="create-form">
-          <h3>Mark Components Configuration</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0 }}>Mark Components Configuration</h3>
+            <button
+              type="button"
+              onClick={resetToDefaultComponents}
+              className="reset-default-btn"
+              style={{
+                background: 'transparent',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                color: '#64748b',
+                fontWeight: 500
+              }}
+              title="Reset to default components template"
+            >
+              ↺ Reset to Default Template
+            </button>
+          </div>
           <div className="components-list">
             {markComponents.map((component, index) => (
               <div key={index} className="component-row">
@@ -544,6 +623,10 @@ const MarkListForm = () => {
   );
 };
 
+const normKey = (teacherName, subjectClass) => {
+  return `${(teacherName || '').trim().toLowerCase()}|||${(subjectClass || '').trim().toLowerCase()}`;
+};
+
 const TeacherAssignment = () => {
   const [teachers, setTeachers] = useState([]);
   const [subjectClassCombinations, setSubjectClassCombinations] = useState([]);
@@ -558,42 +641,107 @@ const TeacherAssignment = () => {
 
   const fetchData = async () => {
     try {
+      const headers = getHeaders();
       const [teachersResponse, combinationsResponse, assignmentsResponse, autoConnectResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/mark-list/teachers`),
-        fetch(`${API_BASE_URL}/mark-list/subject-class-combinations`),
-        fetch(`${API_BASE_URL}/mark-list/teacher-assignments`),
-        fetch(`${API_BASE_URL}/mark-list/auto-connect-teachers`)
+        fetch(`${API_BASE_URL}/mark-list/teachers`, { headers }),
+        fetch(`${API_BASE_URL}/mark-list/subject-class-combinations`, { headers }),
+        fetch(`${API_BASE_URL}/mark-list/teacher-assignments`, { headers }),
+        fetch(`${API_BASE_URL}/mark-list/auto-connect-teachers`, { headers })
       ]);
 
       const [teachersData, combinationsData, assignmentsData, autoConnectData] = await Promise.all([
-        teachersResponse.json(),
-        combinationsResponse.json(),
-        assignmentsResponse.json(),
+        teachersResponse.ok ? teachersResponse.json() : [],
+        combinationsResponse.ok ? combinationsResponse.json() : [],
+        assignmentsResponse.ok ? assignmentsResponse.json() : [],
         autoConnectResponse.ok ? autoConnectResponse.json() : []
       ]);
 
-      setTeachers(teachersData);
-      setSubjectClassCombinations(combinationsData);
-      setExistingAssignments(assignmentsData);
+      // Deduplicate teachers by normalized name
+      const uniqueTeachersMap = new Map();
+      (Array.isArray(teachersData) ? teachersData : []).forEach(t => {
+        if (!t || !t.name) return;
+        const normName = t.name.trim().toLowerCase();
+        if (!uniqueTeachersMap.has(normName)) {
+          uniqueTeachersMap.set(normName, {
+            ...t,
+            name: t.name.trim()
+          });
+        }
+      });
+      const uniqueTeachers = Array.from(uniqueTeachersMap.values());
+      setTeachers(uniqueTeachers);
 
-      // Start with saved assignments
-      const assignmentState = {};
-      assignmentsData.forEach(assignment => {
-        const key = `${assignment.teacher_name}|||${assignment.subject_class}`;
-        assignmentState[key] = true;
+      // Merge combinations: combinationsData + any from assignmentsData or autoConnectData so columns always exist
+      const comboMap = new Map();
+      (Array.isArray(combinationsData) ? combinationsData : []).forEach(c => {
+        if (!c || !c.subject_class) return;
+        const normSubClass = c.subject_class.trim().toLowerCase();
+        comboMap.set(normSubClass, {
+          subject_name: c.subject_name || c.subject_class.split(' Class ')[0] || c.subject_class,
+          class_name: c.class_name || c.subject_class.split(' Class ')[1] || '',
+          subject_class: c.subject_class.trim()
+        });
       });
 
-      // Auto-connect from schedule (Task6) - merge without overwriting manual assignments
-      if (Array.isArray(autoConnectData)) {
-        autoConnectData.forEach(conn => {
-          const key = `${conn.teacher_name}|||${conn.subject_class}`;
-          if (!assignmentState[key]) {
-            assignmentState[key] = 'auto';
-          }
-        });
-      }
+      const existingList = Array.isArray(assignmentsData) ? assignmentsData : [];
+      existingList.forEach(a => {
+        if (!a || !a.subject_class) return;
+        const normSubClass = a.subject_class.trim().toLowerCase();
+        if (!comboMap.has(normSubClass)) {
+          const match = a.subject_class.match(/^(.+)\s+Class\s+(.+)$/i);
+          comboMap.set(normSubClass, {
+            subject_name: match ? match[1].trim() : a.subject_class.trim(),
+            class_name: match ? match[2].trim() : '',
+            subject_class: a.subject_class.trim()
+          });
+        }
+      });
+
+      const autoList = Array.isArray(autoConnectData) ? autoConnectData : [];
+      autoList.forEach(a => {
+        if (!a || !a.subject_class) return;
+        const normSubClass = a.subject_class.trim().toLowerCase();
+        if (!comboMap.has(normSubClass)) {
+          const match = a.subject_class.match(/^(.+)\s+Class\s+(.+)$/i);
+          comboMap.set(normSubClass, {
+            subject_name: match ? match[1].trim() : a.subject_class.trim(),
+            class_name: match ? match[2].trim() : '',
+            subject_class: a.subject_class.trim()
+          });
+        }
+      });
+
+      const allCombinations = Array.from(comboMap.values());
+      setSubjectClassCombinations(allCombinations);
+      setExistingAssignments(existingList);
+
+      // Populate assignmentState: normalizedKey -> { checked: boolean | 'auto', teacherName, subjectClass }
+      const assignmentState = {};
+      existingList.forEach(assignment => {
+        if (!assignment.teacher_name || !assignment.subject_class) return;
+        const key = normKey(assignment.teacher_name, assignment.subject_class);
+        assignmentState[key] = {
+          checked: true,
+          teacherName: assignment.teacher_name.trim(),
+          subjectClass: assignment.subject_class.trim()
+        };
+      });
+
+      // Auto-connect from schedule (only if not already manually assigned)
+      autoList.forEach(conn => {
+        if (!conn.teacher_name || !conn.subject_class) return;
+        const key = normKey(conn.teacher_name, conn.subject_class);
+        if (!assignmentState[key]) {
+          assignmentState[key] = {
+            checked: 'auto',
+            teacherName: conn.teacher_name.trim(),
+            subjectClass: conn.subject_class.trim()
+          };
+        }
+      });
+
       setAssignments(assignmentState);
-      setMessage(`Loaded ${assignmentsData.length} saved + ${Array.isArray(autoConnectData) ? autoConnectData.filter(c => !assignmentState[`${c.teacher_name}|||${c.subject_class}`] && assignmentState[`${c.teacher_name}|||${c.subject_class}`] === 'auto').length : 0} auto-connected from schedule`);
+      setMessage(`Loaded ${existingList.length} saved assignment(s) across ${uniqueTeachers.length} teacher(s)`);
     } catch (error) {
       console.error('Error fetching data:', error);
       setMessage('Error loading data: ' + error.message);
@@ -601,10 +749,14 @@ const TeacherAssignment = () => {
   };
 
   const handleAssignmentChange = (teacherName, subjectClass, isChecked) => {
-    const key = `${teacherName}|||${subjectClass}`;
+    const key = normKey(teacherName, subjectClass);
     setAssignments(prev => ({
       ...prev,
-      [key]: isChecked
+      [key]: {
+        checked: isChecked,
+        teacherName: teacherName.trim(),
+        subjectClass: subjectClass.trim()
+      }
     }));
   };
 
@@ -615,31 +767,31 @@ const TeacherAssignment = () => {
 
     try {
       const assignmentsArray = [];
-      Object.entries(assignments).forEach(([key, isSelected]) => {
-        if (isSelected) {
-          // Use a more reliable separator - split only on the first occurrence
-          const separatorIndex = key.indexOf('|||');
-          if (separatorIndex !== -1) {
-            const teacherName = key.substring(0, separatorIndex);
-            const subjectClass = key.substring(separatorIndex + 3);
-            assignmentsArray.push({ teacherName, subjectClass });
+      Object.values(assignments).forEach(item => {
+        if (item && (item.checked === true || item.checked === 'auto')) {
+          if (item.teacherName && item.subjectClass) {
+            assignmentsArray.push({
+              teacherName: item.teacherName,
+              subjectClass: item.subjectClass
+            });
           }
         }
       });
 
       const response = await fetch(`${API_BASE_URL}/mark-list/assign-teachers`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ assignments: assignmentsArray }),
+        headers: getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          assignments: assignmentsArray,
+          managedTeachers: teachers.map(t => t.name)
+        }),
       });
 
       const result = await response.json();
       
       if (response.ok) {
         setMessage('Teacher assignments saved successfully!');
-        fetchData();
+        await fetchData();
       } else {
         setMessage(result.error || 'Failed to save assignments');
       }
@@ -651,9 +803,11 @@ const TeacherAssignment = () => {
   };
 
   const getAssignmentCountForTeacher = (teacherName) => {
-    return subjectClassCombinations.filter(combination => 
-      assignments[`${teacherName}|||${combination.subject_class}`]
-    ).length;
+    return subjectClassCombinations.filter(combination => {
+      const key = normKey(teacherName, combination.subject_class);
+      const item = assignments[key];
+      return item && (item.checked === true || item.checked === 'auto');
+    }).length;
   };
 
   if (teachers.length === 0 || subjectClassCombinations.length === 0) {
@@ -716,23 +870,30 @@ const TeacherAssignment = () => {
                       <div className="role">{teacher.role}</div>
                     </div>
                   </td>
-                  {subjectClassCombinations.map(combination => (
-                    <td key={`${combination.subject_name}-${combination.class_name}`} className="assignment-cell">
-                      <label className="checkbox-container" title={assignments[`${teacher.name}|||${combination.subject_class}`] === 'auto' ? 'Auto-connected from schedule' : ''}>
-                        <input
-                          type="checkbox"
-                          checked={assignments[`${teacher.name}|||${combination.subject_class}`] === true || assignments[`${teacher.name}|||${combination.subject_class}`] === 'auto'}
-                          className={assignments[`${teacher.name}|||${combination.subject_class}`] === 'auto' ? 'auto-checked' : ''}
-                          onChange={(e) => handleAssignmentChange(
-                            teacher.name, 
-                            combination.subject_class,
-                            e.target.checked
-                          )}
-                        />
-                        <span className="checkmark">✓</span>
-                      </label>
-                    </td>
-                  ))}
+                  {subjectClassCombinations.map(combination => {
+                    const key = normKey(teacher.name, combination.subject_class);
+                    const stateItem = assignments[key];
+                    const isChecked = stateItem?.checked === true || stateItem?.checked === 'auto';
+                    const isAuto = stateItem?.checked === 'auto';
+
+                    return (
+                      <td key={`${combination.subject_name}-${combination.class_name}`} className="assignment-cell">
+                        <label className="checkbox-container" title={isAuto ? 'Auto-connected from schedule' : ''}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            className={isAuto ? 'auto-checked' : ''}
+                            onChange={(e) => handleAssignmentChange(
+                              teacher.name, 
+                              combination.subject_class,
+                              e.target.checked
+                            )}
+                          />
+                          <span className="checkmark">✓</span>
+                        </label>
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
