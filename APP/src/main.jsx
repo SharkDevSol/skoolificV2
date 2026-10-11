@@ -32,6 +32,19 @@ axios.defaults.baseURL = (() => {
 })();
 console.log('🌐 Axios configured with baseURL:', axios.defaults.baseURL);
 
+// Register global request interceptor on axios to automatically attach auth token and branch code
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+  if (token && !config.headers['Authorization']) {
+    config.headers['Authorization'] = 'Bearer ' + token;
+  }
+  const branchCode = getBranchCode();
+  if (branchCode && !config.headers['X-Branch-Code'] && !config.headers['x-branch-code']) {
+    config.headers['X-Branch-Code'] = branchCode;
+  }
+  return config;
+});
+
 // Register service worker for offline support
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -55,10 +55,15 @@ class DatabaseConnectionManager {
       return this.pools.get(branchCode);
     }
 
-    // Fetch branch configuration from master database
+    // Fetch branch configuration from master database (flexible match)
     const result = await this.masterPool.query(
-      'SELECT * FROM branch_config WHERE branch_code = $1 AND is_active = true',
-      [branchCode]
+      `SELECT * FROM branch_config 
+       WHERE (UPPER(branch_code) = UPPER($1) 
+          OR LOWER(branch_name) LIKE LOWER($2) 
+          OR LOWER(database_name) LIKE LOWER($2)) 
+         AND is_active = true 
+       LIMIT 1`,
+      [branchCode, `%${branchCode}%`]
     );
 
     if (result.rows.length === 0) {

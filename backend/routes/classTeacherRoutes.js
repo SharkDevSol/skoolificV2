@@ -3,14 +3,50 @@ const router = express.Router();
 const pool = require('../config/db');
 const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 
-// Initialize class_teachers table with enhanced resilience
-const initializeClassTeachersTable = async () => {
+const dbManager = require('../services/DatabaseConnectionManager');
+const jwt = require('jsonwebtoken');
+
+// Helper to get branch-specific database pool
+const getDbPool = async (req) => {
+  if (req && req.branchPool) return req.branchPool;
+
+  // 1. Check x-branch-code / X-Branch-Code header or query param
+  let branchCode = req?.headers?.['x-branch-code'] || req?.headers?.['X-Branch-Code'] || req?.headers?.['branchcode'] || req?.query?.branchCode;
+
+  // 2. Check JWT token in authorization header
+  if (!branchCode && req?.headers?.authorization) {
+    try {
+      const token = req.headers.authorization.split(' ')[1];
+      const decoded = jwt.decode(token);
+      if (decoded && (decoded.branchCode || decoded.branch_code)) {
+        branchCode = decoded.branchCode || decoded.branch_code;
+      }
+    } catch (_) {}
+  }
+
+  // 3. Check Host header (e.g. bilal.skoolific.com -> 'BILAL')
+  if (!branchCode && req?.headers?.host) {
+    const host = req.headers.host.toLowerCase();
+    if (host.includes('bilal')) {
+      branchCode = 'BILAL';
+    }
+  }
+
+  if (branchCode && dbManager) {
+    try {
+      return await dbManager.getPool(branchCode.toUpperCase());
+    } catch (e) {
+      console.warn(`[ClassTeacher] Could not get pool for branch "${branchCode}":`, e.message);
+    }
+  }
+  return pool;
+};
+
+// Initialize class_teachers table on the given database
+const ensureClassTeachersTable = async (db) => {
   try {
-    console.log('🔧 Initializing class_teachers table...');
-    
-    await pool.query('CREATE SCHEMA IF NOT EXISTS school_schema_points');
-    
-    await pool.query(`
+    await db.query('CREATE SCHEMA IF NOT EXISTS school_schema_points');
+    await db.query(`
       CREATE TABLE IF NOT EXISTS school_schema_points.class_teachers (
         id SERIAL PRIMARY KEY,
         global_staff_id INTEGER NOT NULL,
@@ -22,36 +58,34 @@ const initializeClassTeachersTable = async () => {
         UNIQUE(assigned_class)
       )
     `);
-    
-    // Create indexes for performance
-    await pool.query(`
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_class_teachers_staff_id 
       ON school_schema_points.class_teachers(global_staff_id)
     `);
-    await pool.query(`
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_class_teachers_class 
       ON school_schema_points.class_teachers(assigned_class)
     `);
-    await pool.query(`
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_class_teachers_active 
       ON school_schema_points.class_teachers(is_active)
     `);
-    
-    console.log('✅ Class teachers table initialized successfully');
   } catch (e) {
-    console.error('❌ Class teachers table init error:', e.message);
+    // Table/index might already exist
   }
 };
 
-initializeClassTeachersTable();
+// Also initialize default database on startup
+ensureClassTeachersTable(pool);
 
 // Get all teachers (for dropdown selection)
 router.get('/teachers', async (req, res) => {
   try {
+    const db = await getDbPool(req);
     console.log('📥 GET /api/class-teacher/teachers - Fetching teachers...');
     
     // Check if teachers table exists in staff_teachers schema
-    const tableExists = await pool.query(`
+    const tableExists = await db.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'staff_teachers' 
@@ -65,7 +99,7 @@ router.get('/teachers', async (req, res) => {
     }
     
     // Check if is_active column exists
-    const columnCheck = await pool.query(`
+    const columnCheck = await db.query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_schema = 'staff_teachers' 
@@ -87,7 +121,7 @@ router.get('/teachers', async (req, res) => {
     
     query += ' ORDER BY name ASC';
     
-    const result = await pool.query(query);
+    const result = await db.query(query);
     
     console.log(`✅ Found ${result.rows.length} teacher(s)`);
     res.json(result.rows);
@@ -100,10 +134,11 @@ router.get('/teachers', async (req, res) => {
 // Get all classes (for dropdown selection)
 router.get('/classes', async (req, res) => {
   try {
+    const db = await getDbPool(req);
     console.log('📥 GET /api/class-teacher/classes - Fetching classes...');
     
-    // Check if classes table exists
-    const tableExists = await pool.query(`
+    // Check if classes table exists in school_schema_points
+    const tableExists = await db.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'school_schema_points' 
@@ -111,22 +146,28 @@ router.get('/classes', async (req, res) => {
       )
     `);
     
-    if (!tableExists.rows[0].exists) {
-      console.log('⚠️  Classes table not found');
-      return res.json([]);
+    if (tableExists.rows[0].exists) {
+      const result = await db.query(`
+        SELECT class_names FROM school_schema_points.classes WHERE id = 1
+      `);
+      
+      if (result.rows.length > 0 && result.rows[0].class_names && result.rows[0].class_names.length > 0) {
+        console.log(`✅ Found ${result.rows[0].class_names.length} class(es) in school_schema_points.classes`);
+        return res.json(result.rows[0].class_names);
+      }
     }
     
-    const result = await pool.query(`
-      SELECT class_names FROM school_schema_points.classes WHERE id = 1
+    // Fallback: query tables directly from classes_schema
+    const fallback = await db.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'classes_schema'
+      ORDER BY table_name ASC
     `);
     
-    if (result.rows.length > 0 && result.rows[0].class_names) {
-      console.log(`✅ Found ${result.rows[0].class_names.length} class(es)`);
-      res.json(result.rows[0].class_names);
-    } else {
-      console.log('⚠️  No classes defined yet');
-      res.json([]);
-    }
+    const classList = fallback.rows.map(r => r.table_name);
+    console.log(`✅ Found ${classList.length} class(es) from classes_schema`);
+    res.json(classList);
   } catch (error) {
     console.error('❌ Error fetching classes:', error);
     res.status(500).json({ error: 'Failed to fetch classes', details: error.message });
@@ -136,24 +177,11 @@ router.get('/classes', async (req, res) => {
 // Get all class teacher assignments
 router.get('/assignments', async (req, res) => {
   try {
+    const db = await getDbPool(req);
+    await ensureClassTeachersTable(db);
     console.log('📥 GET /api/class-teacher/assignments - Fetching assignments...');
     
-    // Ensure table exists
-    await pool.query('CREATE SCHEMA IF NOT EXISTS school_schema_points');
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS school_schema_points.class_teachers (
-        id SERIAL PRIMARY KEY,
-        global_staff_id INTEGER NOT NULL,
-        teacher_name VARCHAR(100) NOT NULL,
-        assigned_class VARCHAR(100) NOT NULL,
-        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT true,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(assigned_class)
-      )
-    `);
-    
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT ct.*, t.staff_work_time
       FROM school_schema_points.class_teachers ct
       LEFT JOIN staff_teachers.teachers t ON ct.global_staff_id = t.global_staff_id
@@ -182,23 +210,11 @@ router.post('/assign', async (req, res) => {
   }
 
   try {
-    // Ensure table exists
-    await pool.query('CREATE SCHEMA IF NOT EXISTS school_schema_points');
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS school_schema_points.class_teachers (
-        id SERIAL PRIMARY KEY,
-        global_staff_id INTEGER NOT NULL,
-        teacher_name VARCHAR(100) NOT NULL,
-        assigned_class VARCHAR(100) NOT NULL,
-        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT true,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(assigned_class)
-      )
-    `);
+    const db = await getDbPool(req);
+    await ensureClassTeachersTable(db);
     
     // Check if class already has a teacher assigned
-    const existing = await pool.query(`
+    const existing = await db.query(`
       SELECT * FROM school_schema_points.class_teachers 
       WHERE assigned_class = $1 AND is_active = true
     `, [assigned_class]);
@@ -206,7 +222,7 @@ router.post('/assign', async (req, res) => {
     if (existing.rows.length > 0) {
       console.log(`   ✏️  Updating existing assignment (was: ${existing.rows[0].teacher_name})`);
       // Update existing assignment
-      await pool.query(`
+      await db.query(`
         UPDATE school_schema_points.class_teachers 
         SET global_staff_id = $1, teacher_name = $2, assigned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE assigned_class = $3 AND is_active = true
@@ -214,7 +230,7 @@ router.post('/assign', async (req, res) => {
     } else {
       console.log('   ➕ Creating new assignment');
       // Create new assignment
-      await pool.query(`
+      await db.query(`
         INSERT INTO school_schema_points.class_teachers 
         (global_staff_id, teacher_name, assigned_class)
         VALUES ($1, $2, $3)
@@ -234,7 +250,9 @@ router.delete('/unassign/:className', async (req, res) => {
   const { className } = req.params;
 
   try {
-    await pool.query(`
+    const db = await getDbPool(req);
+    await ensureClassTeachersTable(db);
+    await db.query(`
       UPDATE school_schema_points.class_teachers 
       SET is_active = false
       WHERE assigned_class = $1
@@ -252,7 +270,9 @@ router.get('/check/:globalStaffId', async (req, res) => {
   const { globalStaffId } = req.params;
 
   try {
-    const result = await pool.query(`
+    const db = await getDbPool(req);
+    await ensureClassTeachersTable(db);
+    const result = await db.query(`
       SELECT * FROM school_schema_points.class_teachers 
       WHERE global_staff_id = $1 AND is_active = true
     `, [globalStaffId]);
@@ -276,16 +296,20 @@ router.get('/check/:globalStaffId', async (req, res) => {
   }
 });
 
-// Get assignments by teacher name
+// Get assignments by teacher name or global staff id
 router.get('/teacher-assignment/:teacherName', async (req, res) => {
   const { teacherName } = req.params;
 
   try {
+    const db = await getDbPool(req);
+    await ensureClassTeachersTable(db);
     console.log(`📥 GET /api/class-teacher/teacher-assignment/${teacherName}`);
     
-    const result = await pool.query(`
+    // Support matching by trimmed/case-insensitive name OR numeric staff id
+    const result = await db.query(`
       SELECT * FROM school_schema_points.class_teachers 
-      WHERE teacher_name = $1 AND is_active = true
+      WHERE (LOWER(TRIM(teacher_name)) = LOWER(TRIM($1)) OR global_staff_id::text = $1)
+        AND is_active = true
       ORDER BY assigned_class ASC
     `, [teacherName]);
 
@@ -306,6 +330,7 @@ router.get('/students/:className', async (req, res) => {
   const { className } = req.params;
   
   try {
+    const db = await getDbPool(req);
     console.log(`📥 GET /api/class-teacher/students/${className} - Fetching students...`);
     
     const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
@@ -317,7 +342,7 @@ router.get('/students/:className', async (req, res) => {
     // Try to query the table
     try {
       // First check if is_active column exists
-      const columnCheck = await pool.query(`
+      const columnCheck = await db.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_schema = 'classes_schema' 
@@ -339,7 +364,7 @@ router.get('/students/:className', async (req, res) => {
       
       query += ' ORDER BY LOWER(student_name) ASC';
       
-      const result = await pool.query(query);
+      const result = await db.query(query);
       
       console.log(`✅ Found ${result.rows.length} students in ${className}`);
       res.json(result.rows);
@@ -348,7 +373,7 @@ router.get('/students/:className', async (req, res) => {
       console.error(`❌ Error querying table ${className}:`, tableError.message);
       
       // Try to find similar table names
-      const similarTables = await pool.query(`
+      const similarTables = await db.query(`
         SELECT table_name 
         FROM information_schema.tables 
         WHERE table_schema = 'classes_schema' 
@@ -360,7 +385,7 @@ router.get('/students/:className', async (req, res) => {
         console.log(`💡 Found similar table: ${actualTableName}`);
         
         // Check if is_active column exists in the actual table
-        const columnCheck = await pool.query(`
+        const columnCheck = await db.query(`
           SELECT column_name 
           FROM information_schema.columns 
           WHERE table_schema = 'classes_schema' 
@@ -381,7 +406,7 @@ router.get('/students/:className', async (req, res) => {
         
         query += ' ORDER BY LOWER(student_name) ASC';
         
-        const result = await pool.query(query);
+        const result = await db.query(query);
         
         console.log(`✅ Found ${result.rows.length} students in ${actualTableName}`);
         return res.json(result.rows);
@@ -413,9 +438,10 @@ const formatDate = (date) => {
 // Get school days from schedule config
 router.get('/school-days', async (req, res) => {
   try {
+    const db = await getDbPool(req);
     // First try to get from attendance settings (primary source)
     try {
-      const attendanceResult = await pool.query(`
+      const attendanceResult = await db.query(`
         SELECT school_days FROM academic_student_attendance_settings 
         ORDER BY id DESC LIMIT 1
       `);
@@ -432,7 +458,7 @@ router.get('/school-days', async (req, res) => {
     }
     
     // Fallback to schedule config
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT school_days FROM schedule_schema.school_config WHERE id = 1
     `);
     
@@ -463,6 +489,7 @@ router.get('/weekly-tables/:className', async (req, res) => {
   const { className } = req.params;
   
   try {
+    const db = await getDbPool(req);
     const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
     if (!validTableName) {
       return res.status(400).json({ error: 'Invalid class name provided.' });
@@ -471,7 +498,7 @@ router.get('/weekly-tables/:className', async (req, res) => {
     const schemaName = `class_${className}_weekly_attendance`;
     
     // Check if schema exists
-    const schemaExists = await pool.query(`
+    const schemaExists = await db.query(`
       SELECT 1 FROM information_schema.schemata WHERE schema_name = $1
     `, [schemaName]);
 
@@ -480,7 +507,7 @@ router.get('/weekly-tables/:className', async (req, res) => {
     }
 
     // Get all weekly attendance tables
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = $1
       ORDER BY table_name DESC
@@ -501,8 +528,11 @@ router.post('/create-weekly-attendance', async (req, res) => {
     return res.status(400).json({ error: 'className, weekStart, and globalStaffId are required' });
   }
 
+  const db = await getDbPool(req);
+  await ensureClassTeachersTable(db);
+
   // Verify teacher is assigned to this class
-  const assignment = await pool.query(`
+  const assignment = await db.query(`
     SELECT * FROM school_schema_points.class_teachers 
     WHERE global_staff_id = $1 AND assigned_class = $2 AND is_active = true
   `, [globalStaffId, className]);
@@ -516,7 +546,7 @@ router.post('/create-weekly-attendance', async (req, res) => {
     return res.status(400).json({ error: 'Invalid class name provided.' });
   }
 
-  const client = await pool.connect();
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
@@ -623,6 +653,7 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
   const { className, weekStart } = req.params;
   
   try {
+    const db = await getDbPool(req);
     const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
     if (!validTableName) {
       return res.status(400).json({ error: 'Invalid class name provided.' });
@@ -632,7 +663,7 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
     const tableName = `week_${weekStart.replace(/-/g, '_')}`;
     
     // Check if table exists
-    const tableExists = await pool.query(`
+    const tableExists = await db.query(`
       SELECT 1 FROM information_schema.tables
       WHERE table_schema = $1 AND table_name = $2
     `, [schemaName, tableName]);
@@ -641,7 +672,7 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
       return res.json({ exists: false, data: [] });
     }
 
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT * FROM "${schemaName}"."${tableName}"
       ORDER BY LOWER(student_name) ASC
     `);
@@ -662,8 +693,11 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
     return res.status(400).json({ error: 'records array is required' });
   }
 
+  const db = await getDbPool(req);
+  await ensureClassTeachersTable(db);
+
   // Verify teacher is assigned to this class
-  const assignment = await pool.query(`
+  const assignment = await db.query(`
     SELECT * FROM school_schema_points.class_teachers 
     WHERE global_staff_id = $1 AND assigned_class = $2 AND is_active = true
   `, [globalStaffId, className]);
@@ -693,7 +727,7 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
     dayDateMap[day] = d;
   });
 
-  const client = await pool.connect();
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
