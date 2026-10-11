@@ -532,6 +532,43 @@ router.post('/create-mark-forms', async (req, res) => {
   }
 });
 
+// Route to delete a mark list form for a specific subject, class, and term
+router.delete('/delete-mark-form/:subjectName/:className/:termNumber', async (req, res) => {
+  const { subjectName, termNumber } = req.params;
+  const className = req.params.className;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const schemaName = getSubjectSchemaName(subjectName);
+    const tableName = getClassTableName(className, termNumber);
+    
+    // Drop the class-term table in the subject schema
+    await client.query(`DROP TABLE IF EXISTS ${schemaName}.${tableName}`);
+    
+    // Remove the form configuration row for this class and term
+    try {
+      await client.query(`
+        DELETE FROM ${schemaName}.form_config 
+        WHERE LOWER(class_name) = LOWER($1) AND term_number = $2
+      `, [className, termNumber]);
+    } catch (cfgErr) {
+      console.warn('Could not delete form_config row (safe to ignore):', cfgErr.message);
+    }
+    
+    await client.query('COMMIT');
+    res.json({ 
+      success: true, 
+      message: `Mark list form for ${subjectName} ${className} Term ${termNumber} deleted successfully` 
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting mark form:', error);
+    res.status(500).json({ error: 'Failed to delete mark form', details: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 // Route to get mark list for a specific subject, class, and term
 const normalizeClassName = (name) => sanitizeIdentifier(name);
 

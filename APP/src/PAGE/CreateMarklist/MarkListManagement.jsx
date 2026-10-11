@@ -52,7 +52,8 @@ const MarkListForm = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [viewMode, setViewMode] = useState('create');
-  const [formExists, setFormExists] = useState(false);
+  const [formExists, setFormExists] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
@@ -95,10 +96,15 @@ const MarkListForm = () => {
       .map(mapping => mapping.class_name);
   };
 
-  // Auto-load existing config when subject+class+term selected
+  // Auto-load existing config & form data when subject+class+term selected
   useEffect(() => {
-    if (!selectedSubject || !selectedClass || !selectedTerm) return;
+    if (!selectedSubject || !selectedClass || !selectedTerm) {
+      setFormExists(null);
+      setCheckingStatus(false);
+      return;
+    }
     const loadConfig = async () => {
+      setCheckingStatus(true);
       try {
         const response = await fetch(
           `${API_BASE_URL}/mark-list/mark-list/${encodeURIComponent(selectedSubject)}/${encodeURIComponent(selectedClass)}/${selectedTerm}`,
@@ -106,7 +112,7 @@ const MarkListForm = () => {
         );
         if (response.ok) {
           const data = await response.json();
-          if (viewMode === 'view' && data.config && data.config.mark_components) {
+          if (data.config && data.config.mark_components && Array.isArray(data.config.mark_components)) {
             setMarkComponents(data.config.mark_components);
           }
           setMarkList(data.markList || []);
@@ -130,7 +136,10 @@ const MarkListForm = () => {
           setFormConfig(null);
         }
       } catch (error) {
-        console.error('Error loading config:', error);
+        console.error('Error auto-loading mark list:', error);
+        setFormExists(false);
+      } finally {
+        setCheckingStatus(false);
       }
     };
     loadConfig();
@@ -459,13 +468,162 @@ const MarkListForm = () => {
         {viewMode === 'view' && (
           <button 
             onClick={loadMarkList}
-            disabled={!selectedSubject || !selectedClass}
+            disabled={!selectedSubject || !selectedClass || loading}
             className="load-btn"
           >
-            Load Mark List
+            {loading ? 'Loading...' : '↺ Refresh Marks'}
           </button>
         )}
       </div>
+
+      {/* Auto-load Form Status Banner */}
+      {selectedSubject && selectedClass && (
+        <div style={{ margin: '14px 0 20px 0' }}>
+          {checkingStatus ? (
+            <div style={{
+              padding: '12px 18px',
+              borderRadius: '8px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              color: '#475569',
+              fontSize: '0.9rem'
+            }}>
+              <span style={{ fontSize: '1.2rem' }}>⏳</span>
+              <span>Checking mark list for <strong>{selectedSubject}</strong> • <strong>{selectedClass}</strong> • <strong>Term {selectedTerm}</strong>...</span>
+            </div>
+          ) : formExists ? (
+            <div style={{
+              padding: '14px 18px',
+              borderRadius: '8px',
+              background: '#ecfdf5',
+              border: '1px solid #10b981',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: '#d1fae5',
+                  color: '#059669',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 'bold',
+                  fontSize: '1.1rem'
+                }}>✓</div>
+                <div>
+                  <div style={{ fontWeight: 600, color: '#065f46', fontSize: '0.95rem' }}>
+                    Mark List Form Exists
+                  </div>
+                  <div style={{ color: '#047857', fontSize: '0.85rem', marginTop: '2px' }}>
+                    <strong>{selectedSubject}</strong> • Class <strong>{selectedClass}</strong> • <strong>Term {selectedTerm}</strong>
+                    {markList?.length > 0 ? ` • ${markList.length} Students loaded` : ''}
+                    {formConfig?.mark_components?.length > 0 ? ` • (${formConfig.mark_components.map(c => `${c.name}: ${c.percentage}%`).join(', ')})` : ''}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {viewMode === 'create' ? (
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('view')}
+                    style={{
+                      background: '#059669',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    View / Enter Marks →
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('create')}
+                    style={{
+                      background: '#fff',
+                      color: '#065f46',
+                      border: '1px solid #a7f3d0',
+                      borderRadius: '6px',
+                      padding: '6px 12px',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    View Components Config
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              padding: '14px 18px',
+              borderRadius: '8px',
+              background: '#eff6ff',
+              border: '1px solid #60a5fa',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: '#dbeafe',
+                  color: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 'bold',
+                  fontSize: '1rem'
+                }}>ℹ</div>
+                <div>
+                  <div style={{ fontWeight: 600, color: '#1e40af', fontSize: '0.95rem' }}>
+                    No Mark List Form Created Yet
+                  </div>
+                  <div style={{ color: '#2563eb', fontSize: '0.85rem', marginTop: '2px' }}>
+                    No form has been created for <strong>{selectedSubject}</strong> • Class <strong>{selectedClass}</strong> • <strong>Term {selectedTerm}</strong>.
+                  </div>
+                </div>
+              </div>
+              {viewMode === 'view' && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('create')}
+                  style={{
+                    background: '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 14px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  + Create Form Now
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {viewMode === 'create' && (
         <div className="create-form">
@@ -490,6 +648,25 @@ const MarkListForm = () => {
               ↺ Reset to Default Template
             </button>
           </div>
+
+          {formExists && (
+            <div style={{
+              background: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              marginBottom: '14px',
+              fontSize: '0.875rem',
+              color: '#92400e',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span>ℹ️</span>
+              <span><strong>Form Already Created:</strong> The components below match the currently active mark list form for this class & term. To change the components, you can delete this mark list and recreate it.</span>
+            </div>
+          )}
+
           <div className="components-list">
             {markComponents.map((component, index) => (
               <div key={index} className="component-row">
@@ -532,10 +709,12 @@ const MarkListForm = () => {
 
           <button 
             onClick={handleCreateForm}
-            disabled={loading || !selectedSubject || !selectedClass || getTotalPercentage() !== 100}
+            disabled={loading || !selectedSubject || !selectedClass || getTotalPercentage() !== 100 || formExists}
             className="create-btn"
+            style={formExists ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+            title={formExists ? 'Mark list form already exists for this combination' : 'Create new mark list form'}
           >
-            {loading ? 'Creating...' : 'Create Mark List Form'}
+            {loading ? 'Creating...' : formExists ? 'Form Already Created' : 'Create Mark List Form'}
           </button>
           {formExists && (
             <button 
@@ -544,9 +723,43 @@ const MarkListForm = () => {
               className="delete-btn"
               style={{ marginLeft: '10px', padding: '8px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
             >
-              Delete Mark List
+              {loading ? 'Deleting...' : 'Delete Mark List'}
             </button>
           )}
+        </div>
+      )}
+
+      {viewMode === 'view' && !formExists && !checkingStatus && selectedSubject && selectedClass && (
+        <div style={{
+          textAlign: 'center',
+          padding: '40px 20px',
+          background: '#f8fafc',
+          borderRadius: '12px',
+          border: '2px dashed #cbd5e1',
+          margin: '20px 0'
+        }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>📋</div>
+          <h3 style={{ margin: '0 0 6px 0', color: '#1e293b' }}>
+            No Mark List Form for {selectedSubject}
+          </h3>
+          <p style={{ color: '#64748b', fontSize: '0.9rem', maxWidth: '420px', margin: '0 auto 16px auto' }}>
+            A mark list form has not been created yet for {selectedClass} Term {selectedTerm}.
+          </p>
+          <button
+            onClick={() => setViewMode('create')}
+            style={{
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              padding: '8px 18px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem'
+            }}
+          >
+            Create Mark List Form
+          </button>
         </div>
       )}
 
