@@ -267,11 +267,11 @@ const AdminChat = () => {
     }
   };
 
-  const filteredGuardians = guardians.filter(g =>
-    g.name?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredGuardians = (guardians || []).filter(g =>
+    g && (g.name || '').toLowerCase().includes((searchQuery || '').toLowerCase())
   );
 
-  const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+  const totalUnread = (conversations || []).reduce((sum, c) => sum + (c?.unreadCount || 0), 0);
 
   return (
     <main className={styles.container} aria-label={t('communication.messages.title', 'Messages')}>
@@ -294,7 +294,7 @@ const AdminChat = () => {
           <div className={styles.search}>
             <Input
               value={searchQuery}
-              onChange={setSearchQuery}
+              onChange={(e) => setSearchQuery(typeof e === 'string' ? e : e?.target?.value || '')}
               placeholder={t('communication.messages.search', 'Search guardians...')}
               prefixIcon={<FiSearch size={16} />}
               ariaLabel={t('communication.messages.search', 'Search guardians')}
@@ -306,11 +306,11 @@ const AdminChat = () => {
             ) : filteredGuardians.length === 0 ? (
               <div className={styles.empty}>{t('communication.messages.noGuardians', 'No guardians found')}</div>
             ) : (
-              filteredGuardians.map(guardian => (
+              filteredGuardians.map((guardian, index) => (
                 <div
-                  key={guardian.id}
-                  className={`${styles.guardianItem} ${activeConversation?.participants?.find(p => p.user_id === guardian.id) ? styles.active : ''}`}
-                  onClick={() => handleSelectGuardian(guardian)}
+                  key={guardian?.id || guardian?.username || `guardian-${index}`}
+                  className={`${styles.guardianItem} ${activeConversation?.participants?.find(p => p.user_id === guardian?.id || p.user_id === `guardian_${guardian?.id}`) ? styles.active : ''}`}
+                  onClick={() => guardian && handleSelectGuardian(guardian)}
                 >
                   <div className={styles.avatar}><FiUser /></div>
                   <div className={styles.info}>
@@ -405,7 +405,7 @@ const AdminChat = () => {
                       const isOwn = message.sender_id === currentUserId;
                       return (
                         <div
-                          key={message.id}
+                          key={message?.id || `msg-${index}`}
                           className={`${styles.message} ${isOwn ? styles.own : styles.other}`}
                         >
                           {!isOwn && (

@@ -2102,7 +2102,7 @@ export const AppProvider = ({ children }) => {
         
         // Update favicon from database or use default Skoolific icon
         const iconUrl = data.website_icon 
-          ? `${import.meta.env.VITE_API_URL.replace('/api', '')}/uploads/branding/${data.website_icon}`
+          ? `${(import.meta.env.VITE_API_URL || '').replace('/api', '')}/uploads/branding/${data.website_icon}`
           : '/skoolific-icon.png';
         
         // Update all icon links

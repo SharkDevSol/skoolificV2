@@ -108,7 +108,14 @@ const FinanceReports = () => {
   }
 
   const summary = overview.summary;
-  const reportMonths = Math.min(overview.reportMonth || SCHOOL_YEAR_MONTHS, SCHOOL_YEAR_MONTHS);
+  const maxPaidMonthInBreakdown = (summary.monthlyBreakdown || []).reduce(
+    (max, m) => (m.paid > 0 ? Math.max(max, m.monthNumber) : max),
+    1
+  );
+  const reportMonths = Math.min(
+    Math.max(overview.reportMonth || 1, maxPaidMonthInBreakdown, 1),
+    SCHOOL_YEAR_MONTHS
+  );
   const monthNames = ETHIOPIAN_MONTHS.slice(0, reportMonths);
   const collectionRate = pct(summary.unlockedTotalPaid, summary.unlockedTotalAmount);
   const monthly = (summary.monthlyBreakdown || []).slice(0, reportMonths);

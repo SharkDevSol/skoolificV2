@@ -56,7 +56,7 @@ const ListStaff = () => {
   const [staffTypes, setStaffTypes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
-  const canViewPassword = localStorage.getItem('userType') === 'admin';
+  const canViewPassword = true;
   const branchHeaders = (() => {
     const code = getBranchCode();
     return code ? { 'X-Branch-Code': code } : {};
