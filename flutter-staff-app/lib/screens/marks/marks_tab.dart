@@ -157,7 +157,13 @@ class _MarksTabState extends State<MarksTab> {
 
   void _applyPayload(Map<String, dynamic> res, {required bool fromCache}) {
     _cacheMiss = false;
-    final hasForm = res['formId'] != null || res['form_id'] != null;
+    final hasForm = res['formId'] != null ||
+        res['form_id'] != null ||
+        (res['config'] is Map &&
+            ((res['config'] as Map)['id'] != null ||
+                (res['config'] as Map)['mark_components'] != null)) ||
+        (res['markList'] is List && (res['markList'] as List).isNotEmpty) ||
+        (res['students'] is List && (res['students'] as List).isNotEmpty);
     if (!hasForm) {
       _formFound = false;
       _students = [];
