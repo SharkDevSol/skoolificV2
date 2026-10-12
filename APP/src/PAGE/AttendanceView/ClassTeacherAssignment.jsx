@@ -6,6 +6,7 @@ import {
   FiCheck, FiX, FiEdit2, FiSave
 } from 'react-icons/fi';
 import { useApp } from '../../context/AppContext';
+import { getBranchCode } from '../../utils/branchCode';
 import styles from './ClassTeacherAssignment.module.css';
 
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
@@ -20,6 +21,11 @@ const ClassTeacherAssignment = () => {
   const [selectedClass, setSelectedClass] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
 
+  const getBranchHeaders = () => {
+    const branchCode = (getBranchCode() || '').toUpperCase();
+    return branchCode ? { 'x-branch-code': branchCode } : {};
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -27,10 +33,11 @@ const ClassTeacherAssignment = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const headers = getBranchHeaders();
       const [teachersRes, classesRes, assignmentsRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/class-teacher/teachers`),
-        axios.get(`${API_BASE_URL}/class-teacher/classes`),
-        axios.get(`${API_BASE_URL}/class-teacher/assignments`)
+        axios.get(`${API_BASE_URL}/class-teacher/teachers`, { headers }),
+        axios.get(`${API_BASE_URL}/class-teacher/classes`, { headers }),
+        axios.get(`${API_BASE_URL}/class-teacher/assignments`, { headers })
       ]);
       setTeachers(teachersRes.data);
       setClasses(classesRes.data);
@@ -56,11 +63,15 @@ const ClassTeacherAssignment = () => {
     }
 
     try {
-      await axios.post(`${API_BASE_URL}/class-teacher/assign`, {
-        global_staff_id: parseInt(selectedTeacher),
-        teacher_name: teacher.teacher_name,
-        assigned_class: selectedClass
-      });
+      await axios.post(
+        `${API_BASE_URL}/class-teacher/assign`, 
+        {
+          global_staff_id: parseInt(selectedTeacher),
+          teacher_name: teacher.teacher_name,
+          assigned_class: selectedClass
+        },
+        { headers: getBranchHeaders() }
+      );
       
       setMessage({ type: 'success', text: `${teacher.teacher_name} assigned to ${selectedClass}` });
       setSelectedTeacher('');
@@ -76,7 +87,7 @@ const ClassTeacherAssignment = () => {
     if (!window.confirm(`Remove class teacher from ${className}?`)) return;
 
     try {
-      await axios.delete(`${API_BASE_URL}/class-teacher/unassign/${className}`);
+      await axios.delete(`${API_BASE_URL}/class-teacher/unassign/${className}`, { headers: getBranchHeaders() });
       setMessage({ type: 'success', text: `Teacher unassigned from ${className}` });
       fetchData();
     } catch (error) {

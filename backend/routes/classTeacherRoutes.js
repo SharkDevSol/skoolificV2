@@ -78,48 +78,69 @@ const ensureClassTeachersTable = async (db) => {
 // Also initialize default database on startup
 ensureClassTeachersTable(pool);
 
+// Helper to resolve teachers table (either school_schema_points.teachers or staff_teachers.teachers)
+const getTeachersTableQuery = async (db) => {
+  const check = await db.query(`
+    SELECT table_schema FROM information_schema.tables 
+    WHERE table_name = 'teachers' 
+      AND table_schema IN ('school_schema_points', 'staff_teachers')
+    ORDER BY CASE WHEN table_schema = 'school_schema_points' THEN 1 ELSE 2 END
+    LIMIT 1
+  `);
+  if (check.rows.length > 0) {
+    const schema = check.rows[0].table_schema;
+    if (schema === 'school_schema_points') {
+      return {
+        table: 'school_schema_points.teachers',
+        nameCol: 'teacher_name',
+        workTimeCol: 'staff_work_time',
+        roleCol: 'role'
+      };
+    } else {
+      return {
+        table: 'staff_teachers.teachers',
+        nameCol: 'name',
+        workTimeCol: 'staff_work_time',
+        roleCol: 'role'
+      };
+    }
+  }
+  return null;
+};
+
 // Get all teachers (for dropdown selection)
 router.get('/teachers', async (req, res) => {
   try {
     const db = await getDbPool(req);
     console.log('📥 GET /api/class-teacher/teachers - Fetching teachers...');
     
-    // Check if teachers table exists in staff_teachers schema
-    const tableExists = await db.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'staff_teachers' 
-        AND table_name = 'teachers'
-      )
-    `);
-    
-    if (!tableExists.rows[0].exists) {
-      console.log('⚠️  Teachers table not found in staff_teachers schema');
+    const tableMeta = await getTeachersTableQuery(db);
+    if (!tableMeta) {
+      console.log('⚠️  Teachers table not found');
       return res.json([]);
     }
-    
+
     // Check if is_active column exists
     const columnCheck = await db.query(`
       SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_schema = 'staff_teachers' 
+      WHERE table_schema = $1 
         AND table_name = 'teachers' 
         AND column_name = 'is_active'
-    `);
+    `, [tableMeta.table.split('.')[0]]);
     
     const hasIsActive = columnCheck.rows.length > 0;
     
-    // Build query with optional is_active filter
     let query = `
-      SELECT global_staff_id, name as teacher_name, staff_work_time, role
-      FROM staff_teachers.teachers
+      SELECT global_staff_id, ${tableMeta.nameCol} as teacher_name, ${tableMeta.workTimeCol} as staff_work_time, ${tableMeta.roleCol} as role
+      FROM ${tableMeta.table}
     `;
     
     if (hasIsActive) {
       query += ' WHERE (is_active = TRUE OR is_active IS NULL)';
     }
     
-    query += ' ORDER BY name ASC';
+    query += ` ORDER BY ${tableMeta.nameCol} ASC`;
     
     const result = await db.query(query);
     
@@ -181,13 +202,24 @@ router.get('/assignments', async (req, res) => {
     await ensureClassTeachersTable(db);
     console.log('📥 GET /api/class-teacher/assignments - Fetching assignments...');
     
-    const result = await db.query(`
-      SELECT ct.*, t.staff_work_time
-      FROM school_schema_points.class_teachers ct
-      LEFT JOIN staff_teachers.teachers t ON ct.global_staff_id = t.global_staff_id
-      WHERE ct.is_active = true
-      ORDER BY ct.assigned_class ASC
-    `);
+    const tableMeta = await getTeachersTableQuery(db);
+    let result;
+    if (tableMeta) {
+      result = await db.query(`
+        SELECT ct.*, t.${tableMeta.workTimeCol} as staff_work_time
+        FROM school_schema_points.class_teachers ct
+        LEFT JOIN ${tableMeta.table} t ON ct.global_staff_id = t.global_staff_id
+        WHERE ct.is_active = true
+        ORDER BY ct.assigned_class ASC
+      `);
+    } else {
+      result = await db.query(`
+        SELECT ct.*, 'Full Time' as staff_work_time
+        FROM school_schema_points.class_teachers ct
+        WHERE ct.is_active = true
+        ORDER BY ct.assigned_class ASC
+      `);
+    }
     
     console.log(`✅ Found ${result.rows.length} active assignment(s)`);
     res.json(result.rows);
@@ -199,7 +231,7 @@ router.get('/assignments', async (req, res) => {
 
 // Assign a teacher to a class
 router.post('/assign', async (req, res) => {
-  const { global_staff_id, teacher_name, assigned_class } = req.body;
+  const { global_staff_id, teacher_name, assigned_class } = req.body || {};
 
   console.log('📥 POST /api/class-teacher/assign - Assigning teacher...');
   console.log(`   Teacher: ${teacher_name} (ID: ${global_staff_id})`);
@@ -213,27 +245,33 @@ router.post('/assign', async (req, res) => {
     const db = await getDbPool(req);
     await ensureClassTeachersTable(db);
     
-    // Check if class already has a teacher assigned
+    // Check if class already has a record (whether currently active or inactive)
     const existing = await db.query(`
       SELECT * FROM school_schema_points.class_teachers 
-      WHERE assigned_class = $1 AND is_active = true
+      WHERE assigned_class = $1
     `, [assigned_class]);
 
     if (existing.rows.length > 0) {
-      console.log(`   ✏️  Updating existing assignment (was: ${existing.rows[0].teacher_name})`);
-      // Update existing assignment
+      console.log(`   ✏️  Updating existing assignment for ${assigned_class} (was: ${existing.rows[0].teacher_name}, active: ${existing.rows[0].is_active})`);
+      // Update existing record and reactivate it
       await db.query(`
         UPDATE school_schema_points.class_teachers 
-        SET global_staff_id = $1, teacher_name = $2, assigned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE assigned_class = $3 AND is_active = true
+        SET global_staff_id = $1, teacher_name = $2, is_active = true, assigned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE assigned_class = $3
       `, [global_staff_id, teacher_name, assigned_class]);
     } else {
-      console.log('   ➕ Creating new assignment');
-      // Create new assignment
+      console.log(`   ➕ Creating new assignment for ${assigned_class}`);
+      // Create new assignment with ON CONFLICT protection
       await db.query(`
         INSERT INTO school_schema_points.class_teachers 
-        (global_staff_id, teacher_name, assigned_class)
-        VALUES ($1, $2, $3)
+        (global_staff_id, teacher_name, assigned_class, is_active, assigned_at, updated_at)
+        VALUES ($1, $2, $3, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (assigned_class) DO UPDATE 
+        SET global_staff_id = EXCLUDED.global_staff_id,
+            teacher_name = EXCLUDED.teacher_name,
+            is_active = true,
+            assigned_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
       `, [global_staff_id, teacher_name, assigned_class]);
     }
 
@@ -522,7 +560,7 @@ router.get('/weekly-tables/:className', async (req, res) => {
 
 // Create a new weekly attendance record
 router.post('/create-weekly-attendance', async (req, res) => {
-  const { className, weekStart, globalStaffId } = req.body;
+  const { className, weekStart, globalStaffId } = req.body || {};
 
   if (!className || !weekStart || !globalStaffId) {
     return res.status(400).json({ error: 'className, weekStart, and globalStaffId are required' });
@@ -687,7 +725,7 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
 // Update weekly attendance (mark attendance for a day)
 router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
   const { className, weekStart } = req.params;
-  const { records, globalStaffId } = req.body;
+  const { records, globalStaffId } = req.body || {};
 
   if (!records || !Array.isArray(records)) {
     return res.status(400).json({ error: 'records array is required' });
