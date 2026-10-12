@@ -245,21 +245,76 @@ function TaskDetail() {
       const loadTask5 = async () => {
         try {
           const h = { 'x-branch-code': (getBranchCode() || '').toUpperCase() };
-          const classSubjectsRes = await fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: h });
-          if (classSubjectsRes.ok) setClassSubjects(await classSubjectsRes.json());
-          const teachersRes = await fetch(`${API_BASE_URL}/school-setup/teachers-with-worktime`, { headers: h });
+          const [classSubjectsRes, teachersRes, checkRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: h }),
+            fetch(`${API_BASE_URL}/school-setup/teachers-with-worktime`, { headers: h }),
+            fetch(`${API_BASE_URL}/mark-list/teacher-assignments`, { headers: h })
+          ]);
+
+          let subjectsData = [];
+          if (classSubjectsRes.ok) {
+            subjectsData = await classSubjectsRes.json();
+            setClassSubjects(subjectsData);
+          }
+
+          let teachersData = [];
+          const w = {};
           if (teachersRes.ok) {
-            const teachersData = await teachersRes.json();
+            teachersData = await teachersRes.json();
             setTeachers(teachersData);
-            const w = {}; teachersData.forEach(t => { w[t.name] = t.staff_work_time || 'Full Time'; });
+            teachersData.forEach(t => { w[t.name] = t.staff_work_time || 'Full Time'; });
             setTeacherWorkTimes(w);
           }
-          const checkRes = await fetch(`${API_BASE_URL}/mark-list/teacher-assignments`, { headers: h });
+
           if (checkRes.ok) {
             const checkData = await checkRes.json();
-            if (checkData.length > 0) { setMergeData(checkData); setStats({ insertedCount: checkData.length, teacherCount: new Set(checkData.map(item => item.teacher_name)).size, classSubjectCount: checkData.length }); }
+            if (checkData.length > 0) {
+              const enriched = checkData.map(item => ({
+                ...item,
+                staff_work_time: item.staff_work_time || (w[item.teacher_name] || 'Full Time')
+              }));
+              setMergeData(enriched);
+              setStats({
+                insertedCount: checkData.length,
+                teacherCount: new Set(checkData.map(item => item.teacher_name)).size,
+                classSubjectCount: checkData.length
+              });
+
+              // Pre-populate assignments map so dropdowns show current teachers
+              const initialAssignments = {};
+              const existingMap = {};
+              checkData.forEach(item => {
+                if (item.subject_class && item.teacher_name) {
+                  existingMap[item.subject_class.trim().toLowerCase()] = item.teacher_name;
+                }
+              });
+
+              subjectsData.forEach(cs => {
+                const key = `${cs.class_name}|${cs.subject_name}`;
+                const scKey = (cs.subject_class || `${cs.subject_name} Class ${cs.class_name}`).trim().toLowerCase();
+                if (existingMap[scKey]) {
+                  initialAssignments[key] = existingMap[scKey];
+                }
+              });
+
+              checkData.forEach(item => {
+                if (item.subject_class && item.teacher_name) {
+                  const match = item.subject_class.match(/^(.+)\s+Class\s+(.+)$/i);
+                  if (match) {
+                    const sName = match[1].trim();
+                    const cName = match[2].trim();
+                    const key = `${cName}|${sName}`;
+                    if (!initialAssignments[key]) {
+                      initialAssignments[key] = item.teacher_name;
+                    }
+                  }
+                }
+              });
+
+              setAssignments(initialAssignments);
+            }
           }
-        } catch(e) { console.error(e); }
+        } catch(e) { console.error('Error loading Task 5 data:', e); }
         finally { setDataLoaded(true); }
       };
       loadTask5();
@@ -1005,21 +1060,21 @@ function TaskDetail() {
       setError(null);
       try {
         // Prepare assignment data for mark-list endpoint
-        const assignmentData = Object.entries(assignments).map(([classSubjectKey, teacherName]) => {
-          const [className, subjectName] = classSubjectKey.split('|');
-          
-          // FIX: Get the selected teacher's current work time from the teachers array
-          const selectedTeacher = teachers.find(teacher => teacher.name === teacherName);
-          const workTime = selectedTeacher ? selectedTeacher.staff_work_time : 'Full Time';
-          
-          console.log(`Assignment: ${teacherName} -> ${subjectName} Class ${className} as ${workTime}`);
-          
-          return {
-            teacherName: teacherName,
-            subjectClass: `${subjectName} Class ${className}`,
-            staffWorkTime: workTime // This should now be correct
-          };
-        });
+        const assignmentData = Object.entries(assignments)
+          .filter(([_, teacherName]) => Boolean(teacherName && teacherName.trim()))
+          .map(([classSubjectKey, teacherName]) => {
+            const [className, subjectName] = classSubjectKey.split('|');
+            
+            // FIX: Get the selected teacher's current work time from the teachers array
+            const selectedTeacher = teachers.find(teacher => teacher.name === teacherName);
+            const workTime = selectedTeacher ? selectedTeacher.staff_work_time : (teacherWorkTimes[teacherName] || 'Full Time');
+            
+            return {
+              teacherName: teacherName,
+              subjectClass: `${subjectName} Class ${className}`,
+              staffWorkTime: workTime
+            };
+          });
 
         if (assignmentData.length === 0) {
           throw new Error('Please assign at least one teacher to a class-subject combination');
@@ -1037,7 +1092,7 @@ function TaskDetail() {
         
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to assign teachers');
+          throw new Error(errorData.error || errorData.details || 'Failed to assign teachers');
         }
         
         // 2. ALSO save to schedule system with work time information
@@ -1070,11 +1125,12 @@ function TaskDetail() {
         });
         if (dataResponse.ok) {
           const data = await dataResponse.json();
-          setMergeData(data);
+          const enriched = data.map(item => ({
+            ...item,
+            staff_work_time: item.staff_work_time || (teacherWorkTimes[item.teacher_name] || 'Full Time')
+          }));
+          setMergeData(enriched);
         }
-        
-        // Mark complete and navigate to tasks
-        task5Complete();
         
       } catch (err) {
         setError(err.message);
@@ -1287,7 +1343,7 @@ function TaskDetail() {
             className={`${styles.completeButton} ${!canCompleteTask ? styles.disabled : ''}`}
             disabled={!canCompleteTask}
           >
-            {canCompleteTask ? 'Complete Task 5' : 'Complete Assignments First'}
+            {canCompleteTask ? (isCompleted ? 'Done Editing ✓' : 'Complete Task 5') : 'Complete Assignments First'}
           </button>
           
           {!canCompleteTask && (

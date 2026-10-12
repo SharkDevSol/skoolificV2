@@ -155,7 +155,11 @@ router.post('/login', async (req, res) => {
         username: username,
         name: user.name || user.student_name || user.guardian_name,
         role: role,
-        branchCode: branchCode
+        branchCode: branchCode,
+        class: role === 'student' ? (user.class || user.className || user.class_name || '') : (user.class || ''),
+        school_id: role === 'student' ? (user.school_id ?? '') : '',
+        gender: user.gender ?? '',
+        age: user.age ?? '',
       }
     });
 

@@ -72,7 +72,7 @@ router.post('/admin/change-username', authenticateWithBranch, async (req, res) =
     const sanitizedNewUsername = sanitizeInput(newUsername);
 
     // Find admin user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, password_hash FROM admin_users WHERE username = $1',
       [sanitizedCurrentUsername]
     );
@@ -97,7 +97,7 @@ router.post('/admin/change-username', authenticateWithBranch, async (req, res) =
     }
 
     // Check if new username already exists
-    const existingUser = await pool.query(
+    const existingUser = await db(req).query(
       'SELECT id FROM admin_users WHERE username = $1 AND id != $2',
       [sanitizedNewUsername, admin.id]
     );
@@ -110,7 +110,7 @@ router.post('/admin/change-username', authenticateWithBranch, async (req, res) =
     }
 
     // Update username
-    await pool.query(
+    await db(req).query(
       'UPDATE admin_users SET username = $1 WHERE id = $2',
       [sanitizedNewUsername, admin.id]
     );
@@ -160,7 +160,7 @@ router.post('/admin/change-password', authenticateWithBranch, async (req, res) =
     const sanitizedUsername = sanitizeInput(username);
 
     // Find admin user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, password_hash FROM admin_users WHERE username = $1',
       [sanitizedUsername]
     );
@@ -189,7 +189,7 @@ router.post('/admin/change-password', authenticateWithBranch, async (req, res) =
     const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
 
     // Update password
-    await pool.query(
+    await db(req).query(
       'UPDATE admin_users SET password_hash = $1 WHERE id = $2',
       [newPasswordHash, admin.id]
     );
@@ -233,7 +233,7 @@ router.post('/staff/change-username', authenticateWithBranch, async (req, res) =
     const sanitizedNewUsername = sanitizeInput(newUsername);
 
     // Find staff user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, global_staff_id, password_hash FROM staff_users WHERE username = $1',
       [sanitizedCurrentUsername]
     );
@@ -258,7 +258,7 @@ router.post('/staff/change-username', authenticateWithBranch, async (req, res) =
     }
 
     // Check if new username already exists
-    const existingUser = await pool.query(
+    const existingUser = await db(req).query(
       'SELECT id FROM staff_users WHERE username = $1 AND id != $2',
       [sanitizedNewUsername, staff.id]
     );
@@ -271,7 +271,7 @@ router.post('/staff/change-username', authenticateWithBranch, async (req, res) =
     }
 
     // Update username
-    await pool.query(
+    await db(req).query(
       'UPDATE staff_users SET username = $1 WHERE id = $2',
       [sanitizedNewUsername, staff.id]
     );
@@ -321,7 +321,7 @@ router.post('/staff/change-password', authenticateWithBranch, async (req, res) =
     const sanitizedUsername = sanitizeInput(username);
 
     // Find staff user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, global_staff_id, password_hash FROM staff_users WHERE username = $1',
       [sanitizedUsername]
     );
@@ -350,7 +350,7 @@ router.post('/staff/change-password', authenticateWithBranch, async (req, res) =
     const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
 
     // Update password (also update password_plain for admin viewing)
-    await pool.query(
+    await db(req).query(
       'UPDATE staff_users SET password_hash = $1, password_plain = $2 WHERE id = $3',
       [newPasswordHash, newPassword, staff.id]
     );
@@ -394,7 +394,7 @@ router.post('/student/change-username', authenticateWithBranch, async (req, res)
     const sanitizedNewUsername = sanitizeInput(newUsername);
 
     // Find student user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, student_id, password_hash FROM students WHERE username = $1',
       [sanitizedCurrentUsername]
     );
@@ -419,7 +419,7 @@ router.post('/student/change-username', authenticateWithBranch, async (req, res)
     }
 
     // Check if new username already exists
-    const existingUser = await pool.query(
+    const existingUser = await db(req).query(
       'SELECT id FROM students WHERE username = $1 AND id != $2',
       [sanitizedNewUsername, student.id]
     );
@@ -432,7 +432,7 @@ router.post('/student/change-username', authenticateWithBranch, async (req, res)
     }
 
     // Update username
-    await pool.query(
+    await db(req).query(
       'UPDATE students SET username = $1 WHERE id = $2',
       [sanitizedNewUsername, student.id]
     );
@@ -482,7 +482,7 @@ router.post('/student/change-password', authenticateWithBranch, async (req, res)
     const sanitizedUsername = sanitizeInput(username);
 
     // Find student user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, student_id, password_hash FROM students WHERE username = $1',
       [sanitizedUsername]
     );
@@ -511,7 +511,7 @@ router.post('/student/change-password', authenticateWithBranch, async (req, res)
     const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
 
     // Update password
-    await pool.query(
+    await db(req).query(
       'UPDATE students SET password_hash = $1 WHERE id = $2',
       [newPasswordHash, student.id]
     );
@@ -555,7 +555,7 @@ router.post('/guardian/change-username', authenticateWithBranch, async (req, res
     const sanitizedNewUsername = sanitizeInput(newUsername);
 
     // Find guardian user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, guardian_id, password_hash FROM guardians WHERE username = $1',
       [sanitizedCurrentUsername]
     );
@@ -580,7 +580,7 @@ router.post('/guardian/change-username', authenticateWithBranch, async (req, res
     }
 
     // Check if new username already exists
-    const existingUser = await pool.query(
+    const existingUser = await db(req).query(
       'SELECT id FROM guardians WHERE username = $1 AND id != $2',
       [sanitizedNewUsername, guardian.id]
     );
@@ -593,7 +593,7 @@ router.post('/guardian/change-username', authenticateWithBranch, async (req, res
     }
 
     // Update username
-    await pool.query(
+    await db(req).query(
       'UPDATE guardians SET username = $1 WHERE id = $2',
       [sanitizedNewUsername, guardian.id]
     );
@@ -643,7 +643,7 @@ router.post('/guardian/change-password', authenticateWithBranch, async (req, res
     const sanitizedUsername = sanitizeInput(username);
 
     // Find guardian user
-    const result = await pool.query(
+    const result = await db(req).query(
       'SELECT id, guardian_id, password_hash FROM guardians WHERE username = $1',
       [sanitizedUsername]
     );
@@ -672,7 +672,7 @@ router.post('/guardian/change-password', authenticateWithBranch, async (req, res
     const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
 
     // Update password
-    await pool.query(
+    await db(req).query(
       'UPDATE guardians SET password_hash = $1 WHERE id = $2',
       [newPasswordHash, guardian.id]
     );

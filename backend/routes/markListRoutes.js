@@ -1453,9 +1453,94 @@ router.post('/bulk-update-marks', async (req, res) => {
   }
 });
 
+// Helper to validate teacher exists across multi-schema environments
+const validateTeacherExists = async (client, teacherName) => {
+  const cleanName = (teacherName || '').trim().toLowerCase();
+  if (!cleanName) return false;
+
+  // 1. Check school_schema_points.teachers (used by Bilal, Iqra, etc.)
+  try {
+    const rCheck = await client.query(`
+      SELECT 1 FROM school_schema_points.teachers 
+      WHERE LOWER(TRIM(teacher_name)) = $1
+      LIMIT 1
+    `, [cleanName]);
+    if (rCheck.rows.length > 0) return true;
+  } catch (e) {}
+
+  // 2. Check staff_teachers.teachers
+  try {
+    const rCheck = await client.query(`
+      SELECT 1 FROM staff_teachers.teachers 
+      WHERE LOWER(TRIM(COALESCE(name, teacher_name))) = $1
+      LIMIT 1
+    `, [cleanName]);
+    if (rCheck.rows.length > 0) return true;
+  } catch (e) {}
+
+  // 3. Check public.staff
+  try {
+    const rCheck = await client.query(`
+      SELECT 1 FROM public.staff 
+      WHERE LOWER(TRIM(name)) = $1 OR LOWER(TRIM(COALESCE(full_name, ''))) = $1
+      LIMIT 1
+    `, [cleanName]);
+    if (rCheck.rows.length > 0) return true;
+  } catch (e) {}
+
+  // 4. Check schedule_schema.teachers
+  try {
+    const rCheck = await client.query(`
+      SELECT 1 FROM schedule_schema.teachers 
+      WHERE LOWER(TRIM(name)) = $1
+      LIMIT 1
+    `, [cleanName]);
+    if (rCheck.rows.length > 0) return true;
+  } catch (e) {}
+
+  // 5. Dynamic scan of any staff_% schema tables
+  try {
+    const teacherSchemasResult = await client.query(`
+      SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'staff_%'
+    `);
+    for (const schema of teacherSchemasResult.rows) {
+      const schemaName = schema.schema_name;
+      const tablesResult = await client.query(`
+        SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name != 'staff_counter'
+      `, [schemaName]);
+      for (const table of tablesResult.rows) {
+        const tableName = table.table_name;
+        const colsResult = await client.query(`
+          SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2
+        `, [schemaName, tableName]);
+        const cols = colsResult.rows.map(c => c.column_name);
+        const nameCol = cols.includes('name') ? 'name' : (cols.includes('teacher_name') ? 'teacher_name' : null);
+        if (nameCol) {
+          const teacherCheck = await client.query(`
+            SELECT 1 FROM "${schemaName}"."${tableName}" WHERE LOWER(TRIM("${nameCol}")) = $1 LIMIT 1
+          `, [cleanName]);
+          if (teacherCheck.rows.length > 0) return true;
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 6. Partial/ILIKE match on school_schema_points.teachers as fallback
+  try {
+    const rCheck = await client.query(`
+      SELECT 1 FROM school_schema_points.teachers 
+      WHERE teacher_name ILIKE $1
+      LIMIT 1
+    `, [`%${cleanName}%`]);
+    if (rCheck.rows.length > 0) return true;
+  } catch (e) {}
+
+  return false;
+};
+
 // Route to assign teachers to subject-class combinations
 router.post('/assign-teachers', async (req, res) => {
-  const { assignments } = req.body; // Array of { teacherName, subjectClass }
+  const { assignments } = req.body || {}; // Array of { teacherName, subjectClass }
   
   if (!assignments || !Array.isArray(assignments)) {
     return res.status(400).json({ error: 'Assignments array is required' });
@@ -1474,46 +1559,43 @@ router.post('/assign-teachers', async (req, res) => {
         continue;
       }
       
-      // Validate subject_class exists
-      const mappingResult = await client.query(
-        'SELECT subject_class FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(subject_class) = LOWER($1)',
-        [assignment.subjectClass]
+      const teacherName = assignment.teacherName.trim();
+      const subjectClass = assignment.subjectClass.trim();
+      
+      // Validate or ensure subject_class exists in subject_class_mappings
+      let mappingResult = await client.query(
+        'SELECT subject_class FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(TRIM(subject_class)) = LOWER(TRIM($1))',
+        [subjectClass]
       );
       if (mappingResult.rows.length === 0) {
-        throw new Error(`Subject-class combination ${assignment.subjectClass} not found`);
+        const match = subjectClass.match(/^(.+)\s+Class\s+(.+)$/i);
+        if (match) {
+          const sName = match[1].trim();
+          const cName = match[2].trim();
+          await client.query(`
+            INSERT INTO subjects_of_school_schema.subject_class_mappings (subject_name, class_name)
+            VALUES ($1, $2)
+            ON CONFLICT (subject_name, class_name) DO NOTHING
+          `, [sName, cName]);
+          mappingResult = await client.query(
+            'SELECT subject_class FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(TRIM(subject_class)) = LOWER(TRIM($1))',
+            [subjectClass]
+          );
+        }
       }
       
-      // Validate teacher exists (basic check; expand as needed)
-      const teacherSchemasResult = await client.query(`
-        SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'staff_%'
-      `);
-      let teacherExists = false;
-      for (const schema of teacherSchemasResult.rows) {
-        const schemaName = schema.schema_name;
-        const tablesResult = await client.query(`
-          SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name != 'staff_counter'
-        `, [schemaName]);
-        for (const table of tablesResult.rows) {
-          const tableName = table.table_name;
-          const teacherCheck = await client.query(`
-            SELECT name FROM "${schemaName}"."${tableName}" WHERE LOWER(name) = LOWER($1) AND role = 'Teacher'
-          `, [assignment.teacherName]);
-          if (teacherCheck.rows.length > 0) {
-            teacherExists = true;
-            break;
-          }
-        }
-        if (teacherExists) break;
-      }
+      // Validate teacher exists (checks school_schema_points.teachers, staff_teachers.teachers, etc.)
+      const teacherExists = await validateTeacherExists(client, teacherName);
       if (!teacherExists) {
-        throw new Error(`Teacher ${assignment.teacherName} not found`);
+        throw new Error(`Teacher ${teacherName} not found`);
       }
       
       // Insert assignment
       await client.query(
         `INSERT INTO subjects_of_school_schema.teachers_subjects (teacher_name, subject_class) 
-         VALUES ($1, $2)`,
-        [assignment.teacherName, assignment.subjectClass]
+         VALUES ($1, $2)
+         ON CONFLICT (teacher_name, subject_class) DO NOTHING`,
+        [teacherName, subjectClass]
       );
     }
     
