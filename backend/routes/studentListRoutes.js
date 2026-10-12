@@ -1,10 +1,51 @@
 const express = require("express");
 const router = express.Router();
-const pool = require("../config/db");
+const defaultPool = require("../config/db");
+const DatabaseConnectionManager = require("../services/DatabaseConnectionManager");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const jwt = require("jsonwebtoken");
 const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
+
+// Helper function to resolve database pool based on branch code
+const getPool = async (req) => {
+  let branchCode = req?.headers?.['x-branch-code'] || req?.headers?.['X-Branch-Code'] || req?.headers?.['branchcode'] || req?.query?.branchCode;
+  if (!branchCode && req?.headers?.authorization) {
+    try {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      const decoded = jwt.decode(token);
+      if (decoded && (decoded.branchCode || decoded.branch_code)) {
+        branchCode = decoded.branchCode || decoded.branch_code;
+      }
+    } catch (e) {}
+  }
+  if (!branchCode && req?.headers?.host) {
+    const host = req.headers.host.toLowerCase();
+    if (host.includes('bilal')) {
+      branchCode = 'BILAL';
+    }
+  }
+  console.log('[StudentList getPool] Detected branchCode:', branchCode);
+  if (branchCode) {
+    try {
+      const dbManager = DatabaseConnectionManager.getInstance ? DatabaseConnectionManager.getInstance() : DatabaseConnectionManager;
+      if (dbManager && typeof dbManager.getPool === 'function') {
+        const branchPool = await dbManager.getPool(branchCode.toUpperCase());
+        if (branchPool) {
+          const testRes = await branchPool.query('SELECT current_database()');
+          console.log('[StudentList getPool] Using branch pool database:', testRes.rows[0].current_database);
+          return branchPool;
+        }
+      }
+    } catch (e) {
+      console.warn(`[StudentList] Could not get pool for branch "${branchCode}":`, e.message);
+    }
+  }
+  const testRes = await defaultPool.query('SELECT current_database()');
+  console.log('[StudentList getPool] Using defaultPool database:', testRes.rows[0].current_database);
+  return defaultPool;
+};
 
 // Configure multer for file uploads
 const upload = multer({
@@ -26,27 +67,58 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Helper function to check if a table exists and get its columns
-const getTableColumns = async (tableName) => {
-  try {
-    const result = await pool.query(
-      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'classes_schema' AND table_name = $1`,
-      [tableName]
+// Helper to resolve actual table name case-insensitively
+const resolveClassTable = async (pool, className, schoolId = null) => {
+  if (className && className !== 'all' && /^[a-zA-Z0-9_]+$/.test(className)) {
+    const tableRes = await pool.query(
+      `SELECT table_name FROM information_schema.tables 
+       WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
+      [className]
     );
-    return result.rows.map(row => row.column_name);
-  } catch (error) {
-    console.error(`Error fetching columns for table ${tableName}:`, error);
-    return [];
+    if (tableRes.rows.length > 0) {
+      return tableRes.rows[0].table_name;
+    }
   }
+
+  if (schoolId) {
+    const allTables = await pool.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema'`
+    );
+    for (const t of allTables.rows) {
+      try {
+        const check = await pool.query(
+          `SELECT 1 FROM classes_schema."${t.table_name}" WHERE school_id::text = $1::text LIMIT 1`,
+          [String(schoolId)]
+        );
+        if (check.rows.length > 0) {
+          return t.table_name;
+        }
+      } catch (_) {}
+    }
+  }
+
+  return null;
 };
+
+// Known alias groups for flexible column name matching
+const ALIAS_GROUPS = [
+  ['guardian_2nd', 'guardian2nd', 'guardian2', 'guardian_second'],
+  ['guardian_2nd_phone', 'guardian2nd_phone', 'guardian2_phone', 'guardian_second_phone'],
+  ['from_which_school', 'from_where', 'previous_school'],
+  ['old_or_new', 'oldornew', 'student_status'],
+  ['is_active', 'active'],
+  ['is_free', 'free']
+];
 
 // Get all class names, excluding school_student_count
 router.get("/classes", async (req, res) => {
   try {
+    const pool = await getPool(req);
     const result = await pool.query(`
       SELECT table_name
       FROM information_schema.tables
       WHERE table_schema = 'classes_schema'
+      ORDER BY table_name
     `);
     const classes = result.rows.map(row => row.table_name);
     res.json(classes);
@@ -59,21 +131,21 @@ router.get("/classes", async (req, res) => {
 // Get students for a specific class - returns ALL columns including password fields
 router.get("/students/:className", async (req, res) => {
   const { className } = req.params;
-  const { includeInactive, studentType } = req.query; // Add query parameters for filtering
+  const { includeInactive, studentType } = req.query;
   
   try {
-    // Validate className to prevent SQL injection and ensure it's a valid table name
-    const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
-    if (!validTableName) {
-      return res.status(400).json({ error: "Invalid class name provided." });
+    const pool = await getPool(req);
+    const actualTableName = await resolveClassTable(pool, className);
+    if (!actualTableName) {
+      return res.json([]);
     }
 
-    // Check which columns exist
+    // Check which filter columns exist in this table
     const columnCheck = await pool.query(
       `SELECT column_name FROM information_schema.columns 
        WHERE table_schema = 'classes_schema' AND table_name = $1 
        AND column_name IN ('is_active', 'is_kg', 'is_evening_class', 'student_type')`,
-      [className]
+      [actualTableName]
     );
     
     const existingColumns = columnCheck.rows.map(row => row.column_name);
@@ -82,35 +154,27 @@ router.get("/students/:className", async (req, res) => {
     const hasIsKg = existingColumns.includes('is_kg');
     const hasIsEvening = existingColumns.includes('is_evening_class');
     
-    // Build query with filters
     let whereConditions = [];
     
-    // Handle is_active filter
     if (hasIsActive) {
       if (includeInactive === 'true') {
-        // Include all students (no filter)
+        // Include all students
       } else if (includeInactive === 'only') {
         whereConditions.push('is_active = FALSE');
       } else {
-        // Only active students (default)
         whereConditions.push('(is_active = TRUE OR is_active IS NULL)');
       }
     }
     
-    // Handle student type filter (KG, evening, regular)
     if (studentType && hasStudentType) {
-      // studentType can be: 'kg', 'evening', 'kg_evening', 'regular'
       whereConditions.push(`student_type = '${studentType}'`);
     } else if (studentType === 'kg' && hasIsKg && !hasStudentType) {
-      // Fallback to is_kg column if student_type doesn't exist
       whereConditions.push('is_kg = TRUE');
     } else if (studentType === 'evening' && hasIsEvening && !hasStudentType) {
-      // Fallback to is_evening_class column if student_type doesn't exist
       whereConditions.push('is_evening_class = TRUE');
     }
     
-    // Build final query
-    let query = `SELECT * FROM classes_schema."${className}"`;
+    let query = `SELECT * FROM classes_schema."${actualTableName}"`;
     if (whereConditions.length > 0) {
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
@@ -128,14 +192,18 @@ router.get("/students/:className", async (req, res) => {
 router.get("/student/:className/:schoolId/:classId", async (req, res) => {
   const { className, schoolId, classId } = req.params;
   try {
-    const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
-    if (!validTableName) {
-      return res.status(400).json({ error: "Invalid class name provided." });
+    const pool = await getPool(req);
+    const actualTableName = await resolveClassTable(pool, className, schoolId);
+    if (!actualTableName) {
+      return res.status(404).json({ error: "Student not found" });
     }
 
     const result = await pool.query(
-      `SELECT * FROM classes_schema."${className}" WHERE school_id = $1 AND class_id = $2 AND (is_active = TRUE OR is_active IS NULL)`,
-      [schoolId, classId]
+      `SELECT * FROM classes_schema."${actualTableName}" 
+       WHERE school_id::text = $1::text 
+         AND (class_id::text = $2::text OR class_id IS NULL) 
+         AND (is_active = TRUE OR is_active IS NULL)`,
+      [String(schoolId), String(classId)]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Student not found" });
@@ -148,7 +216,7 @@ router.get("/student/:className/:schoolId/:classId", async (req, res) => {
 });
 
 // Update student data with file upload support
-router.put("/student/:className/:schoolId/:classId", upload.single("image_student"), async (req, res) => {
+router.put(["/student/:className/:schoolId/:classId", "/student/:className/:schoolId"], upload.single("image_student"), async (req, res) => {
   const { className, schoolId, classId } = req.params;
   
   console.log('=== UPDATE STUDENT REQUEST ===');
@@ -156,117 +224,222 @@ router.put("/student/:className/:schoolId/:classId", upload.single("image_studen
   console.log('Body:', req.body);
   console.log('File:', req.file);
   
-  // Handle both JSON string format and direct FormData format
+  const rawBody = req.body || {};
   let updates = {};
-  if (req.body.updates) {
-    updates = JSON.parse(req.body.updates);
+  if (rawBody.updates) {
+    try {
+      updates = typeof rawBody.updates === 'string' ? JSON.parse(rawBody.updates) : rawBody.updates;
+    } catch (e) {
+      updates = { ...rawBody };
+    }
   } else {
-    // Direct FormData - use all body fields except file
-    updates = { ...req.body };
+    updates = { ...rawBody };
   }
-  
-  console.log('Parsed updates:', updates);
   
   const file = req.file;
 
   try {
-    const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
-    if (!validTableName) {
-      return res.status(400).json({ error: "Invalid class name provided." });
+    const pool = await getPool(req);
+    const dbInfo = (await pool.query('SELECT current_database()')).rows[0];
+    console.log('[StudentList update] Current database:', dbInfo.current_database);
+
+    // 1. Resolve actual table name in classes_schema
+    const actualTableName = await resolveClassTable(pool, className, schoolId);
+    console.log('[StudentList update] actualTableName:', actualTableName, 'for className:', className, 'schoolId:', schoolId);
+    if (!actualTableName) {
+      return res.status(404).json({ error: `Class table "${className}" does not exist and student was not found` });
     }
 
-    // Prepare update fields
+    // 2. Fetch existing columns and types from information_schema
+    const colsRes = await pool.query(
+      `SELECT column_name, data_type FROM information_schema.columns 
+       WHERE table_schema = 'classes_schema' AND table_name = $1`,
+      [actualTableName]
+    );
+    const colMap = new Map(); // lowercase -> { name: original_name, type: data_type }
+    colsRes.rows.forEach(r => {
+      colMap.set(r.column_name.toLowerCase(), { name: r.column_name, type: r.data_type });
+    });
+
+    // 3. Prepare fields to update
     const fields = { ...updates };
     if (file) {
       fields.image_student = file.filename;
     }
 
-    // Remove school_id and class_id from updates to avoid modifying primary keys
+    // Never modify school_id or class_id via dynamic update
     delete fields.school_id;
     delete fields.class_id;
+    delete fields.uniqueId;
+    delete fields.displayId;
+    delete fields.id;
 
-    // Validate smachine_id uniqueness across ALL classes if being updated
+    // Check if class change is requested
+    const requestedNewClass = fields.class;
+    let targetClassTableName = null;
+    if (requestedNewClass && typeof requestedNewClass === 'string' && requestedNewClass.trim().toLowerCase() !== actualTableName.toLowerCase()) {
+      targetClassTableName = await resolveClassTable(pool, requestedNewClass.trim());
+    }
+
+    // 4. Validate smachine_id uniqueness across ALL classes if being updated
     if (fields.smachine_id) {
-      // Check global tracker table first (most reliable)
       try {
         const globalCheck = await pool.query(
           'SELECT student_name, class_name, school_id, class_id FROM school_schema_points.global_machine_ids WHERE smachine_id = $1',
           [fields.smachine_id]
         );
-        
-        // Check if machine ID exists and belongs to a different student
         if (globalCheck.rows.length > 0) {
           const existing = globalCheck.rows[0];
-          // Allow if it's the same student being updated (convert to strings for comparison)
           if (String(existing.school_id) !== String(schoolId) || String(existing.class_id) !== String(classId)) {
             return res.status(400).json({ 
               error: `Machine ID ${fields.smachine_id} already added. This ID is used by student "${existing.student_name}" in ${existing.class_name}.`
             });
           }
         }
-      } catch (err) {
-        // Tracker table might not exist, fall back to checking all classes
-      }
+      } catch (err) {}
       
-      // Fallback: Check all class tables
       const allClasses = (await pool.query(
         'SELECT table_name FROM information_schema.tables WHERE table_schema = $1',
         ['classes_schema']
       )).rows.map(row => row.table_name);
       
       for (const cls of allClasses) {
-        const existingMachineId = await pool.query(
-          `SELECT student_name, class, school_id, class_id FROM classes_schema."${cls}" WHERE smachine_id = $1`,
-          [fields.smachine_id]
-        );
-        
-        // Check if machine ID exists and belongs to a different student
-        if (existingMachineId.rows.length > 0) {
-          const existing = existingMachineId.rows[0];
-          // Allow if it's the same student being updated (convert to strings for comparison)
-          if (String(existing.school_id) !== String(schoolId) || String(existing.class_id) !== String(classId)) {
-            return res.status(400).json({ 
-              error: `Machine ID ${fields.smachine_id} already added. This ID is used by student "${existing.student_name}" in ${existing.class}.`
-            });
+        try {
+          const existingMachineId = await pool.query(
+            `SELECT student_name, class, school_id, class_id FROM classes_schema."${cls}" WHERE smachine_id = $1`,
+            [fields.smachine_id]
+          );
+          if (existingMachineId.rows.length > 0) {
+            const existing = existingMachineId.rows[0];
+            if (String(existing.school_id) !== String(schoolId) || String(existing.class_id) !== String(classId)) {
+              return res.status(400).json({ 
+                error: `Machine ID ${fields.smachine_id} already added. This ID is used by student "${existing.student_name}" in ${existing.class}.`
+              });
+            }
           }
-        }
+        } catch (_) {}
       }
     }
 
-    if (Object.keys(fields).length === 0) {
-      return res.status(400).json({ error: "No fields provided to update" });
+    // 5. Match columns against table and map known aliases
+    const safeColumns = [];
+    const safeValues = [];
+
+    for (const [rawKey, rawVal] of Object.entries(fields)) {
+      const lowerKey = rawKey.toLowerCase();
+      let colMeta = colMap.get(lowerKey);
+
+      if (!colMeta) {
+        for (const group of ALIAS_GROUPS) {
+          if (group.includes(lowerKey)) {
+            for (const alias of group) {
+              if (colMap.has(alias)) {
+                colMeta = colMap.get(alias);
+                break;
+              }
+            }
+          }
+          if (colMeta) break;
+        }
+      }
+
+      if (colMeta) {
+        let val = rawVal;
+        if (val === 'null' || val === null || val === undefined || (val === '' && (colMeta.type === 'integer' || colMeta.type === 'boolean' || colMeta.type.includes('date')))) {
+          val = null;
+        } else if (colMeta.type === 'boolean') {
+          val = (val === true || val === 'true' || val === 'YES' || val === 'yes' || val === 1 || val === '1');
+        } else if (colMeta.type === 'integer') {
+          val = parseInt(val, 10);
+          if (isNaN(val)) val = null;
+        } else if (colMeta.type.includes('date')) {
+          val = val.toString();
+        } else {
+          val = val.toString();
+        }
+
+        if (!safeColumns.includes(colMeta.name)) {
+          safeColumns.push(colMeta.name);
+          safeValues.push(val);
+        }
+      } else {
+        console.warn(`[StudentList] Skipping field "${rawKey}" because column does not exist in classes_schema."${actualTableName}"`);
+      }
     }
 
-    // Build query
-    const columns = Object.keys(fields)
-      .map((key, index) => `"${key}" = $${index + 1}`)
-      .join(", ");
-    const values = Object.entries(fields).map(([key, value]) => {
-      if (value === "null" || value === null) return null;
-      if (key === "age") return parseInt(value, 10);
-      if (key.includes("date")) return value; // Handle date fields
-      return value.toString();
-    });
+    if (safeColumns.length === 0) {
+      return res.status(400).json({ error: "No valid fields provided to update" });
+    }
 
-    const result = await pool.query(
-      `UPDATE classes_schema."${className}" SET ${columns} WHERE school_id = $${Object.keys(fields).length + 1} AND class_id = $${Object.keys(fields).length + 2} RETURNING *`,
-      [...values, schoolId, classId]
+    // Build update query
+    const setClause = safeColumns.map((col, idx) => `"${col}" = $${idx + 1}`).join(", ");
+    let updateResult = await pool.query(
+      `UPDATE classes_schema."${actualTableName}" 
+       SET ${setClause} 
+       WHERE school_id::text = $${safeColumns.length + 1}::text 
+         AND (class_id::text = $${safeColumns.length + 2}::text OR class_id IS NULL)
+       RETURNING *`,
+      [...safeValues, String(schoolId), String(classId)]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Student not found" });
+    if (updateResult.rows.length === 0) {
+      updateResult = await pool.query(
+        `UPDATE classes_schema."${actualTableName}" 
+         SET ${setClause} 
+         WHERE school_id::text = $${safeColumns.length + 1}::text 
+         RETURNING *`,
+        [...safeValues, String(schoolId)]
+      );
+      if (updateResult.rows.length === 0) {
+        return res.status(404).json({ error: "Student not found" });
+      }
+    }
+
+    let finalStudentRow = updateResult.rows[0];
+
+    // Handle class transfer if student was moved to a new class table
+    if (targetClassTableName && targetClassTableName !== actualTableName) {
+      try {
+        console.log(`[StudentList] Transferring student ${schoolId} from ${actualTableName} to ${targetClassTableName}`);
+        const targetColsRes = await pool.query(
+          `SELECT column_name FROM information_schema.columns 
+           WHERE table_schema = 'classes_schema' AND table_name = $1`,
+          [targetClassTableName]
+        );
+        const targetColNames = targetColsRes.rows.map(r => r.column_name);
+        
+        const studentData = { ...finalStudentRow, class: targetClassTableName };
+        delete studentData.id;
+
+        const commonCols = Object.keys(studentData).filter(c => targetColNames.includes(c));
+        const insertCols = commonCols.map(c => `"${c}"`).join(', ');
+        const insertParams = commonCols.map((_, i) => `$${i + 1}`).join(', ');
+        const insertVals = commonCols.map(c => studentData[c]);
+
+        const insertRes = await pool.query(
+          `INSERT INTO classes_schema."${targetClassTableName}" (${insertCols}) VALUES (${insertParams}) RETURNING *`,
+          insertVals
+        );
+        
+        await pool.query(
+          `DELETE FROM classes_schema."${actualTableName}" WHERE school_id::text = $1::text`,
+          [String(schoolId)]
+        );
+
+        finalStudentRow = insertRes.rows[0];
+      } catch (transferErr) {
+        console.error(`[StudentList] Error transferring student to ${targetClassTableName}:`, transferErr);
+      }
     }
 
     // Update global machine ID tracker if smachine_id was changed
     if (fields.smachine_id) {
       try {
-        // First, delete any old machine ID entries for this student
         await pool.query(`
           DELETE FROM school_schema_points.global_machine_ids 
-          WHERE school_id = $1 AND class_id = $2
-        `, [schoolId, classId]);
+          WHERE school_id::text = $1::text
+        `, [String(schoolId)]);
         
-        // Then insert the new machine ID
         await pool.query(`
           INSERT INTO school_schema_points.global_machine_ids 
           (smachine_id, student_name, class_name, school_id, class_id)
@@ -279,13 +452,12 @@ router.put("/student/:className/:schoolId/:classId", upload.single("image_studen
               updated_at = CURRENT_TIMESTAMP
         `, [
           fields.smachine_id, 
-          result.rows[0].student_name, 
-          className, 
+          finalStudentRow.student_name, 
+          targetClassTableName || actualTableName, 
           schoolId, 
           classId
         ]);
       } catch (err) {
-        // Tracker table might not exist yet, that's okay
         console.log('Note: Global machine ID tracker not available:', err.message);
       }
     }
@@ -294,11 +466,11 @@ router.put("/student/:className/:schoolId/:classId", upload.single("image_studen
     if (file && updates.image_student && updates.image_student !== file.filename) {
       const oldFilePath = path.join(uploadDir, updates.image_student);
       if (fs.existsSync(oldFilePath)) {
-        fs.unlinkSync(oldFilePath);
+        try { fs.unlinkSync(oldFilePath); } catch (_) {}
       }
     }
 
-    res.json(result.rows[0]);
+    res.json(finalStudentRow);
   } catch (error) {
     console.error(`Error updating student in class ${className}:`, error);
     res.status(500).json({ error: "Failed to update student", details: error.message });
@@ -309,44 +481,13 @@ router.put("/student/:className/:schoolId/:classId", upload.single("image_studen
 router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
   const { className, schoolId, classId } = req.params;
   try {
-    let actualTableName = null;
-
-    // 1. If className is provided and valid, try to find it (case-insensitive)
-    if (className && className !== 'all' && /^[a-zA-Z0-9_]+$/.test(className)) {
-      const tableRes = await pool.query(
-        `SELECT table_name FROM information_schema.tables 
-         WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
-        [className]
-      );
-      if (tableRes.rows.length > 0) {
-        actualTableName = tableRes.rows[0].table_name;
-      }
-    }
-
-    // 2. If not found in specified class, search all classes_schema tables for this school_id
-    if (!actualTableName) {
-      const allClassTables = await pool.query(
-        `SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema'`
-      );
-      for (const t of allClassTables.rows) {
-        try {
-          const check = await pool.query(
-            `SELECT 1 FROM classes_schema."${t.table_name}" WHERE school_id::text = $1::text LIMIT 1`,
-            [String(schoolId)]
-          );
-          if (check.rows.length > 0) {
-            actualTableName = t.table_name;
-            break;
-          }
-        } catch (_) {}
-      }
-    }
+    const pool = await getPool(req);
+    const actualTableName = await resolveClassTable(pool, className, schoolId);
 
     if (!actualTableName) {
       return res.status(404).json({ error: "Student not found in any class" });
     }
 
-    // 3. Delete student by school_id and class_id (or just school_id fallback)
     let result;
     if (classId && classId !== 'undefined' && classId !== 'null') {
       result = await pool.query(
@@ -369,7 +510,6 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    // 4. Delete associated image file if it exists
     if (result.rows[0].image_student) {
       const filePath = path.join(__dirname, "../Uploads", result.rows[0].image_student);
       if (fs.existsSync(filePath)) {
@@ -377,10 +517,16 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
       }
     }
 
-    // 5. Clean up academic attendance for this student
     try {
       await pool.query(
         `DELETE FROM academic_student_attendance WHERE student_id::text = $1::text`,
+        [String(schoolId)]
+      );
+    } catch (_) {}
+
+    try {
+      await pool.query(
+        `DELETE FROM school_schema_points.global_machine_ids WHERE school_id::text = $1::text`,
         [String(schoolId)]
       );
     } catch (_) {}
@@ -392,45 +538,41 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
   }
 });
 
-// DEACTIVATE/ACTIVATE STUDENT (HIDE FROM ALL SYSTEM LISTS)
+// DEACTIVATE/ACTIVATE STUDENT
 router.put('/toggle-active/:className/:schoolId/:classId', async (req, res) => {
   const { className, schoolId, classId } = req.params;
-  const { is_active } = req.body;
+  const { is_active } = req.body || {};
   
   if (typeof is_active !== 'boolean') {
     return res.status(400).json({ error: 'is_active must be a boolean value' });
   }
   
-  // Validate className
-  const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
-  if (!validTableName) {
-    return res.status(400).json({ error: 'Invalid class name provided' });
-  }
-  
   try {
-    // Check if is_active column exists, if not add it
+    const pool = await getPool(req);
+    const actualTableName = await resolveClassTable(pool, className, schoolId);
+    if (!actualTableName) {
+      return res.status(404).json({ error: 'Student not found in any class' });
+    }
+    
     const columnCheck = await pool.query(
       `SELECT column_name FROM information_schema.columns 
        WHERE table_schema = 'classes_schema' AND table_name = $1 AND column_name = 'is_active'`,
-      [className]
+      [actualTableName]
     );
     
     if (columnCheck.rowCount === 0) {
-      // Add is_active column with default TRUE
       await pool.query(
-        `ALTER TABLE classes_schema."${className}" 
+        `ALTER TABLE classes_schema."${actualTableName}" 
          ADD COLUMN is_active BOOLEAN DEFAULT TRUE`
       );
-      console.log(`Added is_active column to classes_schema.${className}`);
     }
     
-    // Update the student
     const updateResult = await pool.query(
-      `UPDATE classes_schema."${className}" 
+      `UPDATE classes_schema."${actualTableName}" 
        SET is_active = $1 
-       WHERE school_id = $2 AND class_id = $3 
+       WHERE school_id::text = $2::text AND (class_id::text = $3::text OR class_id IS NULL)
        RETURNING *`,
-      [is_active, schoolId, classId]
+      [is_active, String(schoolId), String(classId)]
     );
     
     if (updateResult.rowCount === 0) {
@@ -440,8 +582,8 @@ router.put('/toggle-active/:className/:schoolId/:classId', async (req, res) => {
     res.json({
       success: true,
       message: is_active 
-        ? 'Student activated successfully - now visible in all system lists' 
-        : 'Student deactivated successfully - now hidden from all system lists but data preserved',
+        ? 'Student activated successfully' 
+        : 'Student deactivated successfully',
       data: updateResult.rows[0]
     });
     
@@ -454,68 +596,62 @@ router.put('/toggle-active/:className/:schoolId/:classId', async (req, res) => {
   }
 });
 
-// TOGGLE FREE STUDENT (MARK AS LEARNING FOR FREE / SCHOLARSHIP)
+// TOGGLE FREE STUDENT
 router.put('/toggle-free/:className/:schoolId/:classId', async (req, res) => {
   const { className, schoolId, classId } = req.params;
-  const { is_free, exemption_type, exemption_reason } = req.body;
+  const { is_free, exemption_type, exemption_reason } = req.body || {};
   
   if (typeof is_free !== 'boolean') {
     return res.status(400).json({ error: 'is_free must be a boolean value' });
   }
   
-  // Validate className
-  const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
-  if (!validTableName) {
-    return res.status(400).json({ error: 'Invalid class name provided' });
-  }
-  
-  // If marking as free, require exemption type
   if (is_free && !exemption_type) {
     return res.status(400).json({ error: 'exemption_type is required when marking student as free' });
   }
   
   try {
-    // Check if columns exist, if not add them
+    const pool = await getPool(req);
+    const actualTableName = await resolveClassTable(pool, className, schoolId);
+    if (!actualTableName) {
+      return res.status(404).json({ error: 'Student not found in any class' });
+    }
+    
     const columnCheck = await pool.query(
       `SELECT column_name FROM information_schema.columns 
        WHERE table_schema = 'classes_schema' AND table_name = $1 
        AND column_name IN ('is_free', 'exemption_type', 'exemption_reason')`,
-      [className]
+      [actualTableName]
     );
     
     const existingColumns = columnCheck.rows.map(row => row.column_name);
     
     if (!existingColumns.includes('is_free')) {
       await pool.query(
-        `ALTER TABLE classes_schema."${className}" 
+        `ALTER TABLE classes_schema."${actualTableName}" 
          ADD COLUMN is_free BOOLEAN DEFAULT FALSE`
       );
-      console.log(`Added is_free column to classes_schema.${className}`);
     }
     
     if (!existingColumns.includes('exemption_type')) {
       await pool.query(
-        `ALTER TABLE classes_schema."${className}" 
+        `ALTER TABLE classes_schema."${actualTableName}" 
          ADD COLUMN exemption_type VARCHAR(50) DEFAULT NULL`
       );
-      console.log(`Added exemption_type column to classes_schema.${className}`);
     }
     
     if (!existingColumns.includes('exemption_reason')) {
       await pool.query(
-        `ALTER TABLE classes_schema."${className}" 
+        `ALTER TABLE classes_schema."${actualTableName}" 
          ADD COLUMN exemption_reason TEXT DEFAULT NULL`
       );
-      console.log(`Added exemption_reason column to classes_schema.${className}`);
     }
     
-    // Update the student
     const updateResult = await pool.query(
-      `UPDATE classes_schema."${className}" 
+      `UPDATE classes_schema."${actualTableName}" 
        SET is_free = $1, exemption_type = $2, exemption_reason = $3
-       WHERE school_id = $4 AND class_id = $5 
+       WHERE school_id::text = $4::text AND (class_id::text = $5::text OR class_id IS NULL)
        RETURNING *`,
-      [is_free, is_free ? exemption_type : null, is_free ? exemption_reason : null, schoolId, classId]
+      [is_free, is_free ? exemption_type : null, is_free ? exemption_reason : null, String(schoolId), String(classId)]
     );
     
     if (updateResult.rowCount === 0) {
@@ -536,6 +672,45 @@ router.put('/toggle-free/:className/:schoolId/:classId', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// Check machine ID across all classes
+router.get("/check-machine-id/:machineId", async (req, res) => {
+  const { machineId } = req.params;
+  try {
+    const pool = await getPool(req);
+    try {
+      const globalCheck = await pool.query(
+        'SELECT student_name, class_name, school_id, class_id FROM school_schema_points.global_machine_ids WHERE smachine_id = $1',
+        [machineId]
+      );
+      if (globalCheck.rows.length > 0) {
+        return res.json({ exists: true, student: globalCheck.rows[0] });
+      }
+    } catch (_) {}
+
+    const allClasses = (await pool.query(
+      'SELECT table_name FROM information_schema.tables WHERE table_schema = $1',
+      ['classes_schema']
+    )).rows.map(row => row.table_name);
+
+    for (const cls of allClasses) {
+      try {
+        const check = await pool.query(
+          `SELECT student_name, class, school_id, class_id FROM classes_schema."${cls}" WHERE smachine_id = $1`,
+          [machineId]
+        );
+        if (check.rows.length > 0) {
+          return res.json({ exists: true, student: check.rows[0] });
+        }
+      } catch (_) {}
+    }
+
+    res.json({ exists: false });
+  } catch (error) {
+    console.error('Error checking machine ID:', error);
+    res.status(500).json({ error: 'Failed to check machine ID' });
   }
 });
 

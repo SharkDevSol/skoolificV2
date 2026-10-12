@@ -73,12 +73,20 @@ const ListStudent = () => {
   useEffect(() => { if (selectedClass) fetchStudents(selectedClass); }, [selectedClass, showInactive, filterStudentType]);
   useEffect(() => { filterStudentData(); }, [students, searchTerm, filterGender]);
 
+  const getBranchHeaders = (extra = {}) => {
+    const branchCode = (getBranchCode() || '').toUpperCase();
+    return {
+      ...(branchCode ? { 'x-branch-code': branchCode } : {}),
+      ...extra
+    };
+  };
+
   const fetchClasses = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/student-list/classes`);
+      const response = await axios.get(`${API_BASE_URL}/student-list/classes`, { headers: getBranchHeaders() });
       setClasses(response.data);
       if (response.data.length > 0) setSelectedClass(response.data[0]);
-      const formRes = await axios.get(`${API_BASE_URL}/students/form-structure`, { headers: { 'x-branch-code': (getBranchCode() || '').toUpperCase() } });
+      const formRes = await axios.get(`${API_BASE_URL}/students/form-structure`, { headers: getBranchHeaders() });
       setCustomFields(formRes.data?.customFields || []);
     } catch (error) { console.error('Error:', error); }
   };
@@ -98,13 +106,13 @@ const ListStudent = () => {
         // Fetch students from ALL classes
         const promises = classes.map(cls => {
           const url = `${API_BASE_URL}/student-list/students/${cls}${queryString ? `?${queryString}` : ''}`;
-          return axios.get(url).then(res => res.data.map(s => ({ ...s, class: s.class || cls }))).catch(() => []);
+          return axios.get(url, { headers: getBranchHeaders() }).then(res => res.data.map(s => ({ ...s, class: s.class || cls }))).catch(() => []);
         });
         const results = await Promise.all(promises);
         allStudentsData = results.flat();
       } else {
         const url = `${API_BASE_URL}/student-list/students/${className}${queryString ? `?${queryString}` : ''}`;
-        const response = await axios.get(url);
+        const response = await axios.get(url, { headers: getBranchHeaders() });
         allStudentsData = response.data;
       }
 
@@ -226,7 +234,8 @@ const ListStudent = () => {
       try {
         await axios.put(
           `${API_BASE_URL}/student-list/toggle-active/${student.class || selectedClass}/${student.school_id}/${student.class_id}`,
-          { is_active: true }
+          { is_active: true },
+          { headers: getBranchHeaders() }
         );
         alert('Student activated successfully! They are now visible in all system lists.');
         fetchStudents(selectedClass);
@@ -241,7 +250,8 @@ const ListStudent = () => {
       try {
         await axios.put(
           `${API_BASE_URL}/student-list/toggle-active/${student.class || selectedClass}/${student.school_id}/${student.class_id}`,
-          { is_active: false }
+          { is_active: false },
+          { headers: getBranchHeaders() }
         );
         alert('Student deactivated successfully! They are now hidden from all system lists.');
         fetchStudents(selectedClass);
@@ -366,7 +376,7 @@ const ListStudent = () => {
     e.preventDefault(); 
     setLoading(true);
     try {
-      if (selectedStudent.school_id && selectedStudent.class_id) {
+      if (selectedStudent.school_id) {
         const formData = new FormData();
         Object.entries(editFormData).forEach(([key, value]) => {
           // Skip image_student text field - it's sent as a file below
@@ -377,7 +387,11 @@ const ListStudent = () => {
         if (editFileField && Object.keys(editFileField).length > 0) {
           Object.entries(editFileField).forEach(([key, file]) => formData.append(key, file));
         }
-        await axios.put(`${API_BASE_URL}/student-list/student/${selectedStudent.class || selectedClass}/${selectedStudent.school_id}/${selectedStudent.class_id}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await axios.put(
+          `${API_BASE_URL}/student-list/student/${selectedStudent.class || selectedClass}/${selectedStudent.school_id}/${selectedStudent.class_id || ''}`, 
+          formData, 
+          { headers: getBranchHeaders({ 'Content-Type': 'multipart/form-data' }) }
+        );
         // Refetch the students list to get the correct server-side image path
         if (editFormData.class && editFormData.class !== selectedClass) {
           // Student was transferred to a new class — switch to that class view
@@ -385,9 +399,12 @@ const ListStudent = () => {
         } else {
           await fetchStudents(selectedClass);
         }
+        setShowEditModal(false);
       }
-      setShowEditModal(false);
-    } catch (error) { alert('Failed to update'); }
+    } catch (error) { 
+      console.error('Update student error:', error);
+      alert(error.response?.data?.error || error.response?.data?.message || 'Failed to update'); 
+    }
     finally { setLoading(false); }
   };
 
