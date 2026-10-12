@@ -298,7 +298,7 @@ const ListStudent = () => {
       }
 
       // 2. Perform the permanent deletion
-      const targetClass = studentToDelete.class || selectedClass;
+      const targetClass = studentToDelete.class || studentToDelete.class_name || selectedClass || 'all';
       await axios.delete(
         `${API_BASE_URL}/student-list/student/${targetClass}/${studentToDelete.school_id}/${studentToDelete.class_id}`,
         {

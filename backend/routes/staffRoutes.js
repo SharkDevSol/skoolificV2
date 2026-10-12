@@ -1,4 +1,4 @@
-﻿// routes/staffRoutes.js - FIXED PHONE NUMBER TYPE
+// routes/staffRoutes.js - FIXED PHONE NUMBER TYPE
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
@@ -1517,22 +1517,63 @@ router.get('/teacher-work-times', async (req, res) => {
 router.delete('/delete-staff', async (req, res) => {
   const { globalStaffId, staffType, className: raw } = req.body;
   
-  if (!globalStaffId || !staffType || !raw) {
-    return res.status(400).json({ error: 'Missing required fields: globalStaffId, staffType, className' });
+  if (!globalStaffId) {
+    return res.status(400).json({ error: 'Missing required field: globalStaffId' });
   }
 
-  const className = sanitizeClassName(raw);
-  const schema = sanitizeStaffTypeToSchema(staffType);
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    // Get staff details before deletion for cleanup
-    const staffResult = await client.query(
-      `SELECT * FROM "${schema}"."${className}" WHERE global_staff_id = $1`,
-      [globalStaffId]
-    );
+    let schema = staffType ? sanitizeStaffTypeToSchema(staffType) : null;
+    let className = raw ? sanitizeClassName(raw) : null;
+    let staffResult = { rows: [] };
+
+    // 1. If schema and className provided, resolve table case-insensitively
+    if (schema && className) {
+      const tblCheck = await client.query(
+        `SELECT table_name FROM information_schema.tables 
+         WHERE table_schema = $1 AND LOWER(table_name) = LOWER($2)`,
+        [schema, className]
+      );
+      const actualTable = tblCheck.rows.length > 0 ? tblCheck.rows[0].table_name : className;
+
+      staffResult = await client.query(
+        `SELECT * FROM "${schema}"."${actualTable}" WHERE global_staff_id = $1`,
+        [globalStaffId]
+      );
+
+      if (staffResult.rows.length > 0) {
+        await client.query(
+          `DELETE FROM "${schema}"."${actualTable}" WHERE global_staff_id = $1`,
+          [globalStaffId]
+        );
+      }
+    }
+
+    // 2. Fallback: Search across all staff tables if not found yet
+    if (staffResult.rows.length === 0) {
+      const allStaffTables = await client.query(`
+        SELECT table_schema, table_name 
+        FROM information_schema.tables 
+        WHERE table_schema LIKE 'staff_%' AND table_name <> 'staff_counter'
+      `);
+      for (const t of allStaffTables.rows) {
+        const check = await client.query(
+          `SELECT * FROM "${t.table_schema}"."${t.table_name}" WHERE global_staff_id = $1`,
+          [globalStaffId]
+        );
+        if (check.rows.length > 0) {
+          staffResult = check;
+          await client.query(
+            `DELETE FROM "${t.table_schema}"."${t.table_name}" WHERE global_staff_id = $1`,
+            [globalStaffId]
+          );
+          break;
+        }
+      }
+    }
 
     if (staffResult.rows.length === 0) {
       throw new Error('Staff member not found');
@@ -1540,43 +1581,52 @@ router.delete('/delete-staff', async (req, res) => {
 
     const staff = staffResult.rows[0];
 
-    // Delete from main staff table
-    await client.query(
-      `DELETE FROM "${schema}"."${className}" WHERE global_staff_id = $1`,
-      [globalStaffId]
-    );
+    // 3. Delete from staff_users table
+    try {
+      await client.query(
+        'DELETE FROM staff_users WHERE global_staff_id = $1',
+        [globalStaffId]
+      );
+    } catch (_) {}
 
-    // Delete from staff_users table
-    await client.query(
-      'DELETE FROM staff_users WHERE global_staff_id = $1',
-      [globalStaffId]
-    );
+    // 4. Delete from school_schema_points.teachers if exists
+    try {
+      await client.query(
+        'DELETE FROM school_schema_points.teachers WHERE global_staff_id = $1',
+        [globalStaffId]
+      );
+    } catch (_) {}
 
-    // Delete from school_schema_points.teachers if exists
-    await client.query(
-      'DELETE FROM school_schema_points.teachers WHERE global_staff_id = $1',
-      [globalStaffId]
-    );
+    // 5. Delete from school_schema_points.class_teachers if exists
+    try {
+      await client.query(
+        'DELETE FROM school_schema_points.class_teachers WHERE global_staff_id = $1',
+        [globalStaffId]
+      );
+    } catch (_) {}
 
-    // Delete from schedule_schema.teachers if exists
-    await client.query(
-      'DELETE FROM schedule_schema.teachers WHERE global_staff_id = $1',
-      [globalStaffId]
-    );
+    // 6. Delete from schedule_schema.teacher_availability and schedule_schema.teachers if exists
+    try {
+      await client.query(
+        `DELETE FROM schedule_schema.teacher_availability 
+         WHERE teacher_id IN (
+           SELECT id FROM schedule_schema.teachers WHERE global_staff_id = $1
+         )`,
+        [globalStaffId]
+      );
+      await client.query(
+        'DELETE FROM schedule_schema.teachers WHERE global_staff_id = $1',
+        [globalStaffId]
+      );
+    } catch (_) {}
 
-    // Delete from teacher_availability if exists
-    await client.query(
-      `DELETE FROM schedule_schema.teacher_availability 
-       WHERE teacher_id IN (
-         SELECT id FROM schedule_schema.teachers WHERE global_staff_id = $1
-       )`,
-      [globalStaffId]
-    );
-
-    // Clean up uploaded files
+    // 7. Clean up uploaded files
     if (staff.image_staff) {
       try {
-        await fs.unlink(path.join(uploadDir, staff.image_staff));
+        const filePath = path.join(uploadDir, staff.image_staff);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       } catch (fileError) {
         console.warn('Could not delete staff image:', fileError.message);
       }

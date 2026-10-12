@@ -198,8 +198,33 @@ const ListStaff = () => {
 
   const handleDelete = async (staff) => {
     const name = staff.full_name || staff.name || 'this staff member';
-    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const pwd = window.prompt(`Enter Admin Password to permanently delete "${name}":`);
+    if (pwd === null) return; // user cancelled
+    if (!pwd.trim()) {
+      alert('Password is required to delete staff');
+      return;
+    }
+
     try {
+      const currentUsername = localStorage.getItem('username') || 'admin';
+      const token = localStorage.getItem('token') || '';
+
+      // 1. Verify admin password first
+      await axios.post(
+        `${API_BASE_URL}/admin/verify-password`,
+        {
+          password: pwd.trim(),
+          username: currentUsername
+        },
+        {
+          headers: {
+            ...branchHeaders,
+            'Authorization': token ? `Bearer ${token}` : ''
+          }
+        }
+      );
+
+      // 2. Perform deletion
       await axios.delete(`${API_BASE_URL}/staff/delete-staff`, {
         data: { globalStaffId: staff.global_staff_id || staff.id, staffType: staff.staffType, className: staff.className },
         headers: branchHeaders
@@ -207,7 +232,8 @@ const ListStaff = () => {
       alert(`"${name}" deleted successfully`);
       fetchAllStaff();
     } catch (error) {
-      alert(`Delete failed: ${error.response?.data?.error || error.message}`);
+      const errMsg = error.response?.data?.error || error.response?.data?.message || error.message;
+      alert(`Delete failed: ${errMsg}`);
     }
   };
 

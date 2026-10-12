@@ -309,28 +309,85 @@ router.put("/student/:className/:schoolId/:classId", upload.single("image_studen
 router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
   const { className, schoolId, classId } = req.params;
   try {
-    const validTableName = /^[a-zA-Z0-9_]+$/.test(className);
-    if (!validTableName) {
-      return res.status(400).json({ error: "Invalid class name provided." });
+    let actualTableName = null;
+
+    // 1. If className is provided and valid, try to find it (case-insensitive)
+    if (className && className !== 'all' && /^[a-zA-Z0-9_]+$/.test(className)) {
+      const tableRes = await pool.query(
+        `SELECT table_name FROM information_schema.tables 
+         WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
+        [className]
+      );
+      if (tableRes.rows.length > 0) {
+        actualTableName = tableRes.rows[0].table_name;
+      }
     }
 
-    const result = await pool.query(
-      `DELETE FROM classes_schema."${className}" WHERE school_id = $1 AND class_id = $2 RETURNING *`,
-      [schoolId, classId]
-    );
+    // 2. If not found in specified class, search all classes_schema tables for this school_id
+    if (!actualTableName) {
+      const allClassTables = await pool.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema'`
+      );
+      for (const t of allClassTables.rows) {
+        try {
+          const check = await pool.query(
+            `SELECT 1 FROM classes_schema."${t.table_name}" WHERE school_id::text = $1::text LIMIT 1`,
+            [String(schoolId)]
+          );
+          if (check.rows.length > 0) {
+            actualTableName = t.table_name;
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!actualTableName) {
+      return res.status(404).json({ error: "Student not found in any class" });
+    }
+
+    // 3. Delete student by school_id and class_id (or just school_id fallback)
+    let result;
+    if (classId && classId !== 'undefined' && classId !== 'null') {
+      result = await pool.query(
+        `DELETE FROM classes_schema."${actualTableName}" 
+         WHERE (school_id::text = $1::text AND class_id::text = $2::text)
+            OR (school_id::text = $1::text)
+         RETURNING *`,
+        [String(schoolId), String(classId)]
+      );
+    } else {
+      result = await pool.query(
+        `DELETE FROM classes_schema."${actualTableName}" 
+         WHERE school_id::text = $1::text 
+         RETURNING *`,
+        [String(schoolId)]
+      );
+    }
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Student not found" });
     }
-    // Delete associated image file if it exists
+
+    // 4. Delete associated image file if it exists
     if (result.rows[0].image_student) {
       const filePath = path.join(__dirname, "../Uploads", result.rows[0].image_student);
       if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+        try { fs.unlinkSync(filePath); } catch (_) {}
       }
     }
-    res.json({ message: "Student deleted successfully" });
+
+    // 5. Clean up academic attendance for this student
+    try {
+      await pool.query(
+        `DELETE FROM academic_student_attendance WHERE student_id::text = $1::text`,
+        [String(schoolId)]
+      );
+    } catch (_) {}
+
+    res.json({ message: "Student deleted successfully", deletedStudent: result.rows[0] });
   } catch (error) {
-    console.error(`Error deleting student from class ${className}:`, error);
+    console.error(`Error deleting student:`, error);
     res.status(500).json({ error: "Failed to delete student", details: error.message });
   }
 });

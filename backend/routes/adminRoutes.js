@@ -270,6 +270,71 @@ router.post(getEndpointPath('AUTH.ADMIN_LOGIN').replace('/api/admin', ''), async
   }
 });
 
+// Verify admin password (used for critical operations like deleting students/staff)
+router.post('/verify-password', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    const db = req.branchPool || pool;
+
+    // Check specific user if username was provided
+    if (username) {
+      const adminResult = await db.query(
+        'SELECT id, username, password_hash FROM admin_users WHERE LOWER(username) = LOWER($1)',
+        [username]
+      );
+      if (adminResult.rows.length > 0) {
+        const isValid = await bcrypt.compare(password, adminResult.rows[0].password_hash);
+        if (isValid) {
+          return res.json({ success: true, message: 'Password verified' });
+        }
+      }
+
+      // Check sub-accounts
+      const subResult = await db.query(
+        'SELECT id, username, password_hash, is_active FROM admin_sub_accounts WHERE LOWER(username) = LOWER($1)',
+        [username]
+      );
+      if (subResult.rows.length > 0 && subResult.rows[0].is_active) {
+        const isValid = await bcrypt.compare(password, subResult.rows[0].password_hash);
+        if (isValid) {
+          return res.json({ success: true, message: 'Password verified' });
+        }
+      }
+    }
+
+    // Fallback: check ANY admin account with this password in case username was different or missing
+    const allAdmins = await db.query('SELECT id, username, password_hash FROM admin_users');
+    for (const adm of allAdmins.rows) {
+      if (adm.password_hash) {
+        const isValid = await bcrypt.compare(password, adm.password_hash);
+        if (isValid) {
+          return res.json({ success: true, message: 'Password verified' });
+        }
+      }
+    }
+
+    // Also check active sub-accounts
+    const allSubs = await db.query('SELECT id, username, password_hash FROM admin_sub_accounts WHERE is_active = true');
+    for (const sub of allSubs.rows) {
+      if (sub.password_hash) {
+        const isValid = await bcrypt.compare(password, sub.password_hash);
+        if (isValid) {
+          return res.json({ success: true, message: 'Password verified' });
+        }
+      }
+    }
+
+    return res.status(401).json({ error: 'Incorrect admin password' });
+  } catch (error) {
+    console.error('Error verifying admin password:', error);
+    res.status(500).json({ error: 'Failed to verify password', details: error.message });
+  }
+});
+
 // Change admin password (protected route)
 router.post(getEndpointPath('SETTINGS.PASSWORD').replace('/api/settings', ''), authenticateWithBranch, async (req, res) => {
   try {
