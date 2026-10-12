@@ -4,7 +4,15 @@ import { getBranchCode } from '../../utils/branchCode';
 import styles from './CreateMarklist/CreateMarklist.module.css';
 
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
-const branchHeaders = () => ({ 'x-branch-code': getBranchCode() });
+const branchHeaders = (extra = {}) => {
+  const branchCode = getBranchCode();
+  const token = (branchCode ? localStorage.getItem(`branch_${branchCode}_authToken`) : null) 
+    || localStorage.getItem('authToken');
+  const h = { ...extra };
+  if (branchCode) h['x-branch-code'] = branchCode;
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+};
 
 const PRESET_SUBJECTS = [
   'English', 'Mathematics', 'Physics', 'Chemistry', 'Biology',
@@ -26,13 +34,12 @@ const SubjectConfiguration = ({ onSubjectsConfigured }) => {
   }, []);
 
   const fetchSubjects = async () => {
+    setLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/mark-list/subjects`, {
         headers: branchHeaders()
       });
       const data = await res.json();
-      // FIX: guard against 400/500 responses that return an error object —
-      // subjects must always be an array or .some()/.map() crash the page
       setSubjects(Array.isArray(data) ? data : []);
       if (!res.ok) {
         console.error('Error fetching subjects:', data?.message || data?.error || res.status);
@@ -40,6 +47,8 @@ const SubjectConfiguration = ({ onSubjectsConfigured }) => {
     } catch (err) {
       console.error('Error fetching subjects:', err);
       setSubjects([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -291,11 +300,14 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
   const [addSubjectsForClass, setAddSubjectsForClass] = useState(null);
   const [selectedSubjects, setSelectedSubjects] = useState({});
 
+  const [fetchLoading, setFetchLoading] = useState(true);
+
   useEffect(() => {
     fetchData();
   }, []);
 
   const fetchData = async () => {
+    setFetchLoading(true);
     try {
       const [classesRes, subjectsRes, mappingsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/mark-list/classes`, { headers: branchHeaders() }),
@@ -303,16 +315,29 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
         fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: branchHeaders() })
       ]);
       const [classesData, subjectsData, mappingsData] = await Promise.all([
-        classesRes.json(), subjectsRes.json(), mappingsRes.json()
+        classesRes.json().catch(() => []),
+        subjectsRes.json().catch(() => []),
+        mappingsRes.json().catch(() => [])
       ]);
-      setClasses(classesData);
-      setSubjects(subjectsData);
-      setExistingMappings(mappingsData);
+      const validClasses = Array.isArray(classesData) ? classesData : [];
+      const validSubjects = Array.isArray(subjectsData) ? subjectsData : [];
+      const validMappings = Array.isArray(mappingsData) ? mappingsData : [];
+
+      setClasses(validClasses);
+      setSubjects(validSubjects);
+      setExistingMappings(validMappings);
       const mappingState = {};
-      mappingsData.forEach(m => { mappingState[`${m.class_name}-${m.subject_name}`] = true; });
+      validMappings.forEach(m => { 
+        if (m && m.class_name && m.subject_name) {
+          mappingState[`${m.class_name}-${m.subject_name}`] = true; 
+        }
+      });
       setMappings(mappingState);
     } catch (err) {
+      console.error('Error loading class-subject mapping data:', err);
       setMessage('Error loading data: ' + err.message);
+    } finally {
+      setFetchLoading(false);
     }
   };
 
@@ -349,6 +374,17 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
       setLoading(false);
     }
   };
+
+  if (fetchLoading) {
+    return (
+      <div className={styles.content}>
+        <div style={{ textAlign: 'center', padding: '3rem', color: '#6b7280' }}>
+          <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>⏳</div>
+          <p>Loading classes and subjects...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (classes.length === 0 || subjects.length === 0) {
     return (
