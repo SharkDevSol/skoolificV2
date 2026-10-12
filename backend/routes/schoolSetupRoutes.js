@@ -740,13 +740,34 @@ router.get('/config', async (req, res) => {
     if (result.rows.length === 0) {
       await pool.query(`
         INSERT INTO schedule_schema.school_config 
-        (id, periods_per_shift, period_duration, short_break_duration, total_shifts, teaching_days_per_week, school_days) 
-        VALUES (1, 7, 45, 10, 2, 5, '{1,2,3,4,5}')
+        (id, periods_per_shift, period_duration, short_break_duration, total_shifts, teaching_days_per_week, school_days, terms) 
+        VALUES (1, 7, 45, 10, 2, 5, '{1,2,3,4,5}', 2)
       `);
       const newResult = await pool.query('SELECT * FROM schedule_schema.school_config WHERE id = 1');
-      return res.json(newResult.rows[0]);
+      return res.json({
+        ...newResult.rows[0],
+        terms: newResult.rows[0].terms || 2,
+        term_count: newResult.rows[0].terms || 2
+      });
     }
-    res.json(result.rows[0]);
+    const row = result.rows[0];
+    let termCount = row.terms;
+    try {
+      const subjRes = await pool.query('SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1');
+      if (subjRes.rows.length > 0 && subjRes.rows[0].term_count) {
+        if (!termCount || termCount <= 1 || subjRes.rows[0].term_count > termCount) {
+          termCount = subjRes.rows[0].term_count;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    termCount = termCount || 2;
+    res.json({
+      ...row,
+      terms: termCount,
+      term_count: termCount
+    });
   } catch (error) {
     console.error('Error fetching schedule config:', error.message);
     res.json({
@@ -755,7 +776,9 @@ router.get('/config', async (req, res) => {
       short_break_duration: 10,
       total_shifts: 2,
       teaching_days_per_week: 5,
-      school_days: [1,2,3,4,5]
+      school_days: [1,2,3,4,5],
+      terms: 2,
+      term_count: 2
     });
   }
 });
@@ -764,24 +787,96 @@ router.get('/config', async (req, res) => {
 router.put('/config', async (req, res) => {
   const config = req.body;
   try {
+    const DAY_MAP = {
+      monday: 1, mon: 1, '1': 1,
+      tuesday: 2, tue: 2, '2': 2,
+      wednesday: 3, wed: 3, '3': 3,
+      thursday: 4, thu: 4, '4': 4,
+      friday: 5, fri: 5, '5': 5,
+      saturday: 6, sat: 6, '6': 6,
+      sunday: 7, sun: 7, '7': 7
+    };
+    const DAY_NAMES = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    let normalizedSchoolDays = null;
+    let stringSchoolDays = null;
+    if (Array.isArray(config.school_days)) {
+      normalizedSchoolDays = Array.from(new Set(
+        config.school_days.map(d => {
+          if (typeof d === 'number') return (d >= 1 && d <= 7) ? d : null;
+          if (typeof d === 'string') return DAY_MAP[d.trim().toLowerCase()] || null;
+          return null;
+        }).filter(Boolean)
+      )).sort((a, b) => a - b);
+      stringSchoolDays = normalizedSchoolDays.map(d => DAY_NAMES[d]).filter(Boolean);
+    }
+
+    const teachingDays = normalizedSchoolDays ? normalizedSchoolDays.length : (config.teaching_days_per_week || 5);
+    const termCount = config.terms || config.term_count || null;
+
     await pool.query(`
       UPDATE schedule_schema.school_config SET
-        periods_per_shift = $1,
-        period_duration = $2,
-        short_break_duration = $3,
-        total_shifts = $4,
-        teaching_days_per_week = $5,
-        school_days = $6,
+        periods_per_shift = COALESCE($1, periods_per_shift),
+        period_duration = COALESCE($2, period_duration),
+        short_break_duration = COALESCE($3, short_break_duration),
+        total_shifts = COALESCE($4, total_shifts),
+        teaching_days_per_week = COALESCE($5, teaching_days_per_week),
+        school_days = COALESCE($6, school_days),
+        terms = COALESCE($7, terms),
+        has_kg = COALESCE($8, has_kg),
+        shift_rotation = COALESCE($9, shift_rotation),
+        rotation_frequency = COALESCE($10, rotation_frequency),
+        periods_per_day = COALESCE($11, periods_per_day),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `, [
-      config.periods_per_shift,
-      config.period_duration,
-      config.short_break_duration,
-      config.total_shifts,
-      config.teaching_days_per_week,
-      config.school_days
+      config.periods_per_shift !== undefined ? config.periods_per_shift : null,
+      config.period_duration !== undefined ? config.period_duration : null,
+      config.short_break_duration !== undefined ? config.short_break_duration : null,
+      config.total_shifts !== undefined ? config.total_shifts : null,
+      teachingDays,
+      normalizedSchoolDays,
+      termCount,
+      config.has_kg !== undefined ? config.has_kg : null,
+      config.shift_rotation !== undefined ? config.shift_rotation : null,
+      config.rotation_frequency || null,
+      config.periods_per_day ? JSON.stringify(config.periods_per_day) : null
     ]);
+
+    // Sync term_count to subjects_of_school_schema.school_config
+    if (termCount) {
+      try {
+        await pool.query(`
+          INSERT INTO subjects_of_school_schema.school_config (id, term_count)
+          VALUES (1, $1)
+          ON CONFLICT (id) DO UPDATE SET term_count = EXCLUDED.term_count, updated_at = CURRENT_TIMESTAMP
+        `, [termCount]);
+      } catch (err) {
+        console.warn('Could not sync to subjects_of_school_schema.school_config:', err.message);
+      }
+    }
+
+    // Sync school_days to academic_student_attendance_settings
+    if (stringSchoolDays && stringSchoolDays.length > 0) {
+      try {
+        const checkAtt = await pool.query('SELECT id FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
+        if (checkAtt.rows.length > 0) {
+          await pool.query(`
+            UPDATE academic_student_attendance_settings
+            SET school_days = $1, updated_at = NOW()
+            WHERE id = $2
+          `, [stringSchoolDays, checkAtt.rows[0].id]);
+        } else {
+          await pool.query(`
+            INSERT INTO academic_student_attendance_settings (school_days)
+            VALUES ($1)
+          `, [stringSchoolDays]);
+        }
+      } catch (err) {
+        console.warn('Could not sync to academic_student_attendance_settings:', err.message);
+      }
+    }
+
     res.json({ message: 'Configuration updated successfully' });
   } catch (error) {
     console.error('Error updating schedule config:', error.message);

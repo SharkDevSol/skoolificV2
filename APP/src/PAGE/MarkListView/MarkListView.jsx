@@ -54,8 +54,8 @@ const MarkListView = () => {
           axios.get(`${API_BASE_URL}/mark-list/classes`),
           axios.get(`${API_BASE_URL}/mark-list/config`),
         ]);
-        setClasses(classesRes.data || []);
-        setTermCount(configRes.data?.term_count || 2);
+        const tc = parseInt(configRes.data?.term_count || configRes.data?.terms, 10) || 2;
+        setTermCount(tc);
         if (classesRes.data?.length > 0) {
           setSelectedClass(classesRes.data[0]);
         }

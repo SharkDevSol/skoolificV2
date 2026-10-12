@@ -81,8 +81,8 @@ const MarkListForm = () => {
 
       setSubjects(uniqueSubjects);
       setClasses(classesData);
-      setSubjectClassMappings(mappingsData);
-      setConfig({ term_count: configData.terms || 2 });
+      const termCount = parseInt(configData.terms || configData.term_count, 10) || 2;
+      setConfig({ term_count: termCount });
     } catch (error) {
       console.error('Error fetching initial data:', error);
       setMessage('Error loading data: ' + error.message);

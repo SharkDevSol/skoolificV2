@@ -13,6 +13,21 @@ const API_BASE_URL = getApiBaseUrl();
 
 const DAY_NAMES = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAYS = DAY_NAMES.slice(1);
+const DAY_MAP = {
+  monday: 1, mon: 1, '1': 1,
+  tuesday: 2, tue: 2, '2': 2,
+  wednesday: 3, wed: 3, '3': 3,
+  thursday: 4, thu: 4, '4': 4,
+  friday: 5, fri: 5, '5': 5,
+  saturday: 6, sat: 6, '6': 6,
+  sunday: 7, sun: 7, '7': 7
+};
+
+const normalizeDayIndex = (day) => {
+  if (typeof day === 'number') return (day >= 1 && day <= 7) ? day : null;
+  if (typeof day === 'string') return DAY_MAP[day.trim().toLowerCase()] || null;
+  return null;
+};
 
 const DEFAULT_TIMES = {
   check_in_start_time: '07:00:00',
@@ -59,18 +74,33 @@ const StudentAttendanceTimeSettings = () => {
 
       if (cfgRes.data) setTask1(cfgRes.data);
 
-      if (setRes.data.success) {
+      let loadedDays = [1, 2, 3, 4, 5];
+      if (setRes.data && setRes.data.success && Array.isArray(setRes.data.data?.school_days) && setRes.data.data.school_days.length > 0) {
+        loadedDays = setRes.data.data.school_days;
+      } else if (cfgRes.data && Array.isArray(cfgRes.data.school_days) && cfgRes.data.school_days.length > 0) {
+        loadedDays = cfgRes.data.school_days;
+      }
+      const normalizedDays = Array.from(new Set(
+        loadedDays.map(normalizeDayIndex).filter(Boolean)
+      )).sort((a, b) => a - b);
+
+      if (setRes.data && setRes.data.success) {
         const d = setRes.data.data;
         const merged = { ...DEFAULT_TIMES };
         TIME_FIELDS.forEach(f => { if (d[f]) merged[f] = d[f]; });
-        if (Array.isArray(d.school_days) && d.school_days.length > 0) merged.school_days = d.school_days;
+        merged.school_days = normalizedDays.length > 0 ? normalizedDays : [1, 2, 3, 4, 5];
         merged.auto_absent_enabled = d.auto_absent_enabled !== undefined ? d.auto_absent_enabled : true;
         setSettings(merged);
+      } else {
+        setSettings(prev => ({
+          ...prev,
+          school_days: normalizedDays.length > 0 ? normalizedDays : [1, 2, 3, 4, 5]
+        }));
       }
 
-      if (ccRes.data.success) setClassConfigs(ccRes.data.data || {});
+      if (ccRes.data && ccRes.data.success) setClassConfigs(ccRes.data.data || {});
 
-      const cls = clsRes.data.data || [];
+      const cls = clsRes.data?.data || [];
       setClassConfigs(prev => {
         if (Object.keys(prev).length > 0) return prev;
         const derived = {};
@@ -89,12 +119,14 @@ const StudentAttendanceTimeSettings = () => {
 
   const handleDayToggle = (dayIndex) => {
     setSettings(prev => {
-      const days = Array.isArray(prev.school_days) ? prev.school_days : [];
+      const currentDays = (prev.school_days || []).map(normalizeDayIndex).filter(Boolean);
+      const exists = currentDays.includes(dayIndex);
+      const nextDays = exists
+        ? currentDays.filter(d => d !== dayIndex)
+        : [...currentDays, dayIndex];
       return {
         ...prev,
-        school_days: days.includes(dayIndex)
-          ? days.filter(d => d !== dayIndex)
-          : [...days, dayIndex].sort((a, b) => a - b)
+        school_days: Array.from(new Set(nextDays)).sort((a, b) => a - b)
       };
     });
   };
@@ -111,23 +143,24 @@ const StudentAttendanceTimeSettings = () => {
       setIsLoading(true);
       setMessage({ type: '', text: '' });
 
+      const schoolDaysNumeric = (settings.school_days || [])
+        .map(normalizeDayIndex)
+        .filter(Boolean)
+        .sort((a, b) => a - b);
+      const dayNames = schoolDaysNumeric.map(d => DAY_NAMES[d]).filter(Boolean);
+
       // 1) Save school days / shifts / rotation to Task 1 schedule config
-      if (task1) {
-        const schoolDaysNumeric = (settings.school_days || [])
-          .map(d => (typeof d === 'number' ? d : DAY_NAMES.indexOf(d)))
-          .filter(d => d > 0);
-        await axios.put(`${API_BASE_URL}/schedule/config`, {
-          ...task1,
-          school_days: schoolDaysNumeric,
-          teaching_days_per_week: schoolDaysNumeric.length,
-          total_shifts: task1.total_shifts || 1
-        }, { headers: branchHeaders() });
-      }
+      const scheduleConfigPayload = {
+        ...(task1 || {}),
+        school_days: schoolDaysNumeric,
+        teaching_days_per_week: schoolDaysNumeric.length,
+        total_shifts: task1?.total_shifts || 1,
+        shift_rotation: task1?.shift_rotation !== undefined ? task1.shift_rotation : false,
+        rotation_frequency: task1?.rotation_frequency || 'weekly'
+      };
+      await axios.put(`${API_BASE_URL}/schedule/config`, scheduleConfigPayload, { headers: branchHeaders() });
 
       // 2) Save attendance time settings + auto-absent + school days
-      const dayNames = (settings.school_days || [])
-        .map(d => (typeof d === 'number' ? DAY_NAMES[d] : d))
-        .filter(Boolean);
       const timesPayload = {};
       TIME_FIELDS.forEach(f => { timesPayload[f] = settings[f] || DEFAULT_TIMES[f]; });
       await axios.put(`${API_BASE_URL}/academic/student-attendance/settings`, {
@@ -197,7 +230,7 @@ const StudentAttendanceTimeSettings = () => {
           <div className={styles.daysGrid}>
             {DAYS.map((day, i) => {
               const dayIndex = i + 1;
-              const active = (settings.school_days || []).includes(dayIndex) || (settings.school_days || []).includes(day);
+              const active = (settings.school_days || []).includes(dayIndex);
               return (
                 <label key={day} className={styles.dayCheckbox}>
                   <input

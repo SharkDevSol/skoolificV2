@@ -553,10 +553,24 @@ router.post('/mark-absent', async (req, res) => {
 // Get attendance time settings
 router.get('/settings', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
+    let result = await pool.query('SELECT * FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Settings not found' });
+      // Auto-insert default settings if table is empty
+      await pool.query(`
+        INSERT INTO academic_student_attendance_settings (
+          check_in_start_time, check_in_end_time, late_threshold_time, absent_marking_time,
+          shift1_check_in_start, shift1_check_in_end, shift1_late_threshold, shift1_absent_marking,
+          shift2_check_in_start, shift2_check_in_end, shift2_late_threshold, shift2_absent_marking,
+          school_days, auto_absent_enabled
+        ) VALUES (
+          '07:00:00', '08:30:00', '08:00:00', '09:00:00',
+          '07:00:00', '08:30:00', '08:00:00', '09:00:00',
+          '12:00:00', '13:30:00', '13:00:00', '14:00:00',
+          ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], true
+        )
+      `);
+      result = await pool.query('SELECT * FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
     }
 
     res.json({
@@ -591,23 +605,48 @@ router.put('/settings', async (req, res) => {
       auto_absent_enabled
     } = req.body;
 
-    const result = await pool.query(`
+    const DAY_MAP = {
+      monday: 1, mon: 1, '1': 1,
+      tuesday: 2, tue: 2, '2': 2,
+      wednesday: 3, wed: 3, '3': 3,
+      thursday: 4, thu: 4, '4': 4,
+      friday: 5, fri: 5, '5': 5,
+      saturday: 6, sat: 6, '6': 6,
+      sunday: 7, sun: 7, '7': 7
+    };
+    const DAY_NAMES = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    let normalizedDayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    let numericDayIndices = [1, 2, 3, 4, 5];
+
+    if (Array.isArray(school_days) && school_days.length > 0) {
+      numericDayIndices = Array.from(new Set(
+        school_days.map(d => {
+          if (typeof d === 'number') return (d >= 1 && d <= 7) ? d : null;
+          if (typeof d === 'string') return DAY_MAP[d.trim().toLowerCase()] || null;
+          return null;
+        }).filter(Boolean)
+      )).sort((a, b) => a - b);
+      normalizedDayNames = numericDayIndices.map(d => DAY_NAMES[d]).filter(Boolean);
+    }
+
+    let result = await pool.query(`
       UPDATE academic_student_attendance_settings
       SET 
-        check_in_start_time = $1,
-        check_in_end_time = $2,
-        late_threshold_time = $3,
-        absent_marking_time = $4,
-        shift1_check_in_start = $5,
-        shift1_check_in_end = $6,
-        shift1_late_threshold = $7,
-        shift1_absent_marking = $8,
-        shift2_check_in_start = $9,
-        shift2_check_in_end = $10,
-        shift2_late_threshold = $11,
-        shift2_absent_marking = $12,
+        check_in_start_time = COALESCE($1, check_in_start_time),
+        check_in_end_time = COALESCE($2, check_in_end_time),
+        late_threshold_time = COALESCE($3, late_threshold_time),
+        absent_marking_time = COALESCE($4, absent_marking_time),
+        shift1_check_in_start = COALESCE($5, shift1_check_in_start),
+        shift1_check_in_end = COALESCE($6, shift1_check_in_end),
+        shift1_late_threshold = COALESCE($7, shift1_late_threshold),
+        shift1_absent_marking = COALESCE($8, shift1_absent_marking),
+        shift2_check_in_start = COALESCE($9, shift2_check_in_start),
+        shift2_check_in_end = COALESCE($10, shift2_check_in_end),
+        shift2_late_threshold = COALESCE($11, shift2_late_threshold),
+        shift2_absent_marking = COALESCE($12, shift2_absent_marking),
         school_days = $13,
-        auto_absent_enabled = $14,
+        auto_absent_enabled = COALESCE($14, auto_absent_enabled),
         updated_at = NOW()
       WHERE id = (SELECT id FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1)
       RETURNING *
@@ -624,9 +663,50 @@ router.put('/settings', async (req, res) => {
       shift2_check_in_end,
       shift2_late_threshold,
       shift2_absent_marking,
-      school_days,
+      normalizedDayNames,
       auto_absent_enabled
     ]);
+
+    if (result.rows.length === 0) {
+      result = await pool.query(`
+        INSERT INTO academic_student_attendance_settings (
+          check_in_start_time, check_in_end_time, late_threshold_time, absent_marking_time,
+          shift1_check_in_start, shift1_check_in_end, shift1_late_threshold, shift1_absent_marking,
+          shift2_check_in_start, shift2_check_in_end, shift2_late_threshold, shift2_absent_marking,
+          school_days, auto_absent_enabled
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+        ) RETURNING *
+      `, [
+        check_in_start_time || '07:00:00',
+        check_in_end_time || '08:30:00',
+        late_threshold_time || '08:00:00',
+        absent_marking_time || '09:00:00',
+        shift1_check_in_start || '07:00:00',
+        shift1_check_in_end || '08:30:00',
+        shift1_late_threshold || '08:00:00',
+        shift1_absent_marking || '09:00:00',
+        shift2_check_in_start || '12:00:00',
+        shift2_check_in_end || '13:30:00',
+        shift2_late_threshold || '13:00:00',
+        shift2_absent_marking || '14:00:00',
+        normalizedDayNames,
+        auto_absent_enabled !== undefined ? auto_absent_enabled : true
+      ]);
+    }
+
+    // Sync numeric school_days to schedule_schema.school_config
+    if (numericDayIndices && numericDayIndices.length > 0) {
+      try {
+        await pool.query(`
+          UPDATE schedule_schema.school_config
+          SET school_days = $1, teaching_days_per_week = $2, updated_at = CURRENT_TIMESTAMP
+          WHERE id = 1
+        `, [numericDayIndices, numericDayIndices.length]);
+      } catch (syncErr) {
+        console.warn('Could not sync school_days to schedule_schema.school_config:', syncErr.message);
+      }
+    }
 
     res.json({
       success: true,

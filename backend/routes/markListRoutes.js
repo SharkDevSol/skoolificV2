@@ -271,8 +271,28 @@ router.delete('/delete-subject/:id', async (req, res) => {
 // Route to get school configuration (term count)
 router.get('/config', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM subjects_of_school_schema.school_config WHERE id = 1');
-    res.json(result.rows[0] || { term_count: 2 });
+    let termCount = 2;
+    try {
+      const subjRes = await pool.query('SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1');
+      if (subjRes.rows.length > 0 && subjRes.rows[0].term_count) {
+        termCount = subjRes.rows[0].term_count;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    try {
+      const schedRes = await pool.query('SELECT terms FROM schedule_schema.school_config WHERE id = 1');
+      if (schedRes.rows.length > 0 && schedRes.rows[0].terms) {
+        if (!termCount || schedRes.rows[0].terms > termCount) {
+          termCount = schedRes.rows[0].terms;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    res.json({ term_count: termCount, terms: termCount });
   } catch (error) {
     console.error('Error fetching config:', error);
     res.status(500).json({ error: 'Failed to fetch config', details: error.message });
