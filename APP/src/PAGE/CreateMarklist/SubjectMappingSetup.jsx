@@ -330,6 +330,7 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
       validMappings.forEach(m => { 
         if (m && m.class_name && m.subject_name) {
           mappingState[`${m.class_name}-${m.subject_name}`] = true; 
+          mappingState[`${m.class_name.toLowerCase()}-${m.subject_name.toLowerCase()}`] = true;
         }
       });
       setMappings(mappingState);
@@ -341,20 +342,46 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
     }
   };
 
+  const isMapped = (clsName, subjName) => {
+    return !!(
+      mappings[`${clsName}-${subjName}`] ||
+      mappings[`${clsName.toLowerCase()}-${subjName.toLowerCase()}`]
+    );
+  };
+
   const handleMappingChange = (className, subjectName, isChecked) => {
-    setMappings(prev => ({ ...prev, [`${className}-${subjectName}`]: isChecked }));
+    setMappings(prev => {
+      const updated = { ...prev };
+      const k1 = `${className}-${subjectName}`;
+      const k2 = `${className.toLowerCase()}-${subjectName.toLowerCase()}`;
+      if (isChecked) {
+        updated[k1] = true;
+        updated[k2] = true;
+      } else {
+        delete updated[k1];
+        delete updated[k2];
+      }
+      return updated;
+    });
   };
 
   const handleSubmit = async () => {
     setLoading(true);
     setMessage('');
     try {
-      const mappingsArray = Object.entries(mappings)
-        .filter(([, v]) => v)
-        .map(([key]) => {
-          const idx = key.indexOf('-');
-          return { className: key.substring(0, idx), subjectName: key.substring(idx + 1) };
+      const mappingsArray = [];
+      const seen = new Set();
+      classes.forEach(c => {
+        subjects.forEach(s => {
+          if (isMapped(c, s.subject_name)) {
+            const pairKey = `${c}||${s.subject_name}`;
+            if (!seen.has(pairKey)) {
+              seen.add(pairKey);
+              mappingsArray.push({ className: c, subjectName: s.subject_name });
+            }
+          }
         });
+      });
       const res = await fetch(`${API_BASE_URL}/mark-list/map-subjects-classes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...branchHeaders() },
@@ -409,7 +436,7 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
       )}
       <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         {classes.map(className => {
-          const mappedSubjects = subjects.filter(s => mappings[`${className}-${s.subject_name}`]);
+          const mappedSubjects = subjects.filter(s => isMapped(className, s.subject_name));
           return (
             <div key={className} style={{
               background: '#fff', borderRadius: 12, padding: 16,
@@ -422,7 +449,7 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
                 </span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                {subjects.filter(s => mappings[`${className}-${s.subject_name}`]).map(s => (
+                {subjects.filter(s => isMapped(className, s.subject_name)).map(s => (
                   <span key={s.id} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                     padding: '4px 10px', background: '#ede9fe', color: '#6d28d9',
@@ -436,7 +463,7 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
                 {addSubjectsForClass === className ? (
                   <div style={{ width: '100%', marginTop: 8, padding: 12, background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-                      {subjects.filter(s => !mappings[`${className}-${s.subject_name}`]).map(s => (
+                      {subjects.filter(s => !isMapped(className, s.subject_name)).map(s => (
                         <label key={s.id} onClick={() => setSelectedSubjects(prev => ({ ...prev, [s.subject_name]: !prev[s.subject_name] }))}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, padding: '4px 8px', borderRadius: 6, background: selectedSubjects[s.subject_name] ? '#ede9fe' : 'transparent' }}>
                           <div style={{
@@ -450,7 +477,7 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
                           {s.subject_name}
                         </label>
                       ))}
-                      {subjects.filter(s => !mappings[`${className}-${s.subject_name}`]).length === 0 && (
+                      {subjects.filter(s => !isMapped(className, s.subject_name)).length === 0 && (
                         <div style={{ fontSize: 13, color: '#9ca3af', padding: 8 }}>All subjects already assigned</div>
                       )}
                     </div>

@@ -275,7 +275,12 @@ function TaskDetail() {
       setTask4DataLoading(true);
       const load = async () => {
         try {
-          const h = { 'x-branch-code': (getBranchCode() || '').toUpperCase() };
+          const branchCode = (getBranchCode() || '').toUpperCase();
+          const token = (branchCode ? localStorage.getItem(`branch_${branchCode}_authToken`) : null) 
+            || localStorage.getItem('authToken');
+          const h = {};
+          if (branchCode) h['x-branch-code'] = branchCode;
+          if (token) h['Authorization'] = `Bearer ${token}`;
           const [s, m] = await Promise.all([
             fetch(`${API_BASE_URL}/mark-list/subjects`, { headers: h }),
             fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: h })

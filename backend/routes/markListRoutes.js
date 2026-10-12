@@ -320,13 +320,13 @@ router.post('/map-subjects-classes', async (req, res) => {
     const existingResult = await client.query(
       'SELECT subject_name, class_name FROM subjects_of_school_schema.subject_class_mappings'
     );
-    const newSet = new Set(mappings.map(m => `${m.subjectName}||${m.className}`));
+    const newSet = new Set(mappings.map(m => `${(m.subjectName || '').toLowerCase().trim()}||${(m.className || '').toLowerCase().trim()}`));
     for (const row of existingResult.rows) {
-      const key = `${row.subject_name}||${row.class_name}`;
+      const key = `${(row.subject_name || '').toLowerCase().trim()}||${(row.class_name || '').toLowerCase().trim()}`;
       if (!newSet.has(key)) {
         await client.query(
-          'DELETE FROM subjects_of_school_schema.subject_class_mappings WHERE subject_name=$1 AND class_name=$2',
-          [row.subject_name, row.class_name]
+          'DELETE FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(TRIM(subject_name))=$1 AND LOWER(TRIM(class_name))=$2',
+          [(row.subject_name || '').toLowerCase().trim(), (row.class_name || '').toLowerCase().trim()]
         );
       }
     }
@@ -337,31 +337,33 @@ router.post('/map-subjects-classes', async (req, res) => {
         continue;
       }
       
-      // Validate class exists in classes_schema
+      // Validate class exists in classes_schema (case-insensitive)
       const classResult = await client.query(
         `SELECT table_name FROM information_schema.tables 
-         WHERE table_schema = 'classes_schema' AND table_name = $1`,
-        [mapping.className?.toLowerCase()]
+         WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
+        [mapping.className.trim()]
       );
       if (classResult.rows.length === 0) {
         console.warn(`Class ${mapping.className} not found in classes_schema, skipping`);
         continue; // Skip instead of throwing error
       }
+      const actualClassName = classResult.rows[0].table_name;
       
-      // Validate subject exists
+      // Validate subject exists (case-insensitive)
       const subjectResult = await client.query(
-        'SELECT subject_name FROM subjects_of_school_schema.subjects WHERE subject_name = $1',
-        [mapping.subjectName]
+        'SELECT subject_name FROM subjects_of_school_schema.subjects WHERE LOWER(TRIM(subject_name)) = LOWER(TRIM($1))',
+        [mapping.subjectName.trim()]
       );
       if (subjectResult.rows.length === 0) {
         console.warn(`Subject ${mapping.subjectName} not found, skipping`);
         continue; // Skip instead of throwing error
       }
+      const actualSubjectName = subjectResult.rows[0].subject_name;
       
-      // Insert mapping
+      // Insert mapping using exact actual class name and subject name
       await client.query(
         'INSERT INTO subjects_of_school_schema.subject_class_mappings (class_name, subject_name) VALUES ($1, $2) ON CONFLICT (subject_name, class_name) DO NOTHING',
-        [mapping.className?.toLowerCase(), mapping.subjectName]
+        [actualClassName, actualSubjectName]
       );
     }
     
@@ -822,20 +824,21 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
   const className = req.params.className.toLowerCase();
   
   try {
-    // Validate class exists
+    // Validate class exists (case-insensitive)
     const classResult = await pool.query(
       `SELECT table_name FROM information_schema.tables 
-       WHERE table_schema = 'classes_schema' AND table_name = $1`,
+       WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
       [className]
     );
     if (classResult.rows.length === 0) {
       return res.status(404).json({ error: `Class ${className} not found` });
     }
+    const actualClassName = classResult.rows[0].table_name;
     
     // Get subjects for this class
     const subjectsResult = await pool.query(
-      'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE class_name = $1',
-      [className]
+      'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(class_name) = LOWER($1)',
+      [actualClassName]
     );
     
     const subjects = subjectsResult.rows;
@@ -868,7 +871,7 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
     try {
       const activeStudentsResult = await pool.query(`
         SELECT student_name 
-        FROM classes_schema."${className}" 
+        FROM classes_schema."${actualClassName}" 
         WHERE is_active = TRUE OR is_active IS NULL
       `);
       activeStudentsResult.rows.forEach(row => activeStudentNames.add(row.student_name));
@@ -1095,20 +1098,21 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
   const className = req.params.className.toLowerCase();
   
   try {
-    // Validate class exists in classes_schema
+    // Validate class exists in classes_schema (case-insensitive)
     const classResult = await pool.query(
       `SELECT table_name FROM information_schema.tables 
-       WHERE table_schema = 'classes_schema' AND table_name = $1`,
+       WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
       [className]
     );
     if (classResult.rows.length === 0) {
       return res.status(404).json({ error: `Class ${className} not found in classes_schema` });
     }
+    const actualClassName = classResult.rows[0].table_name;
     
     // Get subjects for this class from subject_class_mappings
     const subjectsResult = await pool.query(
-      'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE class_name = $1',
-      [className]
+      'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(class_name) = LOWER($1)',
+      [actualClassName]
     );
     
     const subjects = subjectsResult.rows;
@@ -1174,7 +1178,7 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
     try {
       const activeStudentsResult = await pool.query(`
         SELECT student_name 
-        FROM classes_schema."${className}" 
+        FROM classes_schema."${actualClassName}" 
         WHERE is_active = TRUE OR is_active IS NULL
       `);
       activeStudentsResult.rows.forEach(row => activeStudentNames.add(row.student_name));
