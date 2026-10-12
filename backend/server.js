@@ -53,7 +53,10 @@ const task6Routes = require('./routes/task6Routes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const runAdminNameMigration = require('./migrations/fix_admin_name_in_conversations');
 const adminRoutes = require('./routes/adminRoutes');
+const registrationReportRoutes = require('./routes/registrationReportRoutes');
 const guardianListRoutes = require('./routes/guardianListRoutes');
+const guardianPushRoutes = require('./routes/guardianPushRoutes');
+const deviceRoutes = require('./routes/deviceRoutes');
 const studentAttendanceRoutes = require('./routes/studentAttendanceRoutes');
 const classTeacherRoutes = require('./routes/classTeacherRoutes');
 const adminAttendanceRoutes = require('./routes/adminAttendanceRoutes');
@@ -62,15 +65,16 @@ const guardianAttendanceRoutes = require('./routes/guardianAttendanceRoutes');
 const guardianStudentAttendanceRoutes = require('./routes/guardianStudentAttendance');
 const evaluationBookRoutes = require('./routes/evaluationBookRoutes');
 const guardianPaymentsRoutes = require('./routes/guardianPayments');
-const guardianNotificationRoutes = require('./routes/guardianNotificationRoutes');
 const subAccountRoutes = require('./routes/subAccountRoutes');
 const reportsRoutes = require('./routes/reportsRoutes');
 const branchRoutes = require('./routes/branchRoutes');
 const financeReportsRoutes = require('./routes/finance/dashboardReports');
 const inventoryReportsRoutes = require('./routes/inventory/dashboardReports');
+const inventoryRoutes = require('./routes/inventory/index');
 const hrReportsRoutes = require('./routes/hr/dashboardReports');
 const hrRoutes = require('./routes/hr');
 const assetReportsRoutes = require('./routes/assets/dashboardReports');
+const assetsRoutes = require('./routes/assets/index');
 const financeAccountRoutes = require('./routes/financeAccountRoutes');
 const financeExpenseRoutes = require('./routes/simpleExpenseRoutes');
 const financeBudgetRoutes = require('./routes/simpleBudgetRoutes');
@@ -97,10 +101,31 @@ const shiftSettingsRoutes = require('./routes/shiftSettings');
 const taskStatusRoutes = require('./routes/taskStatusRoutes');
 const deviceUserManagementRoutes = require('./routes/deviceUserManagement');
 const studentActivitiesRoutes = require('./routes/studentActivitiesRoutes');
+const superAdminRoutes = require('./routes/superAdminRoutes');
+const aiRoutes = require('./routes/aiRoutes');
+const yearRolloverRoutes = require('./routes/yearRolloverRoutes');
+const financeAppRoutes = require('./routes/financeAppRoutes');
+const superFinanceRoutes = require('./routes/superFinanceRoutes');
+const smsRoutes = require('./routes/smsRoutes');
+const smsGatewayRoutes = require('./routes/smsGatewayRoutes');
+const aiTestGeneratorRoutes = require('./routes/aiTestGenerator');
+// const aiContentRoutes = require('./routes/aiContentRoutes'); // Gemini AI removed
+
+// Database pool
+const pool = require('./config/db');
+
+// Global error handler
+const { errorHandler, onUncaughtException, onUnhandledRejection } = require('./middleware/errorHandler');
+
+// Global process-level error handlers (prevents Node crashes → nginx 502s)
+process.on('uncaughtException', onUncaughtException);
+process.on('unhandledRejection', onUnhandledRejection);
 
 // Service imports for device user persistence
 const syncCoordinator = require('./services/SyncCoordinator');
 const deviceUserMonitoringService = require('./services/DeviceUserMonitoringService');
+const { startPaymentReminders } = require('./services/PaymentReminderService');
+const deviceUserBufferService = require('./services/DeviceUserBufferService');
 const backupRestoreService = require('./services/BackupRestoreService');
 
 const app = express();
@@ -122,8 +147,8 @@ if (process.env.NODE_ENV === 'production' && process.env.HTTPS_ENABLED === 'true
 const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === 'production'
-      ? [process.env.FRONTEND_URL || 'https://v2.skoolific.com']
-      : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5052'],
+      ? [process.env.FRONTEND_URL || 'https://iqra.skoolific.com']
+      : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:6005'],
     methods: ['GET', 'POST'],
     allowedHeaders: ['Authorization'],
     credentials: true
@@ -203,17 +228,14 @@ app.use(httpsRedirect);
 // 2. Security headers (helmet)
 app.use(securityHeaders);
 
-// 3. CORS configuration
+// 3. CORS configuration - allows all *.skoolific.com subdomains + configured origins
 const allowedOrigins = process.env.NODE_ENV === 'production' 
-  ? [process.env.FRONTEND_URL || 'https://v2.skoolific.com']  // Production domain
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5052'];
+  ? [process.env.FRONTEND_URL || 'https://iqra.skoolific.com']
+   : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5052'];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
-    if (!origin) {
-      return callback(null, true);
-    }
+    if (!origin) return callback(null, true);
     
     // In development, allow all local network IPs
     if (process.env.NODE_ENV !== 'production') {
@@ -225,17 +247,22 @@ app.use(cors({
       }
     }
     
+    // Allow skoolific.com and any *.skoolific.com subdomain (multi-school deployment)
+    if (origin.match(/^https?:\/\/([a-z0-9-]+\.)*skoolific\.com$/)) {
+      return callback(null, true);
+    }
+    
     // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     
     console.log('CORS blocked origin:', origin);
-    callback(new Error('Not allowed by CORS'));
+    callback(null, false);
   },
   methods: 'GET,POST,PUT,DELETE,PATCH',
   credentials: true,
-  maxAge: 86400 // Cache preflight for 24 hours
+  maxAge: 86400
 }));
 
 // 4. Rate limiting - apply to all API routes
@@ -246,10 +273,69 @@ app.use('/api/admin/login', loginLimiter);
 app.use('/api/staff/login', loginLimiter);
 
 // 6. Body parsing with size limits
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '500mb' }));
+app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 
-// 7. Input sanitization (comprehensive)
+// Branch database context middleware - auto-routes all DB queries to the correct branch
+const { branchContext } = require('./config/db');
+app.use((req, res, next) => {
+  let branchCode = req.headers['x-branch-code'];
+  if (Array.isArray(branchCode)) branchCode = branchCode[0];
+  branchCode = branchCode || req.body?.branchCode || req.query?.branchCode;
+  if (Array.isArray(branchCode)) branchCode = branchCode[0];
+  // Sanitize: strip anything after a comma (prevents stored duplicate like "IQRA1, IQRA1")
+  if (branchCode && typeof branchCode === 'string') branchCode = branchCode.split(',')[0].trim();
+  if (branchCode) {
+    branchContext.run(branchCode, () => next());
+  } else {
+    next();
+  }
+});
+
+// 7. Global branch code gate — ALL data routes MUST have a branch code
+// System routes (health, login, auth, public, super-admin, branch-management) are exempted.
+// Everything else (students, staff, finance, marks, schedule, attendance, etc.) requires a branch code.
+app.use((req, res, next) => {
+  // Only check /api/* routes
+  if (!req.path.startsWith('/api/')) return next();
+
+  // System routes that DON'T need a branch code
+  const systemPrefixes = [
+    '/api/health',
+    '/api/public',
+    '/api/v2/auth',
+    '/api/v2/branches',
+    '/api/super-admin',
+    '/api/finance-app',
+    '/api/super-finance',
+    '/api/settings/branding',
+    '/api/devices/register',
+    '/api/sms/jobs',
+    '/api/sms/report',
+    '/api/sms/gateway',
+  ];
+  for (const prefix of systemPrefixes) {
+    if (req.path.startsWith(prefix)) return next();
+  }
+
+  // Admin login endpoint (inside /api/admin) — no branch code needed
+  if (req.path === '/api/admin/login' || req.path.startsWith('/api/admin/login/')) return next();
+
+  // Check for branch code
+  let branchCode = req.headers['x-branch-code'];
+  if (Array.isArray(branchCode)) branchCode = branchCode[0];
+  branchCode = branchCode || req.body?.branchCode || req.query?.branchCode;
+  if (Array.isArray(branchCode)) branchCode = branchCode[0];
+  if (branchCode && typeof branchCode === 'string') branchCode = branchCode.split(',')[0].trim();
+  if (!branchCode) {
+    branchCode = process.env.DEFAULT_BRANCH_CODE || process.env.AI06_BRANCH_CODE || 'IQRA1';
+    req.headers['x-branch-code'] = branchCode;
+    if (req.query) req.query.branchCode = branchCode;
+  }
+  next();
+});
+
+// 7b. Input sanitization (comprehensive)
 app.use(sanitizeRequest);
 app.use(preventInjection);
 app.use(sanitizeInputs); // Keep existing for backward compatibility
@@ -273,7 +359,7 @@ app.use('/Uploads/posts', express.static(path.join(__dirname, 'Uploads/posts')))
 app.use('/uploads/posts', express.static(path.join(__dirname, 'Uploads/posts')));
 app.use('/uploads/branding', express.static(path.join(__dirname, 'uploads/branding')));
 
-// Test route to check if server is running
+// Test route to check if server is running (delegates to healthRoutes for full checks)
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running' });
 });
@@ -324,25 +410,31 @@ app.use('/api/school-setup', schoolSetupRoutes);
 app.use('/api/task6', task6Routes);
 app.use('/api/dashboard', dashboardRoutes); // This is CORRECT - dashboardRoutes will have routes like '/stats'
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/registration-report', registrationReportRoutes);
 app.use('/api/user-profile', require('./routes/userProfileRoutes')); // Username and password change for all user types
 app.use('/api/guardian-list', guardianListRoutes);
+app.use('/api/guardians', guardianPushRoutes);
+app.use('/api/devices', smsGatewayRoutes); // Android SMS Gateway device registration
+app.use('/api/devices', deviceRoutes); // Mobile push notifications
 app.use('/api/student-attendance', studentAttendanceRoutes);
 app.use('/api/class-teacher', classTeacherRoutes);
 app.use('/api/admin-attendance', adminAttendanceRoutes);
+app.use('/api/backup', require('./routes/backupRoutes'));
 app.use('/api/class-communication', classCommunicationRoutes);
 app.use('/api/guardian-attendance', guardianAttendanceRoutes);
 app.use('/api/guardian-student-attendance', guardianStudentAttendanceRoutes);
 app.use('/api/evaluation-book', evaluationBookRoutes);
 app.use('/api/guardian-payments', guardianPaymentsRoutes);
-app.use('/api/guardian-notifications', guardianNotificationRoutes);
 app.use('/api/admin/sub-accounts', subAccountRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/reports/finance', financeReportsRoutes);
 app.use('/api/reports/inventory', inventoryReportsRoutes);
+app.use('/api/inventory', inventoryRoutes);
 app.use('/api/reports/hr', hrReportsRoutes);
 app.use('/api/hr/shift-settings', shiftSettingsRoutes); // Must be before /api/hr
 app.use('/api/hr', hrRoutes);
 app.use('/api/reports/assets', assetReportsRoutes);
+app.use('/api/assets', assetsRoutes);
 app.use('/api/finance/accounts', financeAccountRoutes);
 app.use('/api/finance/expenses', financeExpenseRoutes);
 app.use('/api/finance/budgets', financeBudgetRoutes);
@@ -357,7 +449,7 @@ app.use('/api/finance/invoices', financeInvoiceRoutes);
 app.use('/api/finance/payments', financePaymentRoutes);
 app.use('/api/finance/monthly-payments', financeMonthlyPaymentRoutes);
 app.use('/api/finance/monthly-payments-view', financeMonthlyPaymentViewRoutes);
-app.use('/api/year-rollover', require('./routes/yearRollover')); // Year rollover routes
+// Year rollover is mounted at line 396 with yearRolloverRoutes
 app.use('/api/finance/simple-invoices', financeSimpleInvoiceRoutes);
 app.use('/api/finance/progressive-invoices', financeProgressiveInvoiceRoutes);
 app.use('/api/finance', financeClassStudentRoutes);
@@ -370,31 +462,99 @@ app.use('/api/academic/student-attendance', academicStudentAttendanceRoutes);
 app.use('/api/tasks', taskStatusRoutes);
 app.use('/api/device-users', deviceUserManagementRoutes); // Device user persistence management
 app.use('/api/v2/branches', branchRoutes); // Multi-branch architecture routes
+app.use('/api/finance-app', financeAppRoutes); // Finance App login
+app.use('/api/super-finance', superFinanceRoutes); // Super Finance App login (all branches)
+app.use('/api/super-admin', superAdminRoutes); // Super Admin aggregation routes
+app.use('/api/v2/auth', require('./routes/authRoutes')); // Auth refresh + logout
+app.use('/api/ai', aiRoutes); // SKOOLIFIC AI Module
+app.use('/api/year-rollover', yearRolloverRoutes); // Year Rollover
+app.use('/api/sms', smsGatewayRoutes); // Android SMS Gateway worker routes (jobs, report, stats)
+app.use('/api/devices', smsGatewayRoutes); // Android Device registration (/api/devices/register)
+app.use('/sms', smsGatewayRoutes); // Fallback for Base URL with /api prefix
+app.use('/api/sms', smsRoutes); // SMS Templates and manual broadcast
+app.use('/api/ai', aiTestGeneratorRoutes); // AI Test Generator
+
+// Global error handler (must be after all routes)
+app.use(errorHandler);
+
+// ===========================================
+// FRONTEND SPA - Serve built React app
+// ===========================================
+const frontendDistPath = path.join(__dirname, '..', 'APP', 'dist');
+
+// Serve manifest files with correct Content-Type for PWA
+const serveManifest = (res, filePath) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      res.status(404).json({ error: 'Manifest not found' });
+    }
+  });
+};
+app.get('/manifest.json', (req, res) => {
+  serveManifest(res, path.join(frontendDistPath, 'manifest.json'));
+});
+app.get('/manifest-staff.json', (req, res) => {
+  serveManifest(res, path.join(frontendDistPath, 'manifest-staff.json'));
+});
+app.get('/manifest-student.json', (req, res) => {
+  serveManifest(res, path.join(frontendDistPath, 'manifest-student.json'));
+});
+app.get('/manifest-guardian.json', (req, res) => {
+  serveManifest(res, path.join(frontendDistPath, 'manifest-guardian.json'));
+});
+
+// Serve static files — no cache for index.html, long cache for assets
+app.use(express.static(frontendDistPath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else if (filePath.includes('/assets/')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }
+}));
+
+// SPA catch-all: serve index.html for page routes only
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/Uploads') || req.path.startsWith('/uploads')) {
+    return next();
+  }
+  // Skip if it looks like a file request (has extension) — let it 404
+  if (req.path.includes('.') && req.path.split('/').pop().includes('.')) {
+    return next();
+  }
+  if (req.method === 'GET') {
+    res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
+      if (err) next();
+    });
+  } else {
+    next();
+  }
+});
 
 // ===========================================
 // AI06 WEBSOCKET SERVICE
 // ===========================================
-// TEMPORARILY DISABLED TO FIX PORT CONFLICT
-// const AI06_ENABLED = process.env.AI06_WEBSOCKET_ENABLED !== 'false';
-// const AI06_PORT = process.env.AI06_WEBSOCKET_PORT || 7788;
+const AI06_ENABLED = process.env.AI06_WEBSOCKET_ENABLED !== 'false';
+const AI06_PORT = process.env.AI06_WEBSOCKET_PORT || 7788;
 
-// if (AI06_ENABLED) {
-//   const AI06WebSocketService = require('./services/ai06WebSocketService');
-//   const ai06Service = new AI06WebSocketService(AI06_PORT);
+if (AI06_ENABLED) {
+  const AI06WebSocketService = require('./services/ai06WebSocketService');
+  const ai06Service = new AI06WebSocketService(AI06_PORT);
 
-//   // Start AI06 service with Socket.IO for real-time updates
-//   ai06Service.start(io);
+  // Start AI06 service with Socket.IO for real-time updates
+  ai06Service.start(io);
 
-//   // Make AI06 service accessible to routes
-//   app.set('ai06Service', ai06Service);
-  
-//   console.log(`✅ AI06 WebSocket Service enabled on port ${AI06_PORT}`);
-// } else {
-//   console.log('⚠️  AI06 WebSocket Service is DISABLED in .env');
-//   console.log('   Set AI06_WEBSOCKET_ENABLED=true to enable device connections');
-// }
+  // Make AI06 service accessible to routes
+  app.set('ai06Service', ai06Service);
 
-console.log('⚠️  AI06 WebSocket Service is TEMPORARILY DISABLED');
+  console.log(`✅ AI06 WebSocket Service enabled on port ${AI06_PORT}`);
+} else {
+  console.log('⚠️  AI06 WebSocket Service is DISABLED in .env');
+  console.log('   Set AI06_WEBSOCKET_ENABLED=true to enable device connections');
+}
+
 
 
 // ===========================================
@@ -413,15 +573,21 @@ const guardianNotificationService = require('./services/guardianNotificationServ
 guardianNotificationService.start();
 console.log('✅ Guardian Notification Service started');
 
-// DATABASE MIGRATIONS - Temporarily disabled
-// ===========================================
-// const { Pool } = require('pg');
-// const MigrationRunner = require('./migrations/migrationRunner');
+// Firebase Push Notification Service (FCM)
+const pushNotificationService = require('./services/PushNotificationService');
+pushNotificationService.initialize()
+  .then(() => console.log('✅ Firebase Push Notification Service initialized'))
+  .catch(err => console.warn('⚠️ Firebase Push unavailable (not configured):', err.message));
 
-// // Initialize database pool for migrations
-// const migrationPool = new Pool({
-//   connectionString: process.env.DATABASE_URL
-// });
+// DATABASE MIGRATIONS
+// ===========================================
+const { Pool } = require('pg');
+const DatabaseMigrationRunner = require('./database/MigrationRunner');
+
+// Initialize database pool for migrations
+const migrationPool = new Pool({
+  connectionString: process.env.DATABASE_URL
+});
 
 // Import auto-setup utility
 const { autoSetup } = require('./utils/autoSetup');
@@ -431,13 +597,13 @@ const attendanceSystemInitializer = require('./services/attendanceSystemInitiali
 
 // Run migrations and auto-setup on startup, then start server
 (async () => {
-  // try {
-  //   const migrationRunner = new MigrationRunner(migrationPool);
-  //   await migrationRunner.runPendingMigrations();
-  // } catch (error) {
-  //   console.error('❌ Failed to run migrations:', error.message);
-  //   console.error('⚠️ Server will continue, but some features may not work correctly');
-  // }
+  try {
+    const migrationRunner = new DatabaseMigrationRunner({ connectionString: process.env.DATABASE_URL });
+    await migrationRunner.runPendingMigrations();
+  } catch (error) {
+    console.error('❌ Failed to run migrations:', error.message);
+    console.error('⚠️ Server will continue, but some features may not work correctly');
+  }
 
   // Run auto-setup (creates default accounts, checks migrations, etc.)
   await autoSetup();
@@ -522,6 +688,7 @@ const attendanceSystemInitializer = require('./services/attendanceSystemInitiali
   // Start device user monitoring service (polls every 5 minutes)
   // This will also run migration automatically when device comes online
   deviceUserMonitoringService.startMonitoring(5);
+  startPaymentReminders();
   console.log('✅ Device User Monitoring Service started');
 
   // Start automatic backup service (runs every 6 hours)
@@ -550,7 +717,7 @@ const attendanceSystemInitializer = require('./services/attendanceSystemInitiali
   }
 
   // Start server after setup complete
-  const PORT = process.env.PORT || 5050;
+  const PORT = process.env.PORT || 6005;
   const HOST = '0.0.0.0'; // Listen on all network interfaces for mobile access
   server.listen(PORT, HOST, () => {
     console.log(`Server running on ${HOST}:${PORT}`);
@@ -566,17 +733,40 @@ const attendanceSystemInitializer = require('./services/attendanceSystemInitiali
   console.log('   Machine should push data directly to this endpoint');
   
   console.log('\n🔌 AI06 WebSocket Server Ready:');
-  console.log(`   Listening on port 7788 for AI06 device`);
+  console.log(`   Listening on port ${AI06_PORT} for AI06 device`);
   console.log(`   Configure AI06 device with:`);
   console.log(`   - Server IP: YOUR_LOCAL_IP (e.g., 192.168.1.100)`);
-  console.log(`   - Server Port: 7788`);
+  console.log(`   - Server Port: ${AI06_PORT}`);
   console.log(`   - Server Reg: YES`);
+  });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`❌ Port ${PORT} is in use. Kill it first: taskkill /F /PID <pid> or npx kill-port ${PORT}`);
+      process.exit(1);
+    } else {
+      console.error('Server error:', err);
+    }
   });
 })(); // Close the async function
 
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+const gracefulShutdown = (signal) => {
+  console.log(`\n${signal} received, shutting down gracefully...`);
   server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error('Forced exit after timeout');
+    process.exit(1);
+  }, 5000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGUSR2', () => {
+  console.log('SIGUSR2 received (nodemon restart), closing server...');
+  server.close(() => {
+    console.log('Server closed for restart');
     process.exit(0);
   });
 });

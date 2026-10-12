@@ -22,3 +22,6 @@
 .saveBtn:disabled { opacity: 0.6; }
 .cancelBtn { padding: 8px 20px; background: #e2e8f0; color: #475569; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .cancelBtn:hover { background: #cbd5e1; }
+.charCount { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #64748b; margin-bottom: 8px; }
+.validLength { color: #16a34a; font-weight: 600; background: #dcfce7; padding: 2px 8px; border-radius: 4px; }
+.invalidLength { color: #dc2626; font-weight: 600; background: #fee2e2; padding: 2px 8px; border-radius: 4px; }

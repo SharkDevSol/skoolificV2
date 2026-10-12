@@ -6,6 +6,7 @@ const TEMPLATE_KEYS = {
   student_welcome: 'Student Welcome SMS',
   guardian_welcome: 'Guardian Welcome SMS',
   payment_receipt: 'Payment Receipt SMS',
+  payment_reminder: 'Payment Reminder SMS',
   staff_welcome: 'Staff Welcome SMS'
 };
 
@@ -40,6 +41,10 @@ const SmsTemplates = () => {
 
   const handleSave = async () => {
     if (!editing || !editText.trim()) return;
+    if (editing.template_key === 'payment_reminder' && editText.trim().length <= 100) {
+      setMessage('⚠️ Payment reminder template must be more than 100 characters in length.');
+      return;
+    }
     setSaving(true);
     try {
       await api.put(`/sms/templates/${editing.template_key}`, { template_text: editText });
@@ -76,9 +81,20 @@ const SmsTemplates = () => {
             <div className={styles.variables}>
               <strong>Available variables:</strong>{' '}
               {tmpl.template_key === 'payment_receipt' ? '{guardian_name}, {student_name}, {months_paid}, {amount_paid}, {school_name}' :
+               tmpl.template_key === 'payment_reminder' ? '{guardian_name}, {student_name}, {month_name}, {amount_due}, {school_name}' :
                tmpl.template_key === 'staff_welcome' ? '{staff_name}, {Branch}, {branchcode}, {staff_username}, {staff_password}' :
                '{student_name}, {student_username}, {student_password}, {guardian_name}, {guardian_username}, {guardian_password}, {school_name}'}
             </div>
+
+            <div className={styles.charCount}>
+              <span>Characters: <strong>{editing?.id === tmpl.id ? editText.length : (tmpl.template_text?.length || 0)}</strong></span>
+              {tmpl.template_key === 'payment_reminder' && (
+                <span className={(editing?.id === tmpl.id ? editText.length : (tmpl.template_text?.length || 0)) > 100 ? styles.validLength : styles.invalidLength}>
+                  {(editing?.id === tmpl.id ? editText.length : (tmpl.template_text?.length || 0)) > 100 ? '✓ Over 100 characters' : '⚠️ Must be > 100 characters'}
+                </span>
+              )}
+            </div>
+
             {editing?.id === tmpl.id ? (
               <div className={styles.editArea}>
                 <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={6} />
@@ -101,5 +117,6 @@ const SmsTemplates = () => {
     </div>
   );
 };
+
 
 export default SmsTemplates;
