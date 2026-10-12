@@ -273,7 +273,7 @@ router.post(getEndpointPath('AUTH.ADMIN_LOGIN').replace('/api/admin', ''), async
 // Verify admin password (used for critical operations like deleting students/staff)
 router.post('/verify-password', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
     if (!password) {
       return res.status(400).json({ error: 'Password is required' });
     }
