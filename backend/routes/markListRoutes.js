@@ -167,6 +167,9 @@ router.post('/configure-subjects', async (req, res) => {
 
 // Route to get all subjects
 router.get('/subjects', async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   try {
     const result = await pool.query('SELECT * FROM subjects_of_school_schema.subjects ORDER BY subject_name');
     res.json(result.rows);
@@ -278,6 +281,9 @@ router.get('/config', async (req, res) => {
 
 // Route to get all classes
 router.get('/classes', async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   try {
     const result = await pool.query(`
       SELECT table_name AS class_name FROM information_schema.tables 
@@ -380,6 +386,9 @@ router.post('/map-subjects-classes', async (req, res) => {
 
 // Route to get subject-class mappings
 router.get('/subjects-classes', async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   try {
     const mappings = await getClassSubjectMappings();
     res.json(mappings);

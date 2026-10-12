@@ -36,7 +36,7 @@ const SubjectConfiguration = ({ onSubjectsConfigured }) => {
   const fetchSubjects = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/mark-list/subjects`, {
+      const res = await fetch(`${API_BASE_URL}/mark-list/subjects?_t=${Date.now()}`, {
         headers: branchHeaders()
       });
       const data = await res.json();
@@ -310,9 +310,9 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
     setFetchLoading(true);
     try {
       const [classesRes, subjectsRes, mappingsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/mark-list/classes`, { headers: branchHeaders() }),
-        fetch(`${API_BASE_URL}/mark-list/subjects`, { headers: branchHeaders() }),
-        fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: branchHeaders() })
+        fetch(`${API_BASE_URL}/mark-list/classes?_t=${Date.now()}`, { headers: branchHeaders() }),
+        fetch(`${API_BASE_URL}/mark-list/subjects?_t=${Date.now()}`, { headers: branchHeaders() }),
+        fetch(`${API_BASE_URL}/mark-list/subjects-classes?_t=${Date.now()}`, { headers: branchHeaders() })
       ]);
       const [classesData, subjectsData, mappingsData] = await Promise.all([
         classesRes.json().catch(() => []),
@@ -369,6 +369,17 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
     setLoading(true);
     setMessage('');
     try {
+      // If user has the "+ Add Subjects" popup open with items checked, commit them first
+      if (addSubjectsForClass) {
+        const toAdd = Object.keys(selectedSubjects).filter(k => selectedSubjects[k]);
+        toAdd.forEach(name => {
+          mappings[`${addSubjectsForClass}-${name}`] = true;
+          mappings[`${addSubjectsForClass.toLowerCase()}-${name.toLowerCase()}`] = true;
+        });
+        setSelectedSubjects({});
+        setAddSubjectsForClass(null);
+      }
+
       const mappingsArray = [];
       const seen = new Set();
       classes.forEach(c => {
@@ -390,7 +401,7 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
       const data = await res.json();
       if (res.ok) {
         setMessage('Mappings saved!');
-        fetchData();
+        await fetchData();
         if (onMappingCompleted) onMappingCompleted();
       } else {
         setMessage(data.error || 'Failed to save');
@@ -434,6 +445,35 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
       {message && (
         <div className={`${styles.message} ${message.includes('!') ? styles.success : styles.error}`}>{message}</div>
       )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <span style={{ fontSize: 13, color: '#6b7280' }}>
+          {classes.length} classes available · Click subjects or use "+ Add Subjects"
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm('Assign ALL configured subjects to ALL classes? You can still remove or add individual subjects afterwards.')) {
+              setMappings(prev => {
+                const updated = { ...prev };
+                classes.forEach(c => {
+                  subjects.forEach(s => {
+                    updated[`${c}-${s.subject_name}`] = true;
+                    updated[`${c.toLowerCase()}-${s.subject_name.toLowerCase()}`] = true;
+                  });
+                });
+                return updated;
+              });
+            }
+          }}
+          style={{
+            padding: '6px 14px', borderRadius: 6, border: '1.5px solid #c4b5fd',
+            background: '#f5f3ff', color: '#6d28d9', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer'
+          }}
+        >
+          ⚡ Assign All Subjects to All Classes
+        </button>
+      </div>
       <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         {classes.map(className => {
           const mappedSubjects = subjects.filter(s => isMapped(className, s.subject_name));
@@ -462,6 +502,26 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
                 ))}
                 {addSubjectsForClass === className ? (
                   <div style={{ width: '100%', marginTop: 8, padding: 12, background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #e5e7eb' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const all = {};
+                          subjects.filter(s => !isMapped(className, s.subject_name)).forEach(s => { all[s.subject_name] = true; });
+                          setSelectedSubjects(all);
+                        }}
+                        style={{ padding: '3px 10px', fontSize: 12, background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubjects({})}
+                        style={{ padding: '3px 10px', fontSize: 12, background: '#f3f4f6', color: '#4b5563', border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer' }}
+                      >
+                        Clear
+                      </button>
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
                       {subjects.filter(s => !isMapped(className, s.subject_name)).map(s => (
                         <label key={s.id} onClick={() => setSelectedSubjects(prev => ({ ...prev, [s.subject_name]: !prev[s.subject_name] }))}
