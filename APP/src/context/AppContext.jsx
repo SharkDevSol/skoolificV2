@@ -1976,7 +1976,7 @@ const translations = {
 
 const AppContext = createContext();
 
-// Alkhwarizm Brand Color System
+// OneCo Solution Brand Color System
 const DEFAULT_THEME = {
   primaryColor: '#6F56FF',    // Digital Violet - Main identity color
   secondaryColor: '#8FA2FF',  // Soft Indigo - Hover states, secondary buttons

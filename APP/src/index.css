@@ -1,6 +1,6 @@
 :root {
   /* ========================================
-     ALKHWARIZM BRAND COLOR SYSTEM
+     ONECO SOLUTION BRAND COLOR SYSTEM
      These are the default colors used when 
      not changed from settings
      ======================================== */
@@ -29,7 +29,7 @@
   --primary-shadow: rgba(111, 86, 255, 0.3);
   --primary-shadow-lg: rgba(111, 86, 255, 0.35);
   
-  /* Light Mode Colors - Using Alkhwarizm Palette */
+  /* Light Mode Colors - Using OneCo Solution Palette */
   --bg-color: var(--cloud-white);
   --bg-secondary: var(--soft-lilac);
   --bg-tertiary: var(--cool-gray);

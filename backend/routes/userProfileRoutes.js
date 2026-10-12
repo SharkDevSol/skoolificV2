@@ -6,6 +6,11 @@ const { authenticateWithBranch } = require('../middleware/branchAuth');
 const { sanitizeInput } = require('../utils/sanitizer');
 const { logPasswordChange } = require('../utils/logger');
 
+// Multi-tenant: authenticateWithBranch attaches the per-branch pool as
+// req.branchPool — use it so queries hit the branch database (where the
+// admin/staff/student/guardian tables live), not the global pool.
+const db = (req) => req.branchPool || pool;
+
 /**
  * Password Strength Validation
  * Requirements:
