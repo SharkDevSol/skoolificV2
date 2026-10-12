@@ -331,8 +331,7 @@ const sanitizeStaffTypeToSchema = (type) =>
   `staff_${type.replace(/\s+/g, '_').toLowerCase()}`;
 const sanitizeClassName = (name) =>
   // FIX: PRESERVE case - class tables keep their real case (staff_teachers.G1);
-  // lowercasing made IQRA5 queries miss them
-  name.replace(/[^a-zA-Z0-9_]/g, '_');
+  (name || '').trim().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+|_+$/g, '');
 
 const BASE_COLUMNS = new Set([
   'global_staff_id',
@@ -792,7 +791,7 @@ router.post('/create-form', async (req, res) => {
   }
 
   if (
-    !['Supportive Staff', 'Administrative Staff', 'Teachers'].includes(staffType) ||
+    !['Supportive Staff', 'Administrative Staff', 'Teachers', 'Finance'].includes(staffType) ||
     !raw
   )
     return res.status(400).json({ error: 'Invalid staffType or className' });
@@ -812,10 +811,21 @@ router.post('/create-form', async (req, res) => {
        WHERE table_schema = $1 AND table_name <> 'staff_counter'`,
       [schema]
     );
-    if (existing.rowCount)
-      throw new Error('A form already exists for this staff type');
+    if (existing.rowCount) {
+      const existingTable = existing.rows[0].table_name;
+      const countRes = await client.query(
+        `SELECT COUNT(*) as count FROM "${schema}"."${existingTable}"`
+      );
+      if (parseInt(countRes.rows[0].count) === 0) {
+        console.log(`Existing table "${schema}"."${existingTable}" is empty. Replacing with new form.`);
+        await client.query(`DROP TABLE IF EXISTS "${schema}"."${existingTable}" CASCADE`);
+        await client.query(`DELETE FROM form_metadata.field_types WHERE schema_name = $1 AND table_name = $2`, [schema, existingTable]);
+      } else {
+        throw new Error(`A form already exists for ${staffType} with ${countRes.rows[0].count} staff member(s). To modify the form, please delete it from Staff Registration or archive existing staff.`);
+      }
+    }
 
-    if (!/^[a-z0-9_]+$/.test(className))
+    if (!/^[a-zA-Z0-9_]+$/.test(className))
       throw new Error('Class name may only contain letters, numbers and _');
 
     const baseCols = [
@@ -910,6 +920,10 @@ router.post('/create-form', async (req, res) => {
         INSERT INTO form_metadata.field_types 
         (schema_name, table_name, column_name, field_type, required, options)
         VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (schema_name, table_name, column_name) DO UPDATE SET
+          field_type = EXCLUDED.field_type,
+          required = EXCLUDED.required,
+          options = EXCLUDED.options
       `, [schema, className, f.name, fieldType, f.required, JSON.stringify(f.options || [])]);
       
       console.log(`Stored metadata for ${f.name}: type=${fieldType}, required=${f.required}, db_type=${def}`);

@@ -1,7 +1,7 @@
 // StaffFormBuilder.jsx - COMPLETELY UPDATED WITH FIELD NAME VALIDATION AND TRANSLATIONS
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import axios from 'axios';
+import api from '../../../utils/api';
 import { useLanguageSelection } from '../../../context/LanguageSelectionContext';
 
 // Icon Components
@@ -248,12 +248,7 @@ const StaffFormBuilder = ({ onSuccess }) => {
 
       console.log('Creating form with payload:', payload);
 
-      await axios.post('/api/staff/create-form', payload, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
+      await api.post('/staff/create-form', payload);
 
       setStaffType('');
       setClassName('');
@@ -264,7 +259,7 @@ const StaffFormBuilder = ({ onSuccess }) => {
         if (onSuccess) onSuccess();
       }, 1500);
     } catch (err) {
-      const serverError = err.response?.data?.error || 'An unexpected error occurred.';
+      const serverError = err.response?.data?.details || err.response?.data?.error || err.message || 'An unexpected error occurred.';
       setErrorMessage(`❌ ${serverError}`);
       console.error('Create form error:', err);
     } finally {
