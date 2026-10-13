@@ -11,6 +11,8 @@ workflows:
   iqra-staff-ios:
     name: IQRA Staff iOS (App Store)
     environment:
+      groups:
+        - ios_credentials
       flutter: stable
       xcode: latest
       cocoapods: default
