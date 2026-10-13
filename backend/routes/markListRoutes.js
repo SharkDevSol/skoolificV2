@@ -1550,8 +1550,12 @@ router.post('/assign-teachers', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // Clear ALL existing assignments to replace with new ones
-    await client.query('DELETE FROM subjects_of_school_schema.teachers_subjects');
+    // Clear assignments: if managedTeachers provided, delete for those teachers; otherwise replace all
+    if (req.body.managedTeachers && Array.isArray(req.body.managedTeachers) && req.body.managedTeachers.length > 0) {
+      await client.query('DELETE FROM subjects_of_school_schema.teachers_subjects WHERE teacher_name = ANY($1)', [req.body.managedTeachers]);
+    } else {
+      await client.query('DELETE FROM subjects_of_school_schema.teachers_subjects');
+    }
     
     // Validate and insert new assignments
     for (const assignment of assignments) {

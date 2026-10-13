@@ -69,19 +69,23 @@ const MarkListForm = () => {
       ]);
 
       const [classesData, mappingsData, configData] = await Promise.all([
-        classesRes.json(),
-        mappingsRes.json(),
-        configRes.json()
+        classesRes.ok ? classesRes.json() : [],
+        mappingsRes.ok ? mappingsRes.json() : [],
+        configRes.ok ? configRes.json() : {}
       ]);
+
+      const validMappings = Array.isArray(mappingsData) ? mappingsData : [];
+      const validClasses = Array.isArray(classesData) ? classesData : [];
 
       // Derive unique subjects directly from mappings (no dependency on subjects table)
       const uniqueSubjects = [...new Map(
-        mappingsData.map(m => [m.subject_name, { id: m.subject_name, subject_name: m.subject_name }])
+        validMappings.map(m => [m.subject_name, { id: m.subject_name, subject_name: m.subject_name }])
       ).values()];
 
       setSubjects(uniqueSubjects);
-      setClasses(classesData);
-      const termCount = parseInt(configData.terms || configData.term_count, 10) || 2;
+      setSubjectClassMappings(validMappings);
+      setClasses(validClasses);
+      const termCount = parseInt(configData?.terms || configData?.term_count, 10) || 2;
       setConfig({ term_count: termCount });
     } catch (error) {
       console.error('Error fetching initial data:', error);
@@ -91,9 +95,11 @@ const MarkListForm = () => {
 
   const getAvailableClasses = () => {
     if (!selectedSubject) return [];
-    return subjectClassMappings
-      .filter(mapping => mapping.subject_name === selectedSubject)
+    const mapped = (subjectClassMappings || [])
+      .filter(mapping => (mapping.subject_name || '').trim().toLowerCase() === selectedSubject.trim().toLowerCase())
       .map(mapping => mapping.class_name);
+    if (mapped.length > 0) return mapped;
+    return (classes || []).map(c => (typeof c === 'string' ? c : c.class_name || c.name || '')).filter(Boolean);
   };
 
   // Auto-load existing config & form data when subject+class+term selected

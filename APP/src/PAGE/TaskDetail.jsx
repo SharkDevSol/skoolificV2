@@ -240,11 +240,15 @@ function TaskDetail() {
     };
     checkCompletion();
     
-    // Load Task 5 data when on task 5 (once)
-    if (taskId === '5' && !dataLoaded) {
+    // Load Task 5 data when on task 5
+    if (taskId === '5') {
       const loadTask5 = async () => {
         try {
-          const h = { 'x-branch-code': (getBranchCode() || '').toUpperCase() };
+          const branchCode = (getBranchCode() || '').toUpperCase();
+          const token = (branchCode ? localStorage.getItem(`branch_${branchCode}_authToken`) : null) || localStorage.getItem('authToken');
+          const h = { 'x-branch-code': branchCode };
+          if (token) h['Authorization'] = `Bearer ${token}`;
+
           const [classSubjectsRes, teachersRes, checkRes] = await Promise.all([
             fetch(`${API_BASE_URL}/mark-list/subjects-classes`, { headers: h }),
             fetch(`${API_BASE_URL}/school-setup/teachers-with-worktime`, { headers: h }),
@@ -254,42 +258,46 @@ function TaskDetail() {
           let subjectsData = [];
           if (classSubjectsRes.ok) {
             subjectsData = await classSubjectsRes.json();
-            setClassSubjects(subjectsData);
+            setClassSubjects(Array.isArray(subjectsData) ? subjectsData : []);
           }
 
           let teachersData = [];
           const w = {};
           if (teachersRes.ok) {
             teachersData = await teachersRes.json();
-            setTeachers(teachersData);
-            teachersData.forEach(t => { w[t.name] = t.staff_work_time || 'Full Time'; });
+            const validTeachers = Array.isArray(teachersData) ? teachersData : [];
+            setTeachers(validTeachers);
+            validTeachers.forEach(t => { 
+              if (t && t.name) w[t.name.trim()] = t.staff_work_time || 'Full Time'; 
+            });
             setTeacherWorkTimes(w);
           }
 
           if (checkRes.ok) {
-            const checkData = await checkRes.json();
+            const rawCheckData = await checkRes.json();
+            const checkData = Array.isArray(rawCheckData) ? rawCheckData : [];
             if (checkData.length > 0) {
               const enriched = checkData.map(item => ({
                 ...item,
-                staff_work_time: item.staff_work_time || (w[item.teacher_name] || 'Full Time')
+                staff_work_time: item.staff_work_time || (w[item.teacher_name?.trim()] || 'Full Time')
               }));
               setMergeData(enriched);
               setStats({
                 insertedCount: checkData.length,
-                teacherCount: new Set(checkData.map(item => item.teacher_name)).size,
+                teacherCount: new Set(checkData.map(item => item.teacher_name?.trim())).size,
                 classSubjectCount: checkData.length
               });
 
-              // Pre-populate assignments map so dropdowns show current teachers
+              // Pre-populate assignments map so dropdowns reliably show current teachers
               const initialAssignments = {};
               const existingMap = {};
               checkData.forEach(item => {
                 if (item.subject_class && item.teacher_name) {
-                  existingMap[item.subject_class.trim().toLowerCase()] = item.teacher_name;
+                  existingMap[item.subject_class.trim().toLowerCase()] = item.teacher_name.trim();
                 }
               });
 
-              subjectsData.forEach(cs => {
+              (Array.isArray(subjectsData) ? subjectsData : []).forEach(cs => {
                 const key = `${cs.class_name}|${cs.subject_name}`;
                 const scKey = (cs.subject_class || `${cs.subject_name} Class ${cs.class_name}`).trim().toLowerCase();
                 if (existingMap[scKey]) {
@@ -305,7 +313,7 @@ function TaskDetail() {
                     const cName = match[2].trim();
                     const key = `${cName}|${sName}`;
                     if (!initialAssignments[key]) {
-                      initialAssignments[key] = item.teacher_name;
+                      initialAssignments[key] = item.teacher_name.trim();
                     }
                   }
                 }
@@ -317,9 +325,11 @@ function TaskDetail() {
         } catch(e) { console.error('Error loading Task 5 data:', e); }
         finally { setDataLoaded(true); }
       };
-      loadTask5();
+      if (!dataLoaded) {
+        loadTask5();
+      }
     }
-  }, [taskId]);
+  }, [taskId, dataLoaded]);
 
   // Task 4 read-only data
   const [task4Subjects, setTask4Subjects] = useState([]);
@@ -1003,7 +1013,10 @@ function TaskDetail() {
   }
 
   // Task 5: Read-only view when completed
-  const task5Complete = async () => { await handleComplete(); };
+  const task5Complete = async () => { 
+    await handleComplete(); 
+    setIsEditing(false);
+  };
   if (taskId === '5' && isCompleted && !isEditing) {
     return (
       <div className={styles.container}>
@@ -1048,10 +1061,18 @@ function TaskDetail() {
   if (taskId === '5') {
 
     const handleTeacherAssignment = (classSubjectKey, teacherName) => {
-      setAssignments(prev => ({
-        ...prev,
-        [classSubjectKey]: teacherName
-      }));
+      setAssignments(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(k => {
+          if (k.trim().toLowerCase() === classSubjectKey.trim().toLowerCase()) {
+            delete next[k];
+          }
+        });
+        if (teacherName && teacherName.trim()) {
+          next[classSubjectKey] = teacherName.trim();
+        }
+        return next;
+      });
     };
 
     // FIXED: handleMerge function with proper work time handling
@@ -1059,18 +1080,26 @@ function TaskDetail() {
       setMergeLoading(true);
       setError(null);
       try {
+        const branchCode = (getBranchCode() || '').toUpperCase();
+        const token = (branchCode ? localStorage.getItem(`branch_${branchCode}_authToken`) : null) || localStorage.getItem('authToken');
+        const authHeaders = {
+          'Content-Type': 'application/json',
+          'x-branch-code': branchCode,
+        };
+        if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+
         // Prepare assignment data for mark-list endpoint
         const assignmentData = Object.entries(assignments)
           .filter(([_, teacherName]) => Boolean(teacherName && teacherName.trim()))
           .map(([classSubjectKey, teacherName]) => {
             const [className, subjectName] = classSubjectKey.split('|');
             
-            // FIX: Get the selected teacher's current work time from the teachers array
-            const selectedTeacher = teachers.find(teacher => teacher.name === teacherName);
+            // Get the selected teacher's current work time from the teachers array
+            const selectedTeacher = teachers.find(teacher => teacher.name.trim().toLowerCase() === teacherName.trim().toLowerCase());
             const workTime = selectedTeacher ? selectedTeacher.staff_work_time : (teacherWorkTimes[teacherName] || 'Full Time');
             
             return {
-              teacherName: teacherName,
+              teacherName: selectedTeacher ? selectedTeacher.name : teacherName,
               subjectClass: `${subjectName} Class ${className}`,
               staffWorkTime: workTime
             };
@@ -1083,10 +1112,7 @@ function TaskDetail() {
         // 1. Save to mark-list system (existing)
         const response = await fetch(`${API_BASE_URL}/mark-list/assign-teachers`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-branch-code': (getBranchCode() || '').toUpperCase(),
-          },
+          headers: authHeaders,
           body: JSON.stringify({ assignments: assignmentData }),
         });
         
@@ -1098,10 +1124,7 @@ function TaskDetail() {
         // 2. ALSO save to schedule system with work time information
         const scheduleResponse = await fetch(`${API_BASE_URL}/school-setup/sync-teacher-assignments`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-branch-code': (getBranchCode() || '').toUpperCase(),
-          },
+          headers: authHeaders,
           body: JSON.stringify({ 
             assignments: assignmentData,
             teacherWorkTimes: teacherWorkTimes 
@@ -1121,11 +1144,11 @@ function TaskDetail() {
         
         // Fetch the updated assignments to display
         const dataResponse = await fetch(`${API_BASE_URL}/mark-list/teacher-assignments`, {
-          headers: { 'x-branch-code': (getBranchCode() || '').toUpperCase() }
+          headers: authHeaders
         });
         if (dataResponse.ok) {
           const data = await dataResponse.json();
-          const enriched = data.map(item => ({
+          const enriched = (Array.isArray(data) ? data : []).map(item => ({
             ...item,
             staff_work_time: item.staff_work_time || (teacherWorkTimes[item.teacher_name] || 'Full Time')
           }));
@@ -1139,12 +1162,26 @@ function TaskDetail() {
       }
     };
 
-    const canCompleteTask = mergeData.length > 0;
+    const canCompleteTask = mergeData.length > 0 || Object.values(assignments).some(t => Boolean(t && t.trim()));
 
     return (
       <div className={styles.container}>
         <TaskNav />
-        <h1 className={styles.title}>Task 5: Assign Teachers to Classes and Subjects</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <h1 className={styles.title} style={{ margin: 0 }}>Task 5: Assign Teachers to Classes and Subjects</h1>
+          {isCompleted && (
+            <button
+              type="button"
+              onClick={() => setIsEditing(false)}
+              style={{
+                padding: '6px 14px', borderRadius: 6, border: '1px solid #d1d5db',
+                background: '#f9fafb', fontSize: 13, cursor: 'pointer', fontWeight: 500
+              }}
+            >
+              ← Back to Completed View
+            </button>
+          )}
+        </div>
         <p className={styles.description}>
           Manually assign teachers to their respective classes and subjects for scheduling and period management.
           <br />
@@ -1178,23 +1215,32 @@ function TaskDetail() {
                     </h3>
                     {items.map((item, idx) => {
                       const classSubjectKey = `${item.class_name}|${item.subject_name}`;
-                      const assignedTeacher = assignments[classSubjectKey];
-                      const workTime = assignedTeacher ? teacherWorkTimes[assignedTeacher] : '';
+                      const assignedTeacher = assignments[classSubjectKey] || 
+                        Object.entries(assignments).find(([k]) => k.trim().toLowerCase() === classSubjectKey.trim().toLowerCase())?.[1];
+                      
+                      const matchedTeacher = assignedTeacher 
+                        ? teachers.find(t => t.name.trim().toLowerCase() === assignedTeacher.trim().toLowerCase()) 
+                        : null;
+                      const selectedValue = matchedTeacher ? matchedTeacher.name : (assignedTeacher || '');
+                      const workTime = matchedTeacher 
+                        ? (matchedTeacher.staff_work_time || 'Full Time')
+                        : (assignedTeacher ? (teacherWorkTimes[assignedTeacher] || 'Full Time') : '');
                       return (
                         <div key={idx} style={{
                           display: 'flex', alignItems: 'center', gap: 12,
                           padding: '8px 0',
                           borderTop: idx === 0 ? 'none' : '1px solid #f3f4f6'
                         }}>
-                          <span style={{ minWidth: 80, fontWeight: 500, fontSize: 14, color: '#374151' }}>
+                          <span style={{ minWidth: 90, fontWeight: 500, fontSize: 14, color: '#374151' }}>
                             {item.subject_name}
                           </span>
                           <select
-                            value={assignedTeacher || ''}
+                            value={selectedValue}
                             onChange={(e) => handleTeacherAssignment(classSubjectKey, e.target.value)}
                             style={{
                               flex: 1, padding: '6px 10px', borderRadius: 6,
-                              border: '1px solid #d1d5db', fontSize: 13, background: '#fff'
+                              border: selectedValue ? '1px solid #10b981' : '1px solid #d1d5db',
+                              fontSize: 13, background: selectedValue ? '#f0fdf4' : '#fff'
                             }}
                           >
                             <option value="">Select Teacher</option>
@@ -1204,12 +1250,12 @@ function TaskDetail() {
                               </option>
                             ))}
                           </select>
-                          {assignedTeacher && workTime && (
+                          {selectedValue && workTime && (
                             <span style={{
                               padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
                               whiteSpace: 'nowrap',
-                              background: workTime === 'Part Time' ? '#fef3c7' : '#d1fae5',
-                              color: workTime === 'Part Time' ? '#92400e' : '#065f46'
+                              background: (workTime || '').toLowerCase().includes('part') || (workTime || '').toLowerCase().includes('per') ? '#fef3c7' : '#d1fae5',
+                              color: (workTime || '').toLowerCase().includes('part') || (workTime || '').toLowerCase().includes('per') ? '#92400e' : '#065f46'
                             }}>
                               {workTime}
                             </span>
