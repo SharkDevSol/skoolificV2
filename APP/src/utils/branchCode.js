@@ -1,18 +1,29 @@
 /**
- * Fixed (single-branch) deployments set VITE_FIXED_BRANCH at build time.
- * When set, the branch code is baked into the build: login screens skip the
+ * Fixed (single-branch) deployments set VITE_FIXED_BRANCH at build time,
+ * OR are automatically detected from the hostname (e.g. bilal.skoolific.com -> BILAL).
+ * When active, the branch code is automatically locked: login screens skip the
  * branch-code field and every API call is sent with this branch automatically.
  */
 const FIXED_BRANCH = (import.meta.env.VITE_FIXED_BRANCH || '').trim().toUpperCase();
 
-/** True when this build is locked to a single branch. */
-export function isFixedBranch() {
-  return !!FIXED_BRANCH;
+function detectDomainBranch() {
+  if (typeof window === 'undefined' || !window.location || !window.location.hostname) return '';
+  const host = window.location.hostname.toLowerCase();
+  if (host.includes('bilal')) return 'BILAL';
+  if (host.includes('darululum') || host.includes('darul-ulum')) return 'DARULULUM';
+  if (host.includes('almarkaz')) return 'ALMARKAZ';
+  if (host.includes('al-qalam') || host.includes('alqalam')) return 'ALQALAM';
+  return '';
 }
 
-/** The branch this build is locked to ('' when the build is multi-branch). */
+/** True when this build or domain is locked to a single branch. */
+export function isFixedBranch() {
+  return !!(FIXED_BRANCH || detectDomainBranch());
+}
+
+/** The branch this build or domain is locked to ('' when the build is multi-branch). */
 export function fixedBranchCode() {
-  return FIXED_BRANCH;
+  return FIXED_BRANCH || detectDomainBranch();
 }
 
 /**
@@ -21,14 +32,22 @@ export function fixedBranchCode() {
  * Each browser tab keeps its own branch code independently.
  */
 export function getBranchCode() {
-  if (FIXED_BRANCH) return FIXED_BRANCH;
+  const fixed = FIXED_BRANCH || detectDomainBranch();
+  if (fixed) return fixed;
   let code = sessionStorage.getItem('branchCode')
+    || localStorage.getItem('branchCode')
     || localStorage.getItem('rememberedBranchCode') || '';
+  if (!code) {
+    try {
+      const u = JSON.parse(localStorage.getItem('adminUser') || '{}');
+      if (u && u.branchCode) code = u.branchCode;
+    } catch (_) {}
+  }
   if (code.includes(',')) {
     code = code.split(',')[0].trim();
     sessionStorage.setItem('branchCode', code);
   }
-  return code.toUpperCase();
+  return (code || '').toUpperCase();
 }
 
 /**
@@ -37,7 +56,8 @@ export function getBranchCode() {
  * (rememberedBranchCode) used ONLY to pre-fill the login form, never for API calls.
  */
 export function setBranchCode(code, remember = false) {
-  const value = FIXED_BRANCH || (code || '').toUpperCase();
+  const fixed = FIXED_BRANCH || detectDomainBranch();
+  const value = fixed || (code || '').toUpperCase();
   sessionStorage.setItem('branchCode', value);
   if (remember) {
     localStorage.setItem('rememberedBranchCode', value);

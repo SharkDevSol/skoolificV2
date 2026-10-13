@@ -1,21 +1,67 @@
 const express = require('express');
 const pool = require('../config/db');
-const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 const router = express.Router();
 
-// Helper functions to sanitize database identifiers (schema name, table name, column name)
-// Safely handles special characters like slashes (e.g. 'G/S' -> 'g_s'), dashes, spaces, etc.
-const sanitizeIdentifier = (name) => {
-  if (!name) return '';
-  return name.toString().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+let branchAuth = null;
+try {
+  branchAuth = require('../middleware/branchAuth');
+} catch (err) {}
+
+const branchMiddleware = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && branchAuth && branchAuth.authenticateWithBranch) {
+    return branchAuth.authenticateWithBranch(req, res, next);
+  }
+  if (branchAuth && branchAuth.validateBranchCode) {
+    return branchAuth.validateBranchCode(req, res, next);
+  }
+  next();
 };
 
+router.use(branchMiddleware);
+
+// Helper to generate consistent, valid PostgreSQL schema name for a subject
 const getSubjectSchemaName = (subjectName) => {
-  return `subject_${sanitizeIdentifier(subjectName)}_schema`;
+  const clean = (subjectName || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `subject_${clean}_schema`;
 };
 
-const getClassTableName = (className, termNumber) => {
-  return `${sanitizeIdentifier(className)}_term_${termNumber}`;
+// Helper to sanitize column/component keys
+const sanitizeComponentKey = (name) => {
+  return (name || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+};
+
+// Extract mark-list params supporting subjects with slashes (e.g. "G/S")
+const extractMarkListParams = (req) => {
+  if (req.params && req.params.subjectName && req.params.className && req.params.termNumber) {
+    return {
+      subjectName: decodeURIComponent(req.params.subjectName),
+      className: req.params.className,
+      termNumber: req.params.termNumber
+    };
+  }
+  if (req.params && req.params[0] && req.params[1] && req.params[2]) {
+    return {
+      subjectName: decodeURIComponent(req.params[0]),
+      className: req.params[1],
+      termNumber: req.params[2]
+    };
+  }
+  return {
+    subjectName: req.query && req.query.subjectName ? decodeURIComponent(req.query.subjectName) : undefined,
+    className: req.query && req.query.className,
+    termNumber: req.query && req.query.termNumber
+  };
 };
 
 // Helper function to check if is_active column exists and build WHERE clause
@@ -102,12 +148,12 @@ const initializeSubjectsSchema = async () => {
   }
 };
 
-initializeSubjectsSchema();
+initializeSubjectsSchema().catch(err => console.error('Subjects schema init:', err));
 
 // Helper function to get class-subject mappings
-const getClassSubjectMappings = async () => {
+const getClassSubjectMappings = async (db = pool) => {
   try {
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT subject_name, class_name, subject_class
       FROM subjects_of_school_schema.subject_class_mappings
       ORDER BY subject_name, class_name
@@ -131,7 +177,8 @@ router.post('/configure-subjects', async (req, res) => {
     return res.status(400).json({ error: 'Number of subject names must match subject count' });
   }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
@@ -167,11 +214,9 @@ router.post('/configure-subjects', async (req, res) => {
 
 // Route to get all subjects
 router.get('/subjects', async (req, res) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
   try {
-    const result = await pool.query('SELECT * FROM subjects_of_school_schema.subjects ORDER BY subject_name');
+    const db = req.branchPool || pool;
+    const result = await db.query('SELECT * FROM subjects_of_school_schema.subjects ORDER BY subject_name');
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching subjects:', error);
@@ -182,7 +227,8 @@ router.get('/subjects', async (req, res) => {
 // Route to sync subjects from subject_class_mappings into subjects table
 router.post('/sync-subjects-from-mappings', async (req, res) => {
   try {
-    const result = await pool.query(`
+    const db = req.branchPool || pool;
+    const result = await db.query(`
       INSERT INTO subjects_of_school_schema.subjects (subject_name)
       SELECT DISTINCT subject_name FROM subjects_of_school_schema.subject_class_mappings
       ON CONFLICT (subject_name) DO NOTHING
@@ -202,7 +248,8 @@ router.post('/add-subject', async (req, res) => {
     return res.status(400).json({ error: 'Subject name is required' });
   }
   try {
-    const result = await pool.query(
+    const db = req.branchPool || pool;
+    const result = await db.query(
       'INSERT INTO subjects_of_school_schema.subjects (subject_name) VALUES ($1) ON CONFLICT (subject_name) DO NOTHING RETURNING *',
       [subject_name.trim()]
     );
@@ -223,7 +270,8 @@ router.put('/update-subject/:id', async (req, res) => {
   if (!subject_name || !subject_name.trim()) {
     return res.status(400).json({ error: 'Subject name is required' });
   }
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     const old = await client.query('SELECT subject_name FROM subjects_of_school_schema.subjects WHERE id = $1', [id]);
@@ -249,7 +297,8 @@ router.put('/update-subject/:id', async (req, res) => {
 // Route to delete a subject (explicit delete only)
 router.delete('/delete-subject/:id', async (req, res) => {
   const { id } = req.params;
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     const subj = await client.query('SELECT subject_name FROM subjects_of_school_schema.subjects WHERE id = $1', [id]);
@@ -271,28 +320,9 @@ router.delete('/delete-subject/:id', async (req, res) => {
 // Route to get school configuration (term count)
 router.get('/config', async (req, res) => {
   try {
-    let termCount = 2;
-    try {
-      const subjRes = await pool.query('SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1');
-      if (subjRes.rows.length > 0 && subjRes.rows[0].term_count) {
-        termCount = subjRes.rows[0].term_count;
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    try {
-      const schedRes = await pool.query('SELECT terms FROM schedule_schema.school_config WHERE id = 1');
-      if (schedRes.rows.length > 0 && schedRes.rows[0].terms) {
-        if (!termCount || schedRes.rows[0].terms > termCount) {
-          termCount = schedRes.rows[0].terms;
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    res.json({ term_count: termCount, terms: termCount });
+    const db = req.branchPool || pool;
+    const result = await db.query('SELECT * FROM subjects_of_school_schema.school_config WHERE id = 1');
+    res.json(result.rows[0] || { term_count: 2 });
   } catch (error) {
     console.error('Error fetching config:', error);
     res.status(500).json({ error: 'Failed to fetch config', details: error.message });
@@ -301,16 +331,32 @@ router.get('/config', async (req, res) => {
 
 // Route to get all classes
 router.get('/classes', async (req, res) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
   try {
-    const result = await pool.query(`
+    const db = req.branchPool || pool;
+    // Get classes from actual tables (classes_schema)
+    const tableResult = await db.query(`
       SELECT table_name AS class_name FROM information_schema.tables 
       WHERE table_schema = 'classes_schema'
     `);
-    const classes = result.rows.map(row => row.class_name);
-    res.json(classes);
+    const tableClasses = tableResult.rows.map(row => row.class_name);
+
+    // Also get classes from metadata (school_schema_points.classes)
+    try {
+      const metaResult = await db.query(`SELECT class_names FROM school_schema_points.classes WHERE id = 1`);
+      if (metaResult.rows.length > 0 && metaResult.rows[0].class_names) {
+        const metaClasses = metaResult.rows[0].class_names;
+        // Merge: add classes from metadata that aren't already in tableClasses
+        for (const cls of metaClasses) {
+          if (!tableClasses.includes(cls)) {
+            tableClasses.push(cls);
+          }
+        }
+      }
+    } catch (e) {
+      // school_schema_points.classes may not exist yet — ignore
+    }
+
+    res.json(tableClasses);
   } catch (error) {
     console.error('Error fetching classes:', error);
     res.status(500).json({ error: 'Failed to fetch classes', details: error.message });
@@ -325,7 +371,8 @@ router.post('/map-subjects-classes', async (req, res) => {
     return res.status(400).json({ error: 'Mappings array is required' });
   }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
@@ -346,13 +393,13 @@ router.post('/map-subjects-classes', async (req, res) => {
     const existingResult = await client.query(
       'SELECT subject_name, class_name FROM subjects_of_school_schema.subject_class_mappings'
     );
-    const newSet = new Set(mappings.map(m => `${(m.subjectName || '').toLowerCase().trim()}||${(m.className || '').toLowerCase().trim()}`));
+    const newSet = new Set(mappings.map(m => `${m.subjectName}||${m.className}`));
     for (const row of existingResult.rows) {
-      const key = `${(row.subject_name || '').toLowerCase().trim()}||${(row.class_name || '').toLowerCase().trim()}`;
+      const key = `${row.subject_name}||${row.class_name}`;
       if (!newSet.has(key)) {
         await client.query(
-          'DELETE FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(TRIM(subject_name))=$1 AND LOWER(TRIM(class_name))=$2',
-          [(row.subject_name || '').toLowerCase().trim(), (row.class_name || '').toLowerCase().trim()]
+          'DELETE FROM subjects_of_school_schema.subject_class_mappings WHERE subject_name=$1 AND class_name=$2',
+          [row.subject_name, row.class_name]
         );
       }
     }
@@ -363,33 +410,34 @@ router.post('/map-subjects-classes', async (req, res) => {
         continue;
       }
       
-      // Validate class exists in classes_schema (case-insensitive)
+      // Validate class exists in classes_schema (case-insensitive check)
       const classResult = await client.query(
         `SELECT table_name FROM information_schema.tables 
          WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
-        [mapping.className.trim()]
+        [mapping.className]
       );
       if (classResult.rows.length === 0) {
         console.warn(`Class ${mapping.className} not found in classes_schema, skipping`);
         continue; // Skip instead of throwing error
       }
+      
+      // Get the actual table name (with correct case)
       const actualClassName = classResult.rows[0].table_name;
       
-      // Validate subject exists (case-insensitive)
+      // Validate subject exists
       const subjectResult = await client.query(
-        'SELECT subject_name FROM subjects_of_school_schema.subjects WHERE LOWER(TRIM(subject_name)) = LOWER(TRIM($1))',
-        [mapping.subjectName.trim()]
+        'SELECT subject_name FROM subjects_of_school_schema.subjects WHERE subject_name = $1',
+        [mapping.subjectName]
       );
       if (subjectResult.rows.length === 0) {
         console.warn(`Subject ${mapping.subjectName} not found, skipping`);
         continue; // Skip instead of throwing error
       }
-      const actualSubjectName = subjectResult.rows[0].subject_name;
       
-      // Insert mapping using exact actual class name and subject name
+      // Insert mapping using the actual class name from database
       await client.query(
         'INSERT INTO subjects_of_school_schema.subject_class_mappings (class_name, subject_name) VALUES ($1, $2) ON CONFLICT (subject_name, class_name) DO NOTHING',
-        [actualClassName, actualSubjectName]
+        [actualClassName, mapping.subjectName]
       );
     }
     
@@ -406,11 +454,9 @@ router.post('/map-subjects-classes', async (req, res) => {
 
 // Route to get subject-class mappings
 router.get('/subjects-classes', async (req, res) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
   try {
-    const mappings = await getClassSubjectMappings();
+    const db = req.branchPool || pool;
+    const mappings = await getClassSubjectMappings(db);
     res.json(mappings);
   } catch (error) {
     console.error('Error fetching subject-class mappings:', error);
@@ -433,7 +479,8 @@ router.post('/create-mark-forms', async (req, res) => {
     return res.status(400).json({ error: 'Mark components must total 100%' });
   }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
@@ -462,7 +509,17 @@ router.post('/create-mark-forms', async (req, res) => {
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
     
     // Create table name for the specific class and term
-    const tableName = getClassTableName(className, termNumber);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
+    
+    // Check if mark list already exists for this subject+class+term
+    const existsCheck = await client.query(
+      `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)`,
+      [schemaName, tableName]
+    );
+    if (existsCheck.rows[0].exists) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: `Mark list already exists for ${subjectName} / ${className} / Term ${termNumber}. Delete it first if you want to recreate it.` });
+    }
     
     // Build column definitions
     const baseColumns = [
@@ -473,7 +530,7 @@ router.post('/create-mark-forms', async (req, res) => {
     ];
     
     const markColumns = markComponents.map(component => 
-      `${sanitizeIdentifier(component.name)} DECIMAL(5,2) DEFAULT 0`
+      `${sanitizeComponentKey(component.name)} DECIMAL(5,2) DEFAULT 0`
     );
     
     const additionalColumns = [
@@ -563,52 +620,19 @@ router.post('/create-mark-forms', async (req, res) => {
   }
 });
 
-// Route to delete a mark list form for a specific subject, class, and term
-router.delete('/delete-mark-form/:subjectName/:className/:termNumber', async (req, res) => {
-  const { subjectName, termNumber } = req.params;
-  const className = req.params.className;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const schemaName = getSubjectSchemaName(subjectName);
-    const tableName = getClassTableName(className, termNumber);
-    
-    // Drop the class-term table in the subject schema
-    await client.query(`DROP TABLE IF EXISTS ${schemaName}.${tableName}`);
-    
-    // Remove the form configuration row for this class and term
-    try {
-      await client.query(`
-        DELETE FROM ${schemaName}.form_config 
-        WHERE LOWER(class_name) = LOWER($1) AND term_number = $2
-      `, [className, termNumber]);
-    } catch (cfgErr) {
-      console.warn('Could not delete form_config row (safe to ignore):', cfgErr.message);
-    }
-    
-    await client.query('COMMIT');
-    res.json({ 
-      success: true, 
-      message: `Mark list form for ${subjectName} ${className} Term ${termNumber} deleted successfully` 
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error deleting mark form:', error);
-    res.status(500).json({ error: 'Failed to delete mark form', details: error.message });
-  } finally {
-    client.release();
-  }
-});
-
 // Route to get mark list for a specific subject, class, and term
-const normalizeClassName = (name) => sanitizeIdentifier(name);
+// Helper: normalize class name for table lookup (G8A → 8a, 8A → 8a)
+const normalizeClassName = (name) => name.toLowerCase();
 
-router.get('/mark-list/:subjectName/:className/:termNumber', async (req, res) => {
-  const { subjectName, termNumber } = req.params;
-  const className = req.params.className; // keep original for classes_schema lookup
+const handleGetMarkList = async (req, res) => {
+  const { subjectName, className, termNumber } = extractMarkListParams(req);
+  if (!subjectName || !className || !termNumber) {
+    return res.status(400).json({ error: 'subjectName, className, and termNumber are required' });
+  }
   const tableClassName = normalizeClassName(className); // for subject schema table names
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     const schemaName = getSubjectSchemaName(subjectName);
     const tableName = `${tableClassName}_term_${termNumber}`;
@@ -693,10 +717,18 @@ router.get('/mark-list/:subjectName/:className/:termNumber', async (req, res) =>
       `SELECT * FROM ${schemaName}.form_config WHERE LOWER(class_name) = LOWER($1) AND term_number = $2`,
       [tableClassName, termNumber]
     );
-    
+
+    const formConfig = configResult.rows[0] || null;
+
     res.json({
+      // Staff app requires formId + components at top level — without them
+      // it treats the form as missing and shows no components.
+      formId: formConfig?.id || (formConfig ? 1 : (result.rows.length > 0 ? 1 : null)),
+      form_id: formConfig?.id || (formConfig ? 1 : (result.rows.length > 0 ? 1 : null)),
+      components: formConfig?.mark_components || [],
+      students: result.rows,
       markList: result.rows,
-      config: configResult.rows[0] || null,
+      config: formConfig,
       syncInfo: {
         studentsAdded: studentsToAdd.length,
         studentsRemoved: studentsToRemove.length
@@ -708,7 +740,11 @@ router.get('/mark-list/:subjectName/:className/:termNumber', async (req, res) =>
   } finally {
     client.release();
   }
-});
+};
+
+router.get('/mark-list/:subjectName/:className/:termNumber', handleGetMarkList);
+router.get(/^\/mark-list\/(.+)\/([^\/]+)\/([^\/]+)$/, handleGetMarkList);
+router.get('/mark-list', handleGetMarkList);
 
 // Route to update marks for a student
 router.put('/update-marks', async (req, res) => {
@@ -719,12 +755,13 @@ router.put('/update-marks', async (req, res) => {
     return res.status(400).json({ error: 'All fields are required' });
   }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
     const schemaName = getSubjectSchemaName(subjectName);
-    const tableName = getClassTableName(className, termNumber);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get form configuration to validate marks
     const configResult = await client.query(
@@ -756,7 +793,7 @@ router.put('/update-marks', async (req, res) => {
     let total = 0;
     
     for (const component of markComponents) {
-      const componentKey = sanitizeIdentifier(component.name);
+      const componentKey = component.name.toLowerCase().replace(/[\s\-\.]+/g, '_');
       if (marks[componentKey] !== undefined) {
         const mark = parseFloat(marks[componentKey]);
         const maxMark = component.percentage;
@@ -793,6 +830,33 @@ router.put('/update-marks', async (req, res) => {
     
     await client.query('COMMIT');
     res.json({ message: 'Marks updated successfully', total, passStatus });
+
+    // ---- Push notification to the student's guardian (non-blocking) ----
+    try {
+      // Resolve student_name from the mark-list row (studentId)
+      const studentRow = await pool.query(
+        `SELECT student_name FROM ${schemaName}.${tableName} WHERE id = $1 LIMIT 1`,
+        [studentId]
+      );
+      const studentName = studentRow.rows[0]?.student_name;
+      if (studentName) {
+        // Look up the guardian username from the class table for this student
+        const g = await pool.query(
+          `SELECT guardian_username, guardian_name FROM classes_schema."${className}" WHERE student_name = $1 LIMIT 1`,
+          [studentName]
+        );
+        const guardianUsername = g.rows[0]?.guardian_username;
+        const guardianName = g.rows[0]?.guardian_name || 'Parent';
+        if (guardianUsername) {
+          const { notifyGuardianPush } = require('../services/guardianPush');
+          notifyGuardianPush(guardianUsername, '📊 New Marks Added', `${studentName} got ${total}% in ${subjectName} (Term ${termNumber}).`, {
+            type: 'marks', student_name: studentName, subject: subjectName, total: String(total)
+          }).catch(() => {});
+        }
+      }
+    } catch (pushErr) {
+      console.warn('Marks push notification failed (non-blocking):', pushErr.message);
+    }
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error updating marks:', error);
@@ -805,8 +869,9 @@ router.put('/update-marks', async (req, res) => {
 // Route to get teachers from staff
 router.get('/teachers', async (req, res) => {
   try {
+    const db = req.branchPool || pool;
     // Get all staff schemas
-    const schemasResult = await pool.query(`
+    const schemasResult = await db.query(`
       SELECT schema_name FROM information_schema.schemata 
       WHERE schema_name LIKE 'staff_%'
     `);
@@ -817,7 +882,7 @@ router.get('/teachers', async (req, res) => {
       const schemaName = schema.schema_name;
       
       // Get tables in this schema
-      const tablesResult = await pool.query(`
+      const tablesResult = await db.query(`
         SELECT table_name FROM information_schema.tables 
         WHERE table_schema = $1 AND table_name != 'staff_counter'
       `, [schemaName]);
@@ -825,22 +890,50 @@ router.get('/teachers', async (req, res) => {
       for (const table of tablesResult.rows) {
         const tableName = table.table_name;
         
-        // Get teachers from this table
-        const teachersResult = await pool.query(`
-          SELECT name, role FROM "${schemaName}"."${tableName}" 
-          WHERE role = 'Teacher'
-        `);
-        
-        teachers.push(...teachersResult.rows.map(row => ({
-          name: row.name,
-          role: row.role,
-          schema: schemaName,
-          table: tableName
-        })));
+        try {
+          const colCheck = await db.query(`
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_schema = $1 AND table_name = $2 AND column_name IN ('name', 'role')
+          `, [schemaName, tableName]);
+          
+          const hasName = colCheck.rows.some(c => c.column_name === 'name');
+          const hasRole = colCheck.rows.some(c => c.column_name === 'role');
+          
+          if (!hasName) continue;
+          
+          let teachersResult;
+          if (hasRole) {
+            teachersResult = await db.query(`
+              SELECT name, role FROM "${schemaName}"."${tableName}" 
+              WHERE LOWER(role) = 'teacher' OR role IS NULL OR role = ''
+            `);
+          } else {
+            teachersResult = await db.query(`
+              SELECT name, 'Teacher' as role FROM "${schemaName}"."${tableName}"
+            `);
+          }
+          
+          teachers.push(...teachersResult.rows.map(row => ({
+            name: row.name,
+            role: row.role || 'Teacher',
+            schema: schemaName,
+            table: tableName
+          })));
+        } catch (tableErr) {
+          console.warn(`Could not fetch teachers from ${schemaName}.${tableName}:`, tableErr.message);
+        }
       }
     }
-    
-    res.json(teachers);
+    // Deduplicate teachers by case-insensitive name
+    const uniqueMap = new Map();
+    for (const t of teachers) {
+      if (!t || !t.name) continue;
+      const k = t.name.trim().toLowerCase();
+      if (!uniqueMap.has(k)) {
+        uniqueMap.set(k, { ...t, name: t.name.trim() });
+      }
+    }
+    res.json(Array.from(uniqueMap.values()));
   } catch (error) {
     console.error('Error fetching teachers:', error);
     res.status(500).json({ error: 'Failed to fetch teachers', details: error.message });
@@ -853,8 +946,9 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
   const className = req.params.className.toLowerCase();
   
   try {
+    const db = req.branchPool || pool;
     // Validate class exists (case-insensitive)
-    const classResult = await pool.query(
+    const classResult = await db.query(
       `SELECT table_name FROM information_schema.tables 
        WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
       [className]
@@ -865,9 +959,9 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
     const actualClassName = classResult.rows[0].table_name;
     
     // Get subjects for this class
-    const subjectsResult = await pool.query(
+    const subjectsResult = await db.query(
       'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(class_name) = LOWER($1)',
-      [actualClassName]
+      [className]
     );
     
     const subjects = subjectsResult.rows;
@@ -878,10 +972,10 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
     for (const subject of subjects) {
       const subjectName = subject.subject_name;
       const schemaName = getSubjectSchemaName(subjectName);
-      const tableName = getClassTableName(className, termNumber);
+      const tableName = `${className.toLowerCase()}_term_${termNumber}`;
       
       try {
-        const marksResult = await pool.query(`SELECT student_name, total FROM ${schemaName}.${tableName}`);
+        const marksResult = await db.query(`SELECT student_name, total FROM ${schemaName}.${tableName}`);
         
         for (const mark of marksResult.rows) {
           if (!studentData[mark.student_name]) {
@@ -898,7 +992,7 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
     // Filter out deactivated students by checking classes_schema
     const activeStudentNames = new Set();
     try {
-      const activeStudentsResult = await pool.query(`
+      const activeStudentsResult = await db.query(`
         SELECT student_name 
         FROM classes_schema."${actualClassName}" 
         WHERE is_active = TRUE OR is_active IS NULL
@@ -960,8 +1054,9 @@ router.get('/teacher-mark-lists/:teacherName', async (req, res) => {
   console.log(`Teacher Name (decoded): "${decodeURIComponent(teacherName)}"`);
   
   try {
+    const db = req.branchPool || pool;
     // Get teacher's assigned subject-class combinations
-    const assignmentsResult = await pool.query(
+    const assignmentsResult = await db.query(
       'SELECT subject_class FROM subjects_of_school_schema.teachers_subjects WHERE teacher_name = $1',
       [teacherName]
     );
@@ -978,7 +1073,7 @@ router.get('/teacher-mark-lists/:teacherName', async (req, res) => {
     const markListForms = [];
     
     // Get term count
-    const configResult = await pool.query('SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1');
+    const configResult = await db.query('SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1');
     const termCount = configResult.rows[0]?.term_count || 2;
     
     console.log(`Term count: ${termCount}`);
@@ -995,11 +1090,11 @@ router.get('/teacher-mark-lists/:teacherName', async (req, res) => {
         const schemaName = getSubjectSchemaName(subjectName);
         
         for (let term = 1; term <= termCount; term++) {
-          const tableName = getClassTableName(className, term);
+          const tableName = `${className.toLowerCase()}_term_${term}`;
           
           try {
             // Check if table exists
-            const tableExistsResult = await pool.query(`
+            const tableExistsResult = await db.query(`
               SELECT EXISTS (
                 SELECT FROM information_schema.tables 
                 WHERE table_schema = $1 AND table_name = $2
@@ -1049,12 +1144,13 @@ router.post('/calculate-totals', async (req, res) => {
     return res.status(400).json({ error: 'Subject name, class name, and term number are required' });
   }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
     const schemaName = getSubjectSchemaName(subjectName);
-    const tableName = getClassTableName(className, termNumber);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get form configuration
     const configResult = await client.query(
@@ -1076,7 +1172,7 @@ router.post('/calculate-totals', async (req, res) => {
       // Calculate total for this student
       let total = 0;
       const componentColumns = markComponents.map(comp => 
-        sanitizeIdentifier(comp.name)
+        sanitizeComponentKey(comp.name)
       );
       
       const studentDataResult = await client.query(
@@ -1088,7 +1184,7 @@ router.post('/calculate-totals', async (req, res) => {
         const studentData = studentDataResult.rows[0];
         
         markComponents.forEach(component => {
-          const componentKey = sanitizeIdentifier(component.name);
+          const componentKey = sanitizeComponentKey(component.name);
           const mark = parseFloat(studentData[componentKey]) || 0;
           const maxMark = component.percentage;
           total += Math.min(mark, maxMark);
@@ -1127,8 +1223,9 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
   const className = req.params.className.toLowerCase();
   
   try {
+    const db = req.branchPool || pool;
     // Validate class exists in classes_schema (case-insensitive)
-    const classResult = await pool.query(
+    const classResult = await db.query(
       `SELECT table_name FROM information_schema.tables 
        WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
       [className]
@@ -1139,9 +1236,9 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
     const actualClassName = classResult.rows[0].table_name;
     
     // Get subjects for this class from subject_class_mappings
-    const subjectsResult = await pool.query(
+    const subjectsResult = await db.query(
       'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(class_name) = LOWER($1)',
-      [actualClassName]
+      [className]
     );
     
     const subjects = subjectsResult.rows;
@@ -1152,13 +1249,13 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
     for (const subject of subjects) {
       const subjectName = subject.subject_name;
       const schemaName = getSubjectSchemaName(subjectName);
-      const tableName = getClassTableName(className, termNumber);
+      const tableName = `${className.toLowerCase()}_term_${termNumber}`;
       
       try {
         // Get marks and form configuration
         const [marksResult, configResult] = await Promise.all([
-          pool.query(`SELECT student_name, total, pass_status FROM ${schemaName}.${tableName}`),
-          pool.query(`SELECT * FROM ${schemaName}.form_config WHERE class_name = $1 AND term_number = $2`, 
+          db.query(`SELECT student_name, total, pass_status FROM ${schemaName}.${tableName}`),
+          db.query(`SELECT * FROM ${schemaName}.form_config WHERE class_name = $1 AND term_number = $2`, 
                     [className, termNumber])
         ]);
         
@@ -1205,7 +1302,7 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
     // Filter out deactivated students by checking classes_schema
     const activeStudentNames = new Set();
     try {
-      const activeStudentsResult = await pool.query(`
+      const activeStudentsResult = await db.query(`
         SELECT student_name 
         FROM classes_schema."${actualClassName}" 
         WHERE is_active = TRUE OR is_active IS NULL
@@ -1267,17 +1364,174 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
   }
 });
 
-// Route to get mark list statistics
-router.get('/statistics/:subjectName/:className/:termNumber', async (req, res) => {
-  const { subjectName, termNumber } = req.params;
+// Route to get full ranking across all terms for report card
+router.get('/full-ranking/:className', async (req, res) => {
   const className = req.params.className.toLowerCase();
+  const db = req.branchPool || pool;
   
   try {
+    // Validate class exists (case-insensitive and whitespace tolerant)
+    const classResult = await db.query(
+      `SELECT table_name FROM information_schema.tables 
+       WHERE table_schema = 'classes_schema' 
+         AND (LOWER(table_name) = LOWER($1) OR REPLACE(LOWER(table_name), ' ', '') = REPLACE(LOWER($1), ' ', ''))`,
+      [className]
+    );
+    if (classResult.rows.length === 0) {
+      return res.status(404).json({ error: `Class ${className} not found in classes_schema` });
+    }
+    const actualClassName = classResult.rows[0].table_name;
+    
+    // Fetch term count from school_config
+    const configResult = await db.query(
+      'SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1'
+    ).catch(() => ({ rows: [{ term_count: 2 }] }));
+    const termCount = configResult.rows.length > 0 ? configResult.rows[0].term_count : 2;
+    
+    // Get subjects for this class, sorted alphabetically
+    const subjectsResult = await db.query(
+      'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(class_name) = LOWER($1) ORDER BY subject_name ASC',
+      [className]
+    ).catch(() => ({ rows: [] }));
+    const subjects = subjectsResult.rows.map(s => s.subject_name);
+    
+    // Pre-fetch active student names once for all terms (normalized)
+    const activeStudentNames = new Set();
+    try {
+      const activeStudentsResult = await db.query(
+        `SELECT student_name FROM classes_schema."${actualClassName}" WHERE is_active = TRUE OR is_active IS NULL`
+      );
+      activeStudentsResult.rows.forEach(row => {
+        if (row.student_name) {
+          activeStudentNames.add(row.student_name.trim().toLowerCase().replace(/\s+/g, ' '));
+        }
+      });
+    } catch (error) {
+      // If table doesn't have is_active or error occurs, will fallback
+    }
+
+    // Fetch data for each term concurrently
+    const termNumbers = Array.from({ length: termCount }, (_, i) => i + 1);
+    const terms = await Promise.all(termNumbers.map(async (termNum) => {
+      const studentData = {};
+      const subjectDetails = {};
+      
+      // Query all subjects in parallel for high performance
+      await Promise.all(subjects.map(async (subjectName) => {
+        const schemaName = getSubjectSchemaName(subjectName);
+        const tableName = `${className}_term_${termNum}`;
+        
+        try {
+          const [marksResult, configResult] = await Promise.all([
+            db.query(`SELECT student_name, total, pass_status FROM ${schemaName}.${tableName}`),
+            db.query(`SELECT * FROM ${schemaName}.form_config WHERE class_name = $1 AND term_number = $2`, 
+                      [className, termNum])
+          ]);
+          
+          subjectDetails[subjectName] = {
+            config: configResult.rows[0] || null,
+            hasData: marksResult.rows.length > 0
+          };
+          
+          for (const mark of marksResult.rows) {
+            if (!mark.student_name) continue;
+            const rawName = mark.student_name.trim();
+            const studentKey = rawName.toLowerCase().replace(/\s+/g, ' ');
+            if (!studentData[studentKey]) {
+              studentData[studentKey] = {
+                studentName: rawName,
+                subjects: {},
+                totalMarks: 0,
+                subjectCount: 0,
+                passedSubjects: 0,
+                failedSubjects: 0
+              };
+            }
+            const total = Math.min(mark.total || 0, 100);
+            studentData[studentKey].subjects[subjectName] = {
+              total: total,
+              status: mark.pass_status || 'Fail'
+            };
+            studentData[studentKey].totalMarks += total;
+            studentData[studentKey].subjectCount++;
+            
+            if (mark.pass_status === 'Pass') {
+              studentData[studentKey].passedSubjects++;
+            } else {
+              studentData[studentKey].failedSubjects++;
+            }
+          }
+        } catch (error) {
+          subjectDetails[subjectName] = { config: null, hasData: false };
+        }
+      }));
+      
+      // Filter active students and calculate rankings
+      const rankings = Object.entries(studentData)
+        .filter(([key]) => activeStudentNames.size === 0 || activeStudentNames.has(key))
+        .map(([, student]) => ({
+          ...student,
+          average: student.subjectCount > 0 ? student.totalMarks / student.subjectCount : 0,
+          overallStatus: student.failedSubjects === 0 && student.subjectCount > 0 ? 'Pass' : 'Fail'
+        }));
+      
+      rankings.sort((a, b) => {
+        if (b.average !== a.average) return b.average - a.average;
+        return b.totalMarks - a.totalMarks;
+      });
+      
+      rankings.forEach((student, index) => {
+        student.rank = index + 1;
+        const rank = student.rank;
+        let suffix = 'th';
+        if (rank % 10 === 1 && rank % 100 !== 11) suffix = 'st';
+        else if (rank % 10 === 2 && rank % 100 !== 12) suffix = 'nd';
+        else if (rank % 10 === 3 && rank % 100 !== 13) suffix = 'rd';
+        student.rankDisplay = `${rank}${suffix}`;
+      });
+      
+      return {
+        termNumber: termNum,
+        rankings,
+        subjects,
+        subjectDetails,
+        summary: {
+          totalStudents: rankings.length,
+          totalSubjects: subjects.length,
+          averageClassScore: rankings.length > 0 ? 
+            rankings.reduce((sum, s) => sum + s.average, 0) / rankings.length : 0,
+          passRate: rankings.length > 0 ? 
+            (rankings.filter(s => s.overallStatus === 'Pass').length / rankings.length) * 100 : 0
+        }
+      };
+    }));
+    
+    res.json({
+      className,
+      termCount,
+      terms,
+      allSubjects: subjects
+    });
+  } catch (error) {
+    console.error('Error calculating full ranking:', error);
+    res.status(500).json({ error: 'Failed to calculate full ranking', details: error.message });
+  }
+});
+
+// Route to get mark list statistics
+const handleGetStatistics = async (req, res) => {
+  const { subjectName, className, termNumber } = extractMarkListParams(req);
+  if (!subjectName || !className || !termNumber) {
+    return res.status(400).json({ error: 'subjectName, className, and termNumber are required' });
+  }
+  
+  try {
+    const db = req.branchPool || pool;
     const schemaName = getSubjectSchemaName(subjectName);
-    const tableName = getClassTableName(className, termNumber);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get all marks
-    const marksResult = await pool.query(`
+    const marksResult = await db.query(`
       SELECT total, pass_status FROM ${schemaName}.${tableName}
       WHERE total IS NOT NULL
     `);
@@ -1331,7 +1585,10 @@ router.get('/statistics/:subjectName/:className/:termNumber', async (req, res) =
     console.error('Error calculating statistics:', error);
     res.status(500).json({ error: 'Failed to calculate statistics', details: error.message });
   }
-});
+};
+
+router.get('/statistics/:subjectName/:className/:termNumber', handleGetStatistics);
+router.get(/^\/statistics\/(.+)\/([^\/]+)\/([^\/]+)$/, handleGetStatistics);
 
 router.get('/classes/:teacherId', async (req, res) => {
   const { teacherId } = req.params;
@@ -1354,12 +1611,13 @@ router.post('/bulk-update-marks', async (req, res) => {
     return res.status(400).json({ error: 'All fields are required and marksData must be an array' });
   }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
     const schemaName = getSubjectSchemaName(subjectName);
-    const tableName = getClassTableName(className, termNumber);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get form configuration
     const configResult = await client.query(
@@ -1372,6 +1630,18 @@ router.post('/bulk-update-marks', async (req, res) => {
     }
     
     const config = configResult.rows[0];
+    
+    // Honor admin locks (parity with PUT /update-marks)
+    if (config.is_locked === true) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ 
+        error: 'Mark list is locked',
+        message: `This mark list was locked by ${config.locked_by} on ${config.locked_at}. Contact an administrator to unlock it.`,
+        lockedBy: config.locked_by,
+        lockedAt: config.locked_at
+      });
+    }
+    
     const markComponents = config.mark_components;
     
     let updatedCount = 0;
@@ -1400,7 +1670,7 @@ router.post('/bulk-update-marks', async (req, res) => {
       let total = 0;
       
       for (const component of markComponents) {
-        const componentKey = sanitizeIdentifier(component.name);
+        const componentKey = sanitizeComponentKey(component.name);
         if (marks[componentKey] !== undefined) {
           const mark = parseFloat(marks[componentKey]);
           const maxMark = component.percentage;
@@ -1453,111 +1723,41 @@ router.post('/bulk-update-marks', async (req, res) => {
   }
 });
 
-// Helper to validate teacher exists across multi-schema environments
-const validateTeacherExists = async (client, teacherName) => {
-  const cleanName = (teacherName || '').trim().toLowerCase();
-  if (!cleanName) return false;
-
-  // 1. Check school_schema_points.teachers (used by Bilal, Iqra, etc.)
-  try {
-    const rCheck = await client.query(`
-      SELECT 1 FROM school_schema_points.teachers 
-      WHERE LOWER(TRIM(teacher_name)) = $1
-      LIMIT 1
-    `, [cleanName]);
-    if (rCheck.rows.length > 0) return true;
-  } catch (e) {}
-
-  // 2. Check staff_teachers.teachers
-  try {
-    const rCheck = await client.query(`
-      SELECT 1 FROM staff_teachers.teachers 
-      WHERE LOWER(TRIM(COALESCE(name, teacher_name))) = $1
-      LIMIT 1
-    `, [cleanName]);
-    if (rCheck.rows.length > 0) return true;
-  } catch (e) {}
-
-  // 3. Check public.staff
-  try {
-    const rCheck = await client.query(`
-      SELECT 1 FROM public.staff 
-      WHERE LOWER(TRIM(name)) = $1 OR LOWER(TRIM(COALESCE(full_name, ''))) = $1
-      LIMIT 1
-    `, [cleanName]);
-    if (rCheck.rows.length > 0) return true;
-  } catch (e) {}
-
-  // 4. Check schedule_schema.teachers
-  try {
-    const rCheck = await client.query(`
-      SELECT 1 FROM schedule_schema.teachers 
-      WHERE LOWER(TRIM(name)) = $1
-      LIMIT 1
-    `, [cleanName]);
-    if (rCheck.rows.length > 0) return true;
-  } catch (e) {}
-
-  // 5. Dynamic scan of any staff_% schema tables
-  try {
-    const teacherSchemasResult = await client.query(`
-      SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'staff_%'
-    `);
-    for (const schema of teacherSchemasResult.rows) {
-      const schemaName = schema.schema_name;
-      const tablesResult = await client.query(`
-        SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name != 'staff_counter'
-      `, [schemaName]);
-      for (const table of tablesResult.rows) {
-        const tableName = table.table_name;
-        const colsResult = await client.query(`
-          SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2
-        `, [schemaName, tableName]);
-        const cols = colsResult.rows.map(c => c.column_name);
-        const nameCol = cols.includes('name') ? 'name' : (cols.includes('teacher_name') ? 'teacher_name' : null);
-        if (nameCol) {
-          const teacherCheck = await client.query(`
-            SELECT 1 FROM "${schemaName}"."${tableName}" WHERE LOWER(TRIM("${nameCol}")) = $1 LIMIT 1
-          `, [cleanName]);
-          if (teacherCheck.rows.length > 0) return true;
-        }
-      }
-    }
-  } catch (e) {}
-
-  // 6. Partial/ILIKE match on school_schema_points.teachers as fallback
-  try {
-    const rCheck = await client.query(`
-      SELECT 1 FROM school_schema_points.teachers 
-      WHERE teacher_name ILIKE $1
-      LIMIT 1
-    `, [`%${cleanName}%`]);
-    if (rCheck.rows.length > 0) return true;
-  } catch (e) {}
-
-  return false;
-};
-
 // Route to assign teachers to subject-class combinations
 router.post('/assign-teachers', async (req, res) => {
-  const { assignments } = req.body || {}; // Array of { teacherName, subjectClass }
+  const { assignments, managedTeachers } = req.body; // Array of { teacherName, subjectClass }
   
   if (!assignments || !Array.isArray(assignments)) {
     return res.status(400).json({ error: 'Assignments array is required' });
   }
   
-  const client = await pool.connect();
+  const client = await (req.branchPool || pool).connect();
   try {
     await client.query('BEGIN');
     
-    // Clear assignments: if managedTeachers provided, delete for those teachers; otherwise replace all
-    if (req.body.managedTeachers && Array.isArray(req.body.managedTeachers) && req.body.managedTeachers.length > 0) {
-      await client.query('DELETE FROM subjects_of_school_schema.teachers_subjects WHERE teacher_name = ANY($1)', [req.body.managedTeachers]);
-    } else {
-      await client.query('DELETE FROM subjects_of_school_schema.teachers_subjects');
+    // Ensure schema and table exist
+    await client.query(`
+      CREATE SCHEMA IF NOT EXISTS subjects_of_school_schema;
+      CREATE TABLE IF NOT EXISTS subjects_of_school_schema.teachers_subjects (
+        id SERIAL PRIMARY KEY,
+        teacher_name VARCHAR(255) NOT NULL,
+        subject_class VARCHAR(255) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // If managedTeachers is provided, only remove old assignments for those specific teachers
+    if (managedTeachers && Array.isArray(managedTeachers) && managedTeachers.length > 0) {
+      const lowerNames = managedTeachers.map(n => (n || '').trim().toLowerCase()).filter(Boolean);
+      if (lowerNames.length > 0) {
+        await client.query(
+          'DELETE FROM subjects_of_school_schema.teachers_subjects WHERE LOWER(TRIM(teacher_name)) = ANY($1)',
+          [lowerNames]
+        );
+      }
     }
-    
-    // Validate and insert new assignments
+
+    // Validate and insert new assignments, cleanly updating subject_class assignments
     for (const assignment of assignments) {
       if (!assignment.teacherName || !assignment.subjectClass) {
         continue;
@@ -1565,40 +1765,17 @@ router.post('/assign-teachers', async (req, res) => {
       
       const teacherName = assignment.teacherName.trim();
       const subjectClass = assignment.subjectClass.trim();
-      
-      // Validate or ensure subject_class exists in subject_class_mappings
-      let mappingResult = await client.query(
-        'SELECT subject_class FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(TRIM(subject_class)) = LOWER(TRIM($1))',
+
+      // Cleanly remove any old assignment for this subjectClass so re-assigning replaces the teacher
+      await client.query(
+        `DELETE FROM subjects_of_school_schema.teachers_subjects 
+         WHERE LOWER(TRIM(subject_class)) = LOWER(TRIM($1::varchar))`,
         [subjectClass]
       );
-      if (mappingResult.rows.length === 0) {
-        const match = subjectClass.match(/^(.+)\s+Class\s+(.+)$/i);
-        if (match) {
-          const sName = match[1].trim();
-          const cName = match[2].trim();
-          await client.query(`
-            INSERT INTO subjects_of_school_schema.subject_class_mappings (subject_name, class_name)
-            VALUES ($1, $2)
-            ON CONFLICT (subject_name, class_name) DO NOTHING
-          `, [sName, cName]);
-          mappingResult = await client.query(
-            'SELECT subject_class FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(TRIM(subject_class)) = LOWER(TRIM($1))',
-            [subjectClass]
-          );
-        }
-      }
-      
-      // Validate teacher exists (checks school_schema_points.teachers, staff_teachers.teachers, etc.)
-      const teacherExists = await validateTeacherExists(client, teacherName);
-      if (!teacherExists) {
-        throw new Error(`Teacher ${teacherName} not found`);
-      }
-      
-      // Insert assignment
+
       await client.query(
         `INSERT INTO subjects_of_school_schema.teachers_subjects (teacher_name, subject_class) 
-         VALUES ($1, $2)
-         ON CONFLICT (teacher_name, subject_class) DO NOTHING`,
+         VALUES ($1::varchar, $2::varchar)`,
         [teacherName, subjectClass]
       );
     }
@@ -1616,16 +1793,46 @@ router.post('/assign-teachers', async (req, res) => {
 
 // Route to get teacher assignments
 router.get('/teacher-assignments', async (req, res) => {
+  const currentPool = req.branchPool || pool;
   try {
-    const result = await pool.query(`
+    await currentPool.query(`
+      CREATE SCHEMA IF NOT EXISTS subjects_of_school_schema;
+      CREATE TABLE IF NOT EXISTS subjects_of_school_schema.teachers_subjects (
+        id SERIAL PRIMARY KEY,
+        teacher_name VARCHAR(255) NOT NULL,
+        subject_class VARCHAR(255) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    const result = await currentPool.query(`
       SELECT teacher_name, subject_class, created_at 
       FROM subjects_of_school_schema.teachers_subjects 
       ORDER BY teacher_name, subject_class
     `);
-    res.json(result.rows);
+    res.json(result.rows || []);
   } catch (error) {
     console.error('Error fetching teacher assignments:', error);
     res.status(500).json({ error: 'Failed to fetch assignments', details: error.message });
+  }
+});
+
+// Route to auto-populate teacher assignments from schedule config (Task6)
+router.get('/auto-connect-teachers', async (req, res) => {
+  try {
+    const db = req.branchPool || pool;
+    const result = await db.query(`
+      SELECT DISTINCT teacher_name, subject_class 
+      FROM schedule_schema.class_subject_configs 
+      WHERE teacher_name IS NOT NULL AND teacher_name != ''
+      ORDER BY teacher_name, subject_class
+    `);
+    res.json((result.rows || []).map(r => ({
+      teacher_name: r.teacher_name,
+      subject_class: r.subject_class
+    })));
+  } catch (error) {
+    console.warn('Error fetching auto-connect teachers (schedule table may not exist yet):', error.message);
+    res.json([]);
   }
 });
 
@@ -1635,11 +1842,12 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
   const className = req.params.className.toLowerCase();
   
   try {
+    const db = req.branchPool || pool;
     // First, get the student's name from their school_id
     let studentName = null;
     try {
       // Check if is_active column exists
-      const columnCheck = await pool.query(`
+      const columnCheck = await db.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_schema = 'classes_schema' 
@@ -1650,7 +1858,7 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
       const hasIsActive = columnCheck.rows.length > 0;
       const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
       
-      const studentResult = await pool.query(`
+      const studentResult = await db.query(`
         SELECT student_name FROM classes_schema."${className}" 
         WHERE school_id = $1 ${whereClause}
       `, [schoolId]);
@@ -1659,14 +1867,14 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
       }
     } catch (e) {
       // Try alternative: get from any class table
-      const tablesResult = await pool.query(`
+      const tablesResult = await db.query(`
         SELECT table_name FROM information_schema.tables 
         WHERE table_schema = 'classes_schema'
       `);
       for (const table of tablesResult.rows) {
         try {
           // Check if is_active column exists for this table
-          const columnCheck = await pool.query(`
+          const columnCheck = await db.query(`
             SELECT column_name 
             FROM information_schema.columns 
             WHERE table_schema = 'classes_schema' 
@@ -1677,7 +1885,7 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
           const hasIsActive = columnCheck.rows.length > 0;
           const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
           
-          const result = await pool.query(`
+          const result = await db.query(`
             SELECT student_name FROM classes_schema."${table.table_name}" 
             WHERE school_id = $1 ${whereClause}
           `, [schoolId]);
@@ -1696,10 +1904,10 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
     }
     
     // Get all subjects mapped to this class
-    const subjectsResult = await pool.query(`
+    const subjectsResult = await db.query(`
       SELECT subject_name 
       FROM subjects_of_school_schema.subject_class_mappings 
-      WHERE class_name = $1
+      WHERE LOWER(class_name) = LOWER($1)
     `, [className]);
     
     const marks = [];
@@ -1710,11 +1918,11 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
       
       // Check all terms (1-4)
       for (let term = 1; term <= 4; term++) {
-        const tableName = getClassTableName(className, term);
+        const tableName = `${className.toLowerCase().replace(/[^a-z0-9_]+/g, '_')}_term_${term}`;
         
         try {
           // Check if table exists and get student's marks by student_name
-          const studentMarks = await pool.query(`
+          const studentMarks = await db.query(`
             SELECT * FROM ${schemaName}.${tableName} 
             WHERE student_name = $1
           `, [studentName]);
@@ -1723,7 +1931,7 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
             const studentData = studentMarks.rows[0];
             
             // Get form config for mark components
-            const configResult = await pool.query(`
+            const configResult = await db.query(`
               SELECT mark_components FROM ${schemaName}.form_config 
               WHERE class_name = $1 AND term_number = $2
             `, [className, term]);
@@ -1731,7 +1939,7 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
             const components = [];
             if (configResult.rows.length > 0 && configResult.rows[0].mark_components) {
               for (const comp of configResult.rows[0].mark_components) {
-                const compKey = sanitizeIdentifier(comp.name);
+                const compKey = sanitizeComponentKey(comp.name);
                 components.push({
                   name: comp.name,
                   score: studentData[compKey] || 0,
@@ -1766,16 +1974,29 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
 router.post('/sync-class-students/:className', async (req, res) => {
   const className = req.params.className.toLowerCase();
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
+    // Resolve actual class name (case-insensitive)
+    const classResult = await client.query(
+      `SELECT table_name FROM information_schema.tables 
+       WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)`,
+      [className]
+    );
+    if (classResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `Class ${className} not found` });
+    }
+    const actualClassName = classResult.rows[0].table_name;
+    
     // Check if is_active column exists
-    const whereClause = await getActiveStudentsWhereClause(client, className);
+    const whereClause = await getActiveStudentsWhereClause(client, actualClassName);
     
     // Get all active students from the class
     const activeStudentsResult = await client.query(
-      `SELECT student_name, age, gender FROM classes_schema."${className}" 
+      `SELECT student_name, age, gender FROM classes_schema."${actualClassName}" 
        ${whereClause}`
     );
     const activeStudents = activeStudentsResult.rows;
@@ -1784,7 +2005,7 @@ router.post('/sync-class-students/:className', async (req, res) => {
     // Get all subjects mapped to this class
     const subjectMappingsResult = await client.query(
       `SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings 
-       WHERE class_name = $1`,
+       WHERE LOWER(class_name) = LOWER($1)`,
       [className]
     );
     
@@ -1805,7 +2026,7 @@ router.post('/sync-class-students/:className', async (req, res) => {
       
       // For each term
       for (let term = 1; term <= termCount; term++) {
-        const tableName = getClassTableName(className, term);
+        const tableName = `${className.toLowerCase()}_term_${term}`;
         
         try {
           // Check if table exists
@@ -1888,8 +2109,9 @@ router.post('/sync-class-students/:className', async (req, res) => {
 // Get all marks for all wards of a guardian
 router.get('/guardian-marks/:guardianUsername', async (req, res) => {
   const { guardianUsername } = req.params;
+  const db = req.branchPool || pool;
   
-  const client = await pool.connect();
+  const client = await db.connect();
   try {
     // Get all class tables
     const tablesResult = await client.query(
@@ -1950,13 +2172,13 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
     // Get all subjects
     const subjectsResult = await client.query(
       'SELECT subject_name FROM subjects_of_school_schema.subjects ORDER BY subject_name'
-    );
+    ).catch(() => ({ rows: [] }));
     const subjects = subjectsResult.rows.map(r => r.subject_name);
     
     // Get term count
     const configResult = await client.query(
       'SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1'
-    );
+    ).catch(() => ({ rows: [{ term_count: 2 }] }));
     const termCount = configResult.rows[0]?.term_count || 2;
     
     // Fetch marks for each ward
@@ -1967,7 +2189,7 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
         const schemaName = getSubjectSchemaName(subjectName);
         
         for (let term = 1; term <= termCount; term++) {
-          const tableName = getClassTableName(ward.class, term);
+          const tableName = `${ward.class.toLowerCase()}_term_${term}`;
           
           try {
             // Check if table exists
@@ -1979,10 +2201,10 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
             `, [schemaName, tableName]);
             
             if (tableExistsResult.rows[0].exists) {
-              // Get marks for this student
+              // Get marks for this student (case-insensitive and trimmed)
               const marksResult = await client.query(`
                 SELECT * FROM ${schemaName}.${tableName}
-                WHERE student_name = $1
+                WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))
               `, [ward.student_name]);
               
               if (marksResult.rows.length > 0) {
@@ -2031,12 +2253,13 @@ router.post('/lock-marks', async (req, res) => {
     return res.status(400).json({ error: 'Subject name, class name, and term number are required' });
   }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
     const schemaName = getSubjectSchemaName(subjectName);
-    const tableName = getClassTableName(className, termNumber);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Check if table exists
     const tableCheck = await client.query(`
@@ -2109,12 +2332,13 @@ router.post('/unlock-marks', async (req, res) => {
   //   return res.status(403).json({ error: 'Only administrators can unlock mark lists' });
   // }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     
     const schemaName = getSubjectSchemaName(subjectName);
-    const tableName = getClassTableName(className, termNumber);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Check if table exists
     const tableCheck = await client.query(`
@@ -2157,11 +2381,14 @@ router.post('/unlock-marks', async (req, res) => {
 });
 
 // Route to check lock status
-router.get('/lock-status/:subjectName/:className/:termNumber', async (req, res) => {
-  const { subjectName, termNumber } = req.params;
-  const className = req.params.className.toLowerCase();
+const handleGetLockStatus = async (req, res) => {
+  const { subjectName, className, termNumber } = extractMarkListParams(req);
+  if (!subjectName || !className || !termNumber) {
+    return res.status(400).json({ error: 'subjectName, className, and termNumber are required' });
+  }
   
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     const schemaName = getSubjectSchemaName(subjectName);
     
@@ -2170,7 +2397,7 @@ router.get('/lock-status/:subjectName/:className/:termNumber', async (req, res) 
       SELECT is_locked, locked_at, locked_by
       FROM ${schemaName}.form_config
       WHERE class_name = $1 AND term_number = $2
-    `, [className, termNumber]);
+    `, [className.toLowerCase(), termNumber]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Mark list configuration not found' });
@@ -2188,7 +2415,40 @@ router.get('/lock-status/:subjectName/:className/:termNumber', async (req, res) 
   } finally {
     client.release();
   }
-});
+};
+
+router.get('/lock-status/:subjectName/:className/:termNumber', handleGetLockStatus);
+router.get(/^\/lock-status\/(.+)\/([^\/]+)\/([^\/]+)$/, handleGetLockStatus);
+
+// DELETE /api/mark-list/delete-mark-form/:subjectName/:className/:termNumber
+// Delete a mark list form (table + config)
+const handleDeleteMarkForm = async (req, res) => {
+  const { subjectName, className, termNumber } = extractMarkListParams(req);
+  if (!subjectName || !className || !termNumber) {
+    return res.status(400).json({ error: 'subjectName, className, and termNumber are required' });
+  }
+  const db = req.branchPool || pool;
+  const client = await db.connect();
+  try {
+    const schemaName = getSubjectSchemaName(subjectName);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
+    
+    // Drop the mark list table
+    await client.query(`DROP TABLE IF EXISTS ${schemaName}.${tableName}`);
+    // Drop schema if empty
+    await client.query(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
+    
+    res.json({ message: `Mark list deleted: ${subjectName} / ${className} / Term ${termNumber}` });
+  } catch (error) {
+    console.error('Error deleting mark list:', error);
+    res.status(500).json({ error: 'Failed to delete mark list' });
+  } finally {
+    client.release();
+  }
+};
+
+router.delete('/delete-mark-form/:subjectName/:className/:termNumber', handleDeleteMarkForm);
+router.delete(/^\/delete-mark-form\/(.+)\/([^\/]+)\/([^\/]+)$/, handleDeleteMarkForm);
 
 module.exports = router;
 
