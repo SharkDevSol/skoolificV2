@@ -1349,7 +1349,22 @@ const StaffProfile = () => {
       }
       
       const response = await axios.get(`${API_BASE_URL}/class-communication/teacher-classes/${encodeURIComponent(teacherName)}`);
-      const classes = Array.isArray(response.data.classes) ? response.data.classes : [];
+      let classes = Array.isArray(response.data.classes) ? response.data.classes : [];
+
+      // Special access for Sabito (sabito516) in Bilal: ensure all classes are available for discipline
+      if (classes.length === 0) {
+        const isSabito = (teacherName || '').trim().toLowerCase() === 'sabito' ||
+                         (user?.username || '').trim().toLowerCase() === 'sabito516';
+        if (isSabito) {
+          try {
+            const fallbackRes = await axios.get(`${API_BASE_URL}/faults/classes`, getAuthConfig());
+            if (Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
+              classes = fallbackRes.data;
+            }
+          } catch (_) {}
+        }
+      }
+
       setFaultClasses(classes);
       
       console.log(`✅ Loaded ${classes.length} classes for teacher ${teacherName}:`, classes);

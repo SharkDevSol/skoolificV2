@@ -32,6 +32,7 @@ class ApiConstants {
   static const String studentListStudents = '/api/student-list/students'; // + /{class}
 
   // Discipline (faults)
+  static const String faultsClasses = '/api/faults/classes';
   static const String faultsStudents = '/api/faults/students'; // + /{class}
   static const String faultsList = '/api/faults/faults'; // + /{class}
   static const String addFault = '/api/faults/add-fault';

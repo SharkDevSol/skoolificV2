@@ -37,6 +37,56 @@ class _DisciplineTabState extends State<DisciplineTab> with SingleTickerProvider
   List<FaultRecord> _faultHistory = [];
   bool _loadingHistory = false;
 
+  // Special access: all classes for Sabito in Bilal
+  List<String> _specialClasses = [];
+  bool _loadingClasses = false;
+
+  bool _isSpecialDisciplineUser(AppProvider prov) {
+    final u = (prov.user?.username ?? '').trim().toLowerCase();
+    final n = (prov.profile?.name ?? prov.user?.name ?? '').trim().toLowerCase();
+    return u == 'sabito516' || n == 'sabito';
+  }
+
+  Future<void> _loadSpecialClasses() async {
+    setState(() => _loadingClasses = true);
+    // Cache-first: show cached classes instantly
+    final cached = OfflineService.readCache<List>('discipline_all_classes');
+    if (cached != null && cached.isNotEmpty) {
+      final list = cached.map((e) => e.toString()).toList();
+      if (mounted) {
+        setState(() {
+          _specialClasses = list;
+          if (_selectedClass == null && list.isNotEmpty) {
+            _selectedClass = list.first;
+            _loadStudents();
+            _loadHistory();
+          }
+        });
+      }
+    }
+
+    try {
+      final list = await ApiService().getAllClasses();
+      if (list.isNotEmpty) {
+        await OfflineService.cache('discipline_all_classes', list);
+        if (mounted) {
+          setState(() {
+            _specialClasses = list;
+            if (_selectedClass == null || !_specialClasses.contains(_selectedClass)) {
+              _selectedClass = list.first;
+              _loadStudents();
+              _loadHistory();
+            }
+          });
+        }
+      }
+    } catch (_) {
+      // Keep cached
+    } finally {
+      if (mounted) setState(() => _loadingClasses = false);
+    }
+  }
+
   /// The full 85-type list the web admin uses (FaultsPage.jsx) — grouped so
   /// the picker stays usable on a phone.
   static const Map<String, List<String>> _faultCategories = {
@@ -113,13 +163,17 @@ class _DisciplineTabState extends State<DisciplineTab> with SingleTickerProvider
     _reportedBy = prov.profile?.name.isNotEmpty == true
         ? prov.profile!.name
         : (prov.user?.name ?? prov.user?.username ?? '');
-    if (prov.assignedClasses.isNotEmpty) {
-      _selectedClass = prov.assignedClasses.first;
-    } else if (prov.markAssignments.isNotEmpty) {
-      _selectedClass = prov.markAssignments.first.className;
+    if (_isSpecialDisciplineUser(prov)) {
+      _loadSpecialClasses();
+    } else {
+      if (prov.assignedClasses.isNotEmpty) {
+        _selectedClass = prov.assignedClasses.first;
+      } else if (prov.markAssignments.isNotEmpty) {
+        _selectedClass = prov.markAssignments.first.className;
+      }
+      _loadStudents();
+      _loadHistory();
     }
-    _loadStudents();
-    _loadHistory();
   }
 
   @override
@@ -308,10 +362,13 @@ class _DisciplineTabState extends State<DisciplineTab> with SingleTickerProvider
     final isDark = theme.brightness == Brightness.dark;
     final prov = Provider.of<AppProvider>(context);
 
-    final availableClasses = <String>{
-      ...prov.markAssignments.map((a) => a.className),
-      ...prov.assignedClasses,
-    }.toList();
+    final isSpecial = _isSpecialDisciplineUser(prov);
+    final availableClasses = isSpecial
+        ? _specialClasses
+        : <String>{
+            ...prov.markAssignments.map((a) => a.className),
+            ...prov.assignedClasses,
+          }.toList();
 
     return Scaffold(
       body: SafeArea(
@@ -369,25 +426,28 @@ class _DisciplineTabState extends State<DisciplineTab> with SingleTickerProvider
                               color: isDark ? const Color(0xFF2C2C2C) : AppColors.surfaceAlt,
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                isExpanded: true,
-                                value: _selectedClass,
-                                hint: Text(tr(context, 'class_label')),
-                                items: availableClasses.map((c) {
-                                  return DropdownMenuItem(
-                                    value: c,
-                                    child: Text('Class $c', style: const TextStyle(fontWeight: FontWeight.w700)),
-                                  );
-                                }).toList(),
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    setState(() => _selectedClass = val);
-                                    _loadStudents();
-                                  }
-                                },
-                              ),
-                            ),
+                            child: (_loadingClasses && availableClasses.isEmpty)
+                                ? const SizedBox(height: 48, child: Center(child: AppLoadingIndicator()))
+                                : DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      isExpanded: true,
+                                      value: _selectedClass,
+                                      hint: Text(tr(context, 'class_label')),
+                                      items: availableClasses.map((c) {
+                                        return DropdownMenuItem(
+                                          value: c,
+                                          child: Text('Class $c', style: const TextStyle(fontWeight: FontWeight.w700)),
+                                        );
+                                      }).toList(),
+                                      onChanged: (val) {
+                                        if (val != null) {
+                                          setState(() => _selectedClass = val);
+                                          _loadStudents();
+                                          _loadHistory();
+                                        }
+                                      },
+                                    ),
+                                  ),
                           ),
                           const SizedBox(height: 16),
 

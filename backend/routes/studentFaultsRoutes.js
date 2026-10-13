@@ -73,14 +73,23 @@ initializeFaultsSchema();
 // Get all classes
 router.get('/classes', async (req, res) => {
   try {
-    console.log('Fetching all class names from public schema');
-    const result = await pool.query(`
+    const db = (typeof getPool === 'function' ? getPool(req) : null) || req.branchPool || pool;
+    let result = await db.query(`
       SELECT table_name
       FROM information_schema.tables
-      WHERE table_schema = 'public'
-      AND table_name NOT IN ('users', 'school_student_count')
+      WHERE table_schema = 'classes_schema'
+      AND table_name NOT LIKE 'pg_%'
       ORDER BY table_name
     `);
+    if (result.rows.length === 0) {
+      result = await db.query(`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name NOT IN ('users', 'school_student_count')
+        ORDER BY table_name
+      `);
+    }
     const classes = result.rows.map(row => row.table_name);
     console.log('Fetched classes:', classes);
     res.json(classes);

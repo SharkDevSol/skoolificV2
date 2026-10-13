@@ -113,6 +113,30 @@ initializeClassCommunicationTables().catch(error => {
 router.get('/teacher-classes/:teacherName', async (req, res) => {
   try {
     const { teacherName } = req.params;
+    const cleanTeacherName = decodeURIComponent(teacherName || '').trim().toLowerCase();
+
+    // Special access for Sabito (sabito516) in Bilal: can access all classes for discipline
+    if (cleanTeacherName === 'sabito' || cleanTeacherName === 'sabito516') {
+      const db = (typeof getPool === 'function' ? getPool(req) : null) || req.branchPool || pool;
+      let allClassesResult = await db.query(`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'classes_schema'
+          AND table_name NOT LIKE 'pg_%'
+        ORDER BY table_name
+      `);
+      if (allClassesResult.rows.length === 0) {
+        allClassesResult = await db.query(`
+          SELECT table_name
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name NOT IN ('users', 'school_student_count')
+          ORDER BY table_name
+        `);
+      }
+      const specialClasses = allClassesResult.rows.map(row => row.table_name);
+      return res.json({ classes: specialClasses });
+    }
     
     // Get classes from subject-class assignments in mark list system
     const subjectAssignments = await pool.query(`

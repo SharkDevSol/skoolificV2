@@ -338,6 +338,17 @@ class ApiService {
 
   // ------------------------------------------------------------- DISCIPLINE
 
+  Future<List<String>> getAllClasses() async {
+    try {
+      final res = await http.get(_u(ApiConstants.faultsClasses), headers: _headers).timeout(const Duration(seconds: 12));
+      if (_ok(res)) {
+        final d = _safeJson(res.body);
+        if (d is List) return d.map((e) => e.toString()).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
   Future<List<Map<String, dynamic>>> getFaultStudents(String className) async {
     try {
       final res = await http.get(_u('${ApiConstants.faultsStudents}/$className'), headers: _headers).timeout(const Duration(seconds: 12));
