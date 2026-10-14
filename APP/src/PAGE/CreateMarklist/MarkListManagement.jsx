@@ -625,6 +625,7 @@ const TeacherAssignment = () => {
   const [existingAssignments, setExistingAssignments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [searchTeacher, setSearchTeacher] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -740,15 +741,23 @@ const TeacherAssignment = () => {
   };
 
   const handleAssignmentChange = (teacherName, subjectClass, isChecked) => {
-    const key = normKey(teacherName, subjectClass);
-    setAssignments(prev => ({
-      ...prev,
-      [key]: {
-        checked: isChecked,
-        teacherName: teacherName.trim(),
-        subjectClass: subjectClass.trim()
+    const selectedKey = normKey(teacherName, subjectClass);
+    setAssignments(prev => {
+      const next = {};
+      if (isChecked) {
+        for (const key of Object.keys(prev)) {
+          if (key.endsWith(`|||${subjectClass.trim().toLowerCase()}`)) continue;
+          next[key] = prev[key];
+        }
+        next[selectedKey] = { checked: true, teacherName: teacherName.trim(), subjectClass: subjectClass.trim() };
+      } else {
+        for (const [key, val] of Object.entries(prev)) {
+          if (key === selectedKey) continue;
+          next[key] = val;
+        }
       }
-    }));
+      return next;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -819,7 +828,14 @@ const TeacherAssignment = () => {
     <div className="teacher-assignment">
       <div className="assignment-header">
         <h2>Teacher-Subject Assignment</h2>
-        <p>Assign teachers to subject-class combinations. Green = auto-connected from schedule.</p>
+        <p>Assign one teacher per subject-class combination. Green = auto-connected from schedule.</p>
+        <input
+          type="text"
+          placeholder="Search teacher..."
+          value={searchTeacher}
+          onChange={(e) => setSearchTeacher(e.target.value)}
+          style={{ marginTop: '0.75rem', padding: '0.6rem 1rem', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', width: '100%', maxWidth: '400px' }}
+        />
       </div>
 
       {existingAssignments.length > 0 && (
@@ -857,25 +873,28 @@ const TeacherAssignment = () => {
                     {assignedTeachers.length} teacher{assignedTeachers.length !== 1 ? 's' : ''} assigned
                   </p>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
-                  {teachers.map(teacher => {
-                    const key = normKey(teacher.name, combination.subject_class);
-                    const stateItem = assignments[key];
-                    const isChecked = stateItem?.checked === true || stateItem?.checked === 'auto';
-                    const isAuto = stateItem?.checked === 'auto';
-                    return (
-                      <label key={teacher.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', borderRadius: '8px', background: isChecked ? '#f0fdf4' : '#f9fafb', cursor: 'pointer', fontSize: '0.9rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => handleAssignmentChange(teacher.name, combination.subject_class, e.target.checked)}
-                          style={{ accentColor: isAuto ? '#22c55e' : '#3b82f6' }}
-                        />
-                        <span style={{ fontWeight: 500 }}>{teacher.name}</span>
-                        {isAuto && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#16a34a', fontWeight: 600 }}>AUTO</span>}
-                      </label>
-                    );
-                  })}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
+                  {teachers
+                    .filter(t => !searchTeacher || t.name.toLowerCase().includes(searchTeacher.toLowerCase()))
+                    .map(teacher => {
+                      const key = normKey(teacher.name, combination.subject_class);
+                      const stateItem = assignments[key];
+                      const isChecked = stateItem?.checked === true || stateItem?.checked === 'auto';
+                      const isAuto = stateItem?.checked === 'auto';
+                      return (
+                        <label key={teacher.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', borderRadius: '8px', background: isChecked ? '#f0fdf4' : '#f9fafb', cursor: 'pointer', fontSize: '0.9rem' }}>
+                          <input
+                            type="radio"
+                            name={`assign-${combination.subject_class}`}
+                            checked={isChecked}
+                            onChange={() => handleAssignmentChange(teacher.name, combination.subject_class, true)}
+                            style={{ accentColor: isAuto ? '#22c55e' : '#3b82f6' }}
+                          />
+                          <span style={{ fontWeight: 500 }}>{teacher.name}</span>
+                          {isAuto && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#16a34a', fontWeight: 600 }}>AUTO</span>}
+                        </label>
+                      );
+                    })}
                 </div>
               </div>
             );
