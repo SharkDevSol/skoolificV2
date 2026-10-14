@@ -89,7 +89,7 @@ const ListStaff = () => {
           
           for (const className of classesResponse.data) {
             const dataResponse = await axios.get(`${API_BASE_URL}/staff/data/${staffType}/${className}${queryString}`, { headers: branchHeaders });
-            const staffWithMeta = dataResponse.data.data.map((staff, idx) => ({ 
+            const staffWithMeta = (dataResponse.data?.data || []).map((staff, idx) => ({ 
               ...staff, 
               staffType, 
               className,

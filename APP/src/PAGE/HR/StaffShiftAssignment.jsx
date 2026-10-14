@@ -36,7 +36,7 @@ const StaffShiftAssignment = () => {
                 { headers: { 'Authorization': `Bearer ${token}` } }
               );
 
-              const staffWithMeta = dataResponse.data.data.map(staff => ({
+              const staffWithMeta = (dataResponse.data?.data || []).map(staff => ({
                 id: staff.global_staff_id || staff.staff_id || staff.id,
                 name: staff.full_name || staff.name || 'Unknown',
                 department: staffType,

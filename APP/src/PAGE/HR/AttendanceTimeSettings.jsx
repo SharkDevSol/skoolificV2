@@ -143,7 +143,7 @@ const AttendanceTimeSettings = () => {
               `/api/staff/data/${staffType}/${className}`
             );
             
-            const staffWithMeta = dataResponse.data.data.map(staff => ({
+            const staffWithMeta = (dataResponse.data?.data || []).map(staff => ({
               id: staff.id || staff.staff_id || staff.global_staff_id,
               name: staff.full_name || staff.name,
               staffType,

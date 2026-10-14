@@ -151,7 +151,7 @@ const TeacherAttendance = () => {
                 { headers: { 'Authorization': `Bearer ${token}` } }
               );
               
-      const staffWithMeta = dataResponse.data.data.map(staff => {
+      const staffWithMeta = (dataResponse.data?.data || []).map(staff => {
                 // Get Machine ID directly from database (no more hardcoded mapping!)
                 const machineId = staff.machine_id || null;
                 const shiftAssignment = staff.shift_assignment || 'shift1';

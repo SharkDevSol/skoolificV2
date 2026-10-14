@@ -104,9 +104,9 @@ const LeaveManagement = () => {
                 { headers: { 'Authorization': `Bearer ${token}` } }
               );
               
-              console.log(`👥 Staff in ${staffType}/${className}:`, dataResponse.data.data);
+              console.log(`👥 Staff in ${staffType}/${className}:`, dataResponse.data?.data);
               
-              const staffWithMeta = dataResponse.data.data.map(staff => {
+              const staffWithMeta = (dataResponse.data?.data || []).map(staff => {
                 const staffId = staff.global_staff_id || staff.staff_id || staff.id;
                 const staffName = staff.full_name || staff.name || 'Unknown';
                 
