@@ -8,7 +8,11 @@ const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? 
 const BASIC_SUBJECTS = [
   'Mathematics', 'English', 'Physics', 'Chemistry', 'Biology',
   'History', 'Geography', 'Amharic', 'Arabic', 'Science',
-  'Civics', 'Sport', 'Moral', 'Career', 'Citizenship'
+  'Civics', 'Sport', 'Moral', 'Career', 'Citizenship',
+  'Economics', 'Social Science', 'ICT', 'Agriculture', 'Handwriting',
+  'Physical Education', 'Health', 'Art', 'Music',
+  'French', 'Environmental Science', 'Statistics', 'Accounting', 'Management',
+  'Electronics', 'Computer Science', 'Engineering', 'Drawing', 'Home Science'
 ];
 
 const SubjectConfiguration = ({ onSubjectsConfigured }) => {
@@ -120,24 +124,37 @@ const SubjectConfiguration = ({ onSubjectsConfigured }) => {
         <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'block' }}>Quick Add Basic Subjects</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
           {BASIC_SUBJECTS.map(name => {
-            const exists = subjects.some(s => s.subject_name.trim().toLowerCase() === name.toLowerCase());
+            const existing = subjects.find(s => s.subject_name.trim().toLowerCase() === name.toLowerCase());
+            const isAdded = !!existing;
             return (
               <button
                 key={name}
                 type="button"
-                disabled={exists || loading}
+                disabled={loading}
                 onClick={async () => {
                   setLoading(true);
                   try {
-                    const res = await fetch(`${API_BASE_URL}/mark-list/add-subject`, {
-                      method: 'POST',
-                      headers: getHeaders({ 'Content-Type': 'application/json' }),
-                      body: JSON.stringify({ subject_name: name }),
-                    });
-                    if (res.ok) {
-                      setMessage(`${name} added!`);
-                      fetchSubjects();
-                      if (onSubjectsConfigured) onSubjectsConfigured();
+                    if (isAdded) {
+                      const delRes = await fetch(`${API_BASE_URL}/mark-list/delete-subject/${existing.id}`, {
+                        method: 'DELETE',
+                        headers: getHeaders(),
+                      });
+                      if (delRes.ok) {
+                        setMessage(`${name} removed — click again to re-add.`);
+                        fetchSubjects();
+                        if (onSubjectsConfigured) onSubjectsConfigured();
+                      }
+                    } else {
+                      const res = await fetch(`${API_BASE_URL}/mark-list/add-subject`, {
+                        method: 'POST',
+                        headers: getHeaders({ 'Content-Type': 'application/json' }),
+                        body: JSON.stringify({ subject_name: name }),
+                      });
+                      if (res.ok) {
+                        setMessage(`${name} added!`);
+                        fetchSubjects();
+                        if (onSubjectsConfigured) onSubjectsConfigured();
+                      }
                     }
                   } catch {}
                   setLoading(false);
@@ -145,16 +162,15 @@ const SubjectConfiguration = ({ onSubjectsConfigured }) => {
                 style={{
                   padding: '0.35rem 0.75rem',
                   borderRadius: '999px',
-                  border: exists ? '1px solid #e5e7eb' : '1px solid #3b82f6',
-                  background: exists ? '#f9fafb' : '#eff6ff',
-                  color: exists ? '#9ca3af' : '#1d4ed8',
+                  border: isAdded ? '1px solid #ef4444' : '1px solid #3b82f6',
+                  background: isAdded ? '#fef2f2' : '#eff6ff',
+                  color: isAdded ? '#dc2626' : '#1d4ed8',
                   fontSize: '0.8rem',
                   fontWeight: 500,
-                  cursor: exists ? 'default' : 'pointer',
-                  opacity: exists ? 0.5 : 1,
+                  cursor: 'pointer',
                 }}
               >
-                {exists ? '✓ ' : '+ '}{name}
+                {isAdded ? `− ${name}` : `+ ${name}`}
               </button>
             );
           })}
