@@ -5,6 +5,12 @@ import { getHeaders } from './MarkListManagement';
 
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 
+const BASIC_SUBJECTS = [
+  'Mathematics', 'English', 'Physics', 'Chemistry', 'Biology',
+  'History', 'Geography', 'Amharic', 'Arabic', 'Science',
+  'Civics', 'Sport', 'Moral', 'Career', 'Citizenship'
+];
+
 const SubjectConfiguration = ({ onSubjectsConfigured }) => {
   const [subjects, setSubjects] = useState([]);
   const [newSubjectName, setNewSubjectName] = useState('');
@@ -109,6 +115,41 @@ const SubjectConfiguration = ({ onSubjectsConfigured }) => {
         <h2>Subject Configuration</h2>
         <p>Add, edit, or remove subjects. Existing subjects are preserved.</p>
       </div>
+
+      <button
+        type="button"
+        onClick={async () => {
+          setLoading(true);
+          setMessage('');
+          const existingNames = new Set(subjects.map(s => s.subject_name.trim().toLowerCase()));
+          const toAdd = BASIC_SUBJECTS.filter(name => !existingNames.has(name.toLowerCase()));
+          if (toAdd.length === 0) {
+            setMessage('All basic subjects already exist.');
+            setLoading(false);
+            return;
+          }
+          let added = 0;
+          for (const name of toAdd) {
+            try {
+              const res = await fetch(`${API_BASE_URL}/mark-list/add-subject`, {
+                method: 'POST',
+                headers: getHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ subject_name: name }),
+              });
+              if (res.ok) added++;
+            } catch {}
+          }
+          setMessage(`Added ${added} basic subjects.`);
+          fetchSubjects();
+          if (onSubjectsConfigured) onSubjectsConfigured();
+          setLoading(false);
+        }}
+        className={styles.secondaryButton}
+        disabled={loading}
+        style={{ marginBottom: '1rem', width: '100%', padding: '0.75rem' }}
+      >
+        {loading ? 'Adding...' : 'Add Basic Subjects'}
+      </button>
 
       {/* Add new subject */}
       <div className={styles.inputGroup}>
@@ -309,7 +350,12 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
             const availableSubjects = subjects.filter(s => !classSubjects.includes(s.subject_name));
             return (
               <div key={className} style={{ background: '#fff', borderRadius: '12px', padding: '1rem', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                <h3 style={{ margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600 }}>{className}</h3>
+                <h3 style={{ margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {className}
+                  <span style={{ background: '#eef2ff', color: '#4338ca', borderRadius: '999px', padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 600 }}>
+                    {classSubjects.length} subject{classSubjects.length !== 1 ? 's' : ''}
+                  </span>
+                </h3>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', minHeight: '2rem' }}>
                   {classSubjects.map(subj => (
                     <span key={subj} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#eef2ff', color: '#4338ca', borderRadius: '999px', padding: '0.3rem 0.75rem', fontSize: '0.85rem', fontWeight: 500 }}>

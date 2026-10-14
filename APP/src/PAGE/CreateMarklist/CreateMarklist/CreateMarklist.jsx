@@ -1,11 +1,11 @@
 // PAGE/CreateMarklist/CreateMarklist/CreateMarklist.jsx
 import React from 'react';
-import MarkListManagement from '../MarkListManagement';
-import './MarkListFrontend.css';
+import SubjectMappingSetup from '../SubjectMappingSetup';
+import '../CreateMarklist/MarkListFrontend.css';
 
 const MarkListSystem = ({ userType = 'admin', teacherName = null }) => {
   if (userType === 'admin') {
-    return <MarkListManagement />;
+    return <SubjectMappingSetup />;
   }
 
   return (
