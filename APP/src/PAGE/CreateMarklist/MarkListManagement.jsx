@@ -73,7 +73,6 @@ const MarkListForm = () => {
         configRes.json()
       ]);
 
-      // Derive unique subjects directly from mappings (no dependency on subjects table)
       const uniqueSubjects = [...new Map(
         mappingsData.map(m => [m.subject_name, { id: m.subject_name, subject_name: m.subject_name }])
       ).values()];
@@ -95,7 +94,6 @@ const MarkListForm = () => {
       .map(mapping => mapping.class_name);
   };
 
-  // Auto-load existing config when subject+class+term selected
   useEffect(() => {
     if (!selectedSubject || !selectedClass || !selectedTerm) return;
     const loadConfig = async () => {
@@ -114,7 +112,6 @@ const MarkListForm = () => {
           setViewMode('view');
           setFormExists(true);
         } else {
-          // No existing mark list - keep user's configured markComponents so they don't have to re-type them!
           setFormExists(false);
           setMarkComponents(prev => {
             if (Array.isArray(prev) && prev.length > 0) return prev;
@@ -202,7 +199,6 @@ const MarkListForm = () => {
       return;
     }
 
-    // Pre-check for existing form
     try {
       const checkRes = await fetch(`${API_BASE_URL}/mark-list/mark-list/${encodeURIComponent(selectedSubject)}/${encodeURIComponent(selectedClass)}/${selectedTerm}`, {
         headers: getHeaders()
@@ -228,7 +224,7 @@ const MarkListForm = () => {
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         setMessage(`Mark list form created successfully! ${result.studentsCount} students added.`);
         try {
@@ -253,7 +249,7 @@ const MarkListForm = () => {
   const handleDeleteMarkForm = async () => {
     if (!selectedSubject || !selectedClass || !selectedTerm) return;
     if (!window.confirm(`Delete mark list for ${selectedSubject} / ${selectedClass} / Term ${selectedTerm}?`)) return;
-    
+
     setLoading(true);
     try {
       const response = await fetch(
@@ -289,7 +285,7 @@ const MarkListForm = () => {
         `${API_BASE_URL}/mark-list/mark-list/${encodeURIComponent(selectedSubject)}/${encodeURIComponent(selectedClass)}/${selectedTerm}`,
         { headers: getHeaders() }
       );
-      
+
       if (response.ok) {
         const data = await response.json();
         setMarkList(data.markList);
@@ -349,7 +345,7 @@ const MarkListForm = () => {
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         const updatedMarkList = markList.map(s => {
           if (s.id === studentId) {
@@ -374,248 +370,151 @@ const MarkListForm = () => {
   };
 
   return (
-    <div className="mark-list-form">
-      <div className="form-header">
-        <h2>Mark List Management</h2>
-        {subjects.length === 0 && (
-          <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px', padding: '10px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span>⚠️ No subjects found. Please set up subjects first.</span>
-            <button
-              onClick={() => navigate('/Subject-Mapping-Setup')}
-              style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 14px', cursor: 'pointer', fontWeight: 600 }}
-            >
-              Setup Subjects
-            </button>
-          </div>
-        )}
-        <div className="mode-toggle">
-          <button 
-            className={viewMode === 'create' ? 'active' : ''}
-            onClick={() => setViewMode('create')}
-          >
+    <div className="mlf-container">
+      <div className="mlf-card">
+        <div className="mlf-card-header">
+          <h2>Mark List Management</h2>
+          {subjects.length === 0 && (
+            <div className="mlf-alert mlf-alert-warning">
+              <span>No subjects found. Please set up subjects first.</span>
+              <button onClick={() => navigate('/Subject-Mapping-Setup')} className="mlf-btn mlf-btn-sm mlf-btn-warning">
+                Setup Subjects
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="mlf-tabs">
+          <button className={`mlf-tab ${viewMode === 'create' ? 'active' : ''}`} onClick={() => setViewMode('create')}>
             Create Form
           </button>
-        </div>
-      </div>
-
-      <div className="form-controls">
-        <div className="control-group">
-          <label>Subject:</label>
-          <select 
-            value={selectedSubject} 
-            onChange={(e) => {
-              setSelectedSubject(e.target.value);
-              setSelectedClass('');
-            }}
-          >
-            <option value="">Select Subject</option>
-            {subjects.map(subject => (
-              <option key={subject.id} value={subject.subject_name}>
-                {subject.subject_name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label>Class:</label>
-          <select 
-            value={selectedClass} 
-            onChange={(e) => setSelectedClass(e.target.value)}
-            disabled={!selectedSubject}
-          >
-            <option value="">Select Class</option>
-            {getAvailableClasses().map(className => (
-              <option key={className} value={className}>
-                {className}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label>Term:</label>
-          <select 
-            value={selectedTerm} 
-            onChange={(e) => setSelectedTerm(parseInt(e.target.value))}
-          >
-            {Array.from({ length: config?.term_count || 2 }, (_, i) => (
-              <option key={i + 1} value={i + 1}>
-                Term {i + 1}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {viewMode === 'view' && (
-          <button 
-            onClick={loadMarkList}
-            disabled={!selectedSubject || !selectedClass}
-            className="load-btn"
-          >
-            Load Mark List
+          <button className={`mlf-tab ${viewMode === 'view' ? 'active' : ''}`} onClick={() => setViewMode('view')}>
+            View / Edit Marks
           </button>
-        )}
-      </div>
+        </div>
 
-      {viewMode === 'create' && (
-        <div className="create-form">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h3 style={{ margin: 0 }}>Mark Components Configuration</h3>
-            <button
-              type="button"
-              onClick={resetToDefaultComponents}
-              className="reset-default-btn"
-              style={{
-                background: 'transparent',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                padding: '4px 10px',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                color: '#64748b',
-                fontWeight: 500
-              }}
-              title="Reset to default components template"
-            >
-              ↺ Reset to Default Template
-            </button>
+        <div className="mlf-selects">
+          <div className="mlf-select-group">
+            <label>Subject</label>
+            <select value={selectedSubject} onChange={(e) => { setSelectedSubject(e.target.value); setSelectedClass(''); }}>
+              <option value="">Select Subject</option>
+              {subjects.map(subject => (
+                <option key={subject.id} value={subject.subject_name}>{subject.subject_name}</option>
+              ))}
+            </select>
           </div>
-          <div className="components-list">
-            {markComponents.map((component, index) => (
-              <div key={index} className="component-row">
-                <input
-                  type="text"
-                  placeholder="Component name (e.g., Test 1)"
-                  value={component.name}
-                  onChange={(e) => handleComponentChange(index, 'name', e.target.value)}
-                />
-                <input
-                  type="number"
-                  placeholder="Percentage"
-                  value={component.percentage}
-                  onChange={(e) => handleComponentChange(index, 'percentage', e.target.value)}
-                  min="0"
-                  max="100"
-                />
-                <span className="percentage-sign">%</span>
-                {markComponents.length > 1 && (
-                  <button 
-                    type="button" 
-                    onClick={() => removeComponent(index)}
-                    className="remove-btn"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            ))}
+          <div className="mlf-select-group">
+            <label>Class</label>
+            <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} disabled={!selectedSubject}>
+              <option value="">Select Class</option>
+              {getAvailableClasses().map(className => (
+                <option key={className} value={className}>{className}</option>
+              ))}
+            </select>
           </div>
-
-          <div className="component-actions">
-            <button type="button" onClick={addComponent} className="add-btn">
-              Add Component
-            </button>
-            <div className={`total-percentage ${getTotalPercentage() === 100 ? 'valid' : 'invalid'}`}>
-              Total: {getTotalPercentage()}%
-            </div>
+          <div className="mlf-select-group">
+            <label>Term</label>
+            <select value={selectedTerm} onChange={(e) => setSelectedTerm(parseInt(e.target.value))}>
+              {Array.from({ length: config?.term_count || 2 }, (_, i) => (
+                <option key={i + 1} value={i + 1}>Term {i + 1}</option>
+              ))}
+            </select>
           </div>
-
-          <button 
-            onClick={handleCreateForm}
-            disabled={loading || !selectedSubject || !selectedClass || getTotalPercentage() !== 100}
-            className="create-btn"
-          >
-            {loading ? 'Creating...' : 'Create Mark List Form'}
-          </button>
-          {formExists && (
-            <button 
-              onClick={handleDeleteMarkForm}
-              disabled={loading}
-              className="delete-btn"
-              style={{ marginLeft: '10px', padding: '8px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-            >
-              Delete Mark List
+          {viewMode === 'view' && (
+            <button onClick={loadMarkList} disabled={!selectedSubject || !selectedClass || loading} className="mlf-btn mlf-btn-primary">
+              Load Mark List
             </button>
           )}
         </div>
-      )}
 
-      {viewMode === 'view' && markList.length > 0 && (
-        <div className="mark-list-view">
-          <h3>
-            {selectedSubject} - {selectedClass} - Term {selectedTerm}
-          </h3>
-          <div className="table-container">
-            <table className="marks-table">
-              <thead>
-                <tr>
-                  <th>Student Name</th>
-                  <th>Age</th>
-                  <th>Gender</th>
-                  {formConfig && formConfig.mark_components && formConfig.mark_components.map(component => (
-                    <th key={component.name}>
-                      {component.name} ({component.percentage}%)
-                    </th>
-                  ))}
-                  <th>Total</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {markList.map(student => (
-                  <tr key={student.id}>
-                    <td className="student-name">{student.student_name}</td>
-                    <td>{student.age}</td>
-                    <td>{student.gender}</td>
-                    {formConfig && formConfig.mark_components && formConfig.mark_components.map(component => {
-                      const componentKey = component.name.toLowerCase().replace(/\s+/g, '_');
-                      return (
-                        <td key={component.name}>
-                          <input
-                            type="number"
-                            value={student[componentKey] || 0}
-                            onChange={(e) => handleMarkChange(student.id, componentKey, e.target.value)}
-                            min="0"
-                            max={component.percentage}
-                            className="mark-input"
-                          />
-                        </td>
-                      );
-                    })}
-                    <td className="total-cell">{student.total || 0}</td>
-                    <td className={`status-cell ${student.pass_status?.toLowerCase()}`}>
-                      {student.pass_status || 'Fail'}
-                    </td>
-                    <td>
-                      <button 
-                        onClick={() => saveMarks(student.id)}
-                        className="save-btn"
-                        disabled={loading}
-                      >
-                        Save
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {viewMode === 'create' && (
+          <div className="mlf-section">
+            <div className="mlf-section-header">
+              <h3>Mark Components Configuration</h3>
+              <button onClick={resetToDefaultComponents} className="mlf-btn mlf-btn-ghost">Reset to Default</button>
+            </div>
+            <div className="mlf-components">
+              {markComponents.map((component, index) => (
+                <div key={index} className="mlf-component-row">
+                  <input type="text" placeholder="Component name" value={component.name} onChange={(e) => handleComponentChange(index, 'name', e.target.value)} />
+                  <input type="number" placeholder="Percentage" value={component.percentage} onChange={(e) => handleComponentChange(index, 'percentage', e.target.value)} min="0" max="100" />
+                  <span className="mlf-percent">%</span>
+                  {markComponents.length > 1 && (
+                    <button type="button" onClick={() => removeComponent(index)} className="mlf-btn mlf-btn-danger mlf-btn-icon">×</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mlf-component-actions">
+              <button type="button" onClick={addComponent} className="mlf-btn mlf-btn-secondary">Add Component</button>
+              <div className={`mlf-total ${getTotalPercentage() === 100 ? 'valid' : 'invalid'}`}>
+                Total: {getTotalPercentage()}%
+              </div>
+            </div>
+            <div className="mlf-actions">
+              <button onClick={handleCreateForm} disabled={loading || !selectedSubject || !selectedClass || getTotalPercentage() !== 100} className="mlf-btn mlf-btn-primary">
+                {loading ? 'Creating...' : 'Create Mark List Form'}
+              </button>
+              {formExists && (
+                <button onClick={handleDeleteMarkForm} disabled={loading} className="mlf-btn mlf-btn-danger">Delete Mark List</button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {message && (
-        <div className={`message ${message.includes('successfully') || message.includes('saved') ? 'success' : 'error'}`}>
-          {message}
-        </div>
-      )}
+        {viewMode === 'view' && markList.length > 0 && (
+          <div className="mlf-section">
+            <h3>{selectedSubject} - {selectedClass} - Term {selectedTerm}</h3>
+            <div className="mlf-table-wrap">
+              <table className="mlf-table">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Age</th>
+                    <th>Gender</th>
+                    {formConfig && formConfig.mark_components && formConfig.mark_components.map(component => (
+                      <th key={component.name}>{component.name} ({component.percentage}%)</th>
+                    ))}
+                    <th>Total</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {markList.map(student => (
+                    <tr key={student.id}>
+                      <td className="mlf-student">{student.student_name}</td>
+                      <td>{student.age}</td>
+                      <td>{student.gender}</td>
+                      {formConfig && formConfig.mark_components && formConfig.mark_components.map(component => {
+                        const componentKey = component.name.toLowerCase().replace(/\s+/g, '_');
+                        return (
+                          <td key={component.name}>
+                            <input type="number" value={student[componentKey] || 0} onChange={(e) => handleMarkChange(student.id, componentKey, e.target.value)} min="0" max={component.percentage} className="mlf-mark-input" />
+                          </td>
+                        );
+                      })}
+                      <td className="mlf-total-cell">{student.total || 0}</td>
+                      <td className={`mlf-status ${student.pass_status?.toLowerCase()}`}>{student.pass_status || 'Fail'}</td>
+                      <td>
+                        <button onClick={() => saveMarks(student.id)} className="mlf-btn mlf-btn-primary mlf-btn-sm" disabled={loading}>Save</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {message && (
+          <div className={`mlf-alert ${message.includes('successfully') || message.includes('saved') ? 'mlf-alert-success' : 'mlf-alert-error'}`}>
+            {message}
+          </div>
+        )}
+      </div>
     </div>
   );
-};
-
-const normKey = (teacherName, subjectClass) => {
-  return `${(teacherName || '').trim().toLowerCase()}|||${(subjectClass || '').trim().toLowerCase()}`;
 };
 
 const TeacherAssignment = () => {
@@ -647,22 +546,17 @@ const TeacherAssignment = () => {
         autoConnectResponse.ok ? autoConnectResponse.json() : []
       ]);
 
-      // Deduplicate teachers by normalized name
       const uniqueTeachersMap = new Map();
       (Array.isArray(teachersData) ? teachersData : []).forEach(t => {
         if (!t || !t.name) return;
         const normName = t.name.trim().toLowerCase();
         if (!uniqueTeachersMap.has(normName)) {
-          uniqueTeachersMap.set(normName, {
-            ...t,
-            name: t.name.trim()
-          });
+          uniqueTeachersMap.set(normName, { ...t, name: t.name.trim() });
         }
       });
       const uniqueTeachers = Array.from(uniqueTeachersMap.values());
       setTeachers(uniqueTeachers);
 
-      // Merge combinations: combinationsData + any from assignmentsData or autoConnectData so columns always exist
       const comboMap = new Map();
       (Array.isArray(combinationsData) ? combinationsData : []).forEach(c => {
         if (!c || !c.subject_class) return;
@@ -706,28 +600,18 @@ const TeacherAssignment = () => {
       setSubjectClassCombinations(allCombinations);
       setExistingAssignments(existingList);
 
-      // Populate assignmentState: normalizedKey -> { checked: boolean | 'auto', teacherName, subjectClass }
       const assignmentState = {};
       existingList.forEach(assignment => {
         if (!assignment.teacher_name || !assignment.subject_class) return;
-        const key = normKey(assignment.teacher_name, assignment.subject_class);
-        assignmentState[key] = {
-          checked: true,
-          teacherName: assignment.teacher_name.trim(),
-          subjectClass: assignment.subject_class.trim()
-        };
+        const key = `${assignment.teacher_name.trim().toLowerCase()}|||${assignment.subject_class.trim().toLowerCase()}`;
+        assignmentState[key] = { checked: true, teacherName: assignment.teacher_name.trim(), subjectClass: assignment.subject_class.trim() };
       });
 
-      // Auto-connect from schedule (only if not already manually assigned)
       autoList.forEach(conn => {
         if (!conn.teacher_name || !conn.subject_class) return;
-        const key = normKey(conn.teacher_name, conn.subject_class);
+        const key = `${conn.teacher_name.trim().toLowerCase()}|||${conn.subject_class.trim().toLowerCase()}`;
         if (!assignmentState[key]) {
-          assignmentState[key] = {
-            checked: 'auto',
-            teacherName: conn.teacher_name.trim(),
-            subjectClass: conn.subject_class.trim()
-          };
+          assignmentState[key] = { checked: 'auto', teacherName: conn.teacher_name.trim(), subjectClass: conn.subject_class.trim() };
         }
       });
 
@@ -740,15 +624,8 @@ const TeacherAssignment = () => {
   };
 
   const handleAssignmentChange = (teacherName, subjectClass, isChecked) => {
-    const key = normKey(teacherName, subjectClass);
-    setAssignments(prev => ({
-      ...prev,
-      [key]: {
-        checked: isChecked,
-        teacherName: teacherName.trim(),
-        subjectClass: subjectClass.trim()
-      }
-    }));
+    const key = `${teacherName.trim().toLowerCase()}|||${subjectClass.trim().toLowerCase()}`;
+    setAssignments(prev => ({ ...prev, [key]: { checked: isChecked, teacherName: teacherName.trim(), subjectClass: subjectClass.trim() } }));
   };
 
   const handleSubmit = async (e) => {
@@ -761,10 +638,7 @@ const TeacherAssignment = () => {
       Object.values(assignments).forEach(item => {
         if (item && (item.checked === true || item.checked === 'auto')) {
           if (item.teacherName && item.subjectClass) {
-            assignmentsArray.push({
-              teacherName: item.teacherName,
-              subjectClass: item.subjectClass
-            });
+            assignmentsArray.push({ teacherName: item.teacherName, subjectClass: item.subjectClass });
           }
         }
       });
@@ -772,14 +646,10 @@ const TeacherAssignment = () => {
       const response = await fetch(`${API_BASE_URL}/mark-list/assign-teachers`, {
         method: 'POST',
         headers: getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          assignments: assignmentsArray,
-          managedTeachers: teachers.map(t => t.name)
-        }),
+        body: JSON.stringify({ assignments: assignmentsArray, managedTeachers: teachers.map(t => t.name) }),
       });
 
       const result = await response.json();
-      
       if (response.ok) {
         setMessage('Teacher assignments saved successfully!');
         await fetchData();
@@ -793,113 +663,54 @@ const TeacherAssignment = () => {
     }
   };
 
-  const getAssignmentCountForTeacher = (teacherName) => {
-    return subjectClassCombinations.filter(combination => {
-      const key = normKey(teacherName, combination.subject_class);
-      const item = assignments[key];
-      return item && (item.checked === true || item.checked === 'auto');
-    }).length;
-  };
-
   if (teachers.length === 0 || subjectClassCombinations.length === 0) {
     return (
-      <div className="teacher-assignment">
-        <div className="empty-state">
-          <h2>No Data Available</h2>
-          <p>
-            {teachers.length === 0 && 'No teachers found. Please add teachers to staff first.'}
-            {subjectClassCombinations.length === 0 && 'No subject-class combinations found. Please configure subjects and map them to classes first.'}
-          </p>
-        </div>
+      <div className="mlf-empty">
+        <h3>No Data Available</h3>
+        <p>{teachers.length === 0 ? 'No teachers found.' : 'No subject-class combinations found.'}</p>
       </div>
     );
   }
 
   return (
-    <div className="teacher-assignment">
-      <div className="assignment-header">
+    <div className="mlf-card">
+      <div className="mlf-card-header">
         <h2>Teacher-Subject Assignment</h2>
-        <p>Assign teachers to subject-class combinations. Green checkboxes are auto-connected from schedule.</p>
+        <p>Assign teachers to subject-class combinations. Green = auto-connected from schedule.</p>
       </div>
-
-      {existingAssignments.length > 0 && (
-        <div className="existing-assignments">
-          <h3>Current Assignments Summary</h3>
-          <div className="summary-grid">
-            {teachers.map(teacher => (
-              <div key={teacher.name} className="teacher-summary">
-                <strong>{teacher.name}:</strong>
-                <span>{getAssignmentCountForTeacher(teacher.name)} assignments</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="assignment-form">
-        <div className="assignment-table-container">
-          <table className="assignment-table">
-            <thead>
-              <tr>
-                <th className="teacher-header">Teachers / Subject Classes</th>
-                {subjectClassCombinations.map(combination => (
-                  <th key={`${combination.subject_name}-${combination.class_name}`} className="subject-header">
-                    <div className="subject-class-header">
-                      <div className="subject-name">{combination.subject_name}</div>
-                      <div className="class-name">Class {combination.class_name}</div>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {teachers.map(teacher => (
-                <tr key={teacher.name}>
-                  <td className="teacher-name">
-                    <div className="teacher-info">
-                      <div className="name">{teacher.name}</div>
-                      <div className="role">{teacher.role}</div>
-                    </div>
-                  </td>
-                  {subjectClassCombinations.map(combination => {
-                    const key = normKey(teacher.name, combination.subject_class);
-                    const stateItem = assignments[key];
-                    const isChecked = stateItem?.checked === true || stateItem?.checked === 'auto';
-                    const isAuto = stateItem?.checked === 'auto';
-
-                    return (
-                      <td key={`${combination.subject_name}-${combination.class_name}`} className="assignment-cell">
-                        <label className="checkbox-container" title={isAuto ? 'Auto-connected from schedule' : ''}>
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            className={isAuto ? 'auto-checked' : ''}
-                            onChange={(e) => handleAssignmentChange(
-                              teacher.name, 
-                              combination.subject_class,
-                              e.target.checked
-                            )}
-                          />
-                          <span className="checkmark">✓</span>
-                        </label>
-                      </td>
-                    );
-                  })}
-                </tr>
+      <form onSubmit={handleSubmit} className="mlf-assign-grid">
+        <table className="mlf-table mlf-assign-table">
+          <thead>
+            <tr>
+              <th>Teachers</th>
+              {subjectClassCombinations.map(combo => (
+                <th key={`${combo.subject_name}-${combo.class_name}`}>{combo.subject_name} <span className="mlf-class-tag">Class {combo.class_name}</span></th>
               ))}
-            </tbody>
-          </table>
-        </div>
-
-        {message && (
-          <div className={`message ${message.includes('successfully') ? 'success' : 'error'}`}>
-            {message}
-          </div>
-        )}
-
-        <button type="submit" disabled={loading} className="submit-btn">
-          {loading ? 'Saving Assignments...' : 'Save Teacher Assignments'}
-        </button>
+            </tr>
+          </thead>
+          <tbody>
+            {teachers.map(teacher => (
+              <tr key={teacher.name}>
+                <td className="mlf-teacher">{teacher.name}</td>
+                {subjectClassCombinations.map(combo => {
+                  const key = `${teacher.name.trim().toLowerCase()}|||${combo.subject_class.trim().toLowerCase()}`;
+                  const state = assignments[key];
+                  const isChecked = state?.checked === true || state?.checked === 'auto';
+                  return (
+                    <td key={`${combo.subject_name}-${combo.class_name}`} className="mlf-check-cell">
+                      <label className="mlf-check">
+                        <input type="checkbox" checked={isChecked} onChange={(e) => handleAssignmentChange(teacher.name, combo.subject_class, e.target.checked)} />
+                        <span className={`mlf-checkmark ${state?.checked === 'auto' ? 'auto' : ''}`}>✓</span>
+                      </label>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {message && <div className={`mlf-alert ${message.includes('successfully') ? 'mlf-alert-success' : 'mlf-alert-error'}`}>{message}</div>}
+        <button type="submit" disabled={loading} className="mlf-btn mlf-btn-primary">{loading ? 'Saving...' : 'Save Teacher Assignments'}</button>
       </form>
     </div>
   );
@@ -907,35 +718,27 @@ const TeacherAssignment = () => {
 
 const MarkListManagement = () => {
   const [activeTab, setActiveTab] = useState('subjects');
-
   const tabs = [
-    { id: 'subjects', label: '📚 Subject Setup', component: SubjectMappingSetup },
+    { id: 'subjects', label: 'Subject Setup', component: SubjectMappingSetup },
     { id: 'forms', label: 'Mark List Forms', component: MarkListForm },
     { id: 'teachers', label: 'Teacher Assignment', component: TeacherAssignment }
   ];
-
   const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component;
 
   return (
-    <div className="mark-list-system">
-      <div className="system-header">
+    <div className="mlf-container">
+      <div className="mlf-header">
         <h1>Mark List Management System</h1>
-        <p>Manage mark lists and teacher assignments</p>
+        <p>Manage subjects, mark list forms, and teacher assignments</p>
       </div>
-
-      <div className="system-navigation">
+      <div className="mlf-tabs">
         {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
+          <button key={tab.id} className={`mlf-tab ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
             {tab.label}
           </button>
         ))}
       </div>
-
-      <div className="system-content">
+      <div className="mlf-content">
         {ActiveComponent && <ActiveComponent />}
       </div>
     </div>
