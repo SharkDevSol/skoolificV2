@@ -2277,6 +2277,25 @@ router.put('/update/:globalStaffId', upload, async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Sync name change to other teacher tables so attendance & mark list show the new name
+    if (updateData.name) {
+      const newName = updateData.name;
+      const syncTables = [
+        { schema: 'school_schema_points', table: 'teachers' },
+        { schema: 'schedule_schema', table: 'teachers' },
+      ];
+      for (const tbl of syncTables) {
+        try {
+          await client.query(
+            `UPDATE "${tbl.schema}"."${tbl.table}" SET name = $1 WHERE global_staff_id = $2`,
+            [newName, globalStaffId]
+          );
+        } catch (syncErr) {
+          console.log(`Note: Could not sync staff name to ${tbl.schema}.${tbl.table}:`, syncErr.message);
+        }
+      }
+    }
+
     res.json({
       success: true,
       message: 'Staff updated successfully',

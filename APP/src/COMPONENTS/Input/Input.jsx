@@ -75,7 +75,7 @@ const Input = forwardRef(({
   // Handle change event
   const handleChange = (e) => {
     if (onChange) {
-      onChange(e.target.value);
+      onChange(e);
     }
   };
   
@@ -89,6 +89,10 @@ const Input = forwardRef(({
     'aria-readonly': readOnly,
   };
   
+  const displayValue = (typeof value === 'object' && value !== null)
+    ? (value.target?.value || '')
+    : (value === '[object Object]' ? '' : (value ?? ''));
+
   return (
     <div className={`${styles.inputGroup} ${className}`} dir="auto">
       {label && (
@@ -122,7 +126,7 @@ const Input = forwardRef(({
           id={inputId}
           name={name}
           type={inputType}
-          value={value}
+          value={displayValue}
           onChange={handleChange}
           placeholder={placeholder}
           disabled={disabled}

@@ -301,36 +301,37 @@ const ClassSubjectMapping = ({ onMappingCompleted }) => {
         <p>Select which subjects are taught in each class</p>
       </div>
       <form onSubmit={handleSubmit}>
-        <div className={styles.tableContainer}>
-          <div className={styles.tableScroll}>
-            <table className={styles.modernTable}>
-              <thead>
-                <tr>
-                  <th className={styles.classHeader}>Classes / Subjects</th>
-                  {subjects.map(s => <th key={s.id} className={styles.subjectHeader}>{s.subject_name}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {classes.map(className => (
-                  <tr key={className}>
-                    <td className={styles.classCell}>{className}</td>
-                    {subjects.map(s => (
-                      <td key={s.id} className={styles.subjectCell}>
-                        <label className={styles.radioContainer}>
-                          <input
-                            type="checkbox"
-                            checked={mappings[`${className}-${s.subject_name}`] || false}
-                            onChange={(e) => handleMappingChange(className, s.subject_name, e.target.checked)}
-                          />
-                          <span className={styles.radioCheckmark}></span>
-                        </label>
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {classes.map(className => {
+            const classSubjects = Object.entries(mappings)
+              .filter(([key, checked]) => checked && key.startsWith(`${className}-`))
+              .map(([key]) => key.substring(className.length + 1));
+            const availableSubjects = subjects.filter(s => !classSubjects.includes(s.subject_name));
+            return (
+              <div key={className} style={{ background: '#fff', borderRadius: '12px', padding: '1rem', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                <h3 style={{ margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600 }}>{className}</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', minHeight: '2rem' }}>
+                  {classSubjects.map(subj => (
+                    <span key={subj} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#eef2ff', color: '#4338ca', borderRadius: '999px', padding: '0.3rem 0.75rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                      {subj}
+                      <button type="button" onClick={() => handleMappingChange(className, subj, false)} style={{ background: 'none', border: 'none', color: '#4338ca', cursor: 'pointer', fontSize: '1rem', lineHeight: 1, padding: 0 }}>×</button>
+                    </span>
+                  ))}
+                  {classSubjects.length === 0 && <span style={{ color: '#9ca3af', fontSize: '0.85rem' }}>No subjects assigned</span>}
+                </div>
+                {availableSubjects.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value) handleMappingChange(className, e.target.value, true); }}
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '0.9rem' }}
+                  >
+                    <option value="">+ Add subject...</option>
+                    {availableSubjects.map(s => <option key={s.id} value={s.subject_name}>{s.subject_name}</option>)}
+                  </select>
+                )}
+              </div>
+            );
+          })}
         </div>
         {message && (
           <div className={`${styles.message} ${message.includes('!') ? styles.success : styles.error}`}>{message}</div>

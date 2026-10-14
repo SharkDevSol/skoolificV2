@@ -1033,7 +1033,8 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
 // Route to get available subject-class combinations for teacher assignment
 router.get('/subject-class-combinations', async (req, res) => {
   try {
-    const mappings = await getClassSubjectMappings();
+    const db = req.branchPool || pool;
+    const mappings = await getClassSubjectMappings(db);
     res.json(mappings.map(mapping => ({
       subject_name: mapping.subject_name,
       class_name: mapping.class_name,
@@ -1651,10 +1652,13 @@ router.post('/bulk-update-marks', async (req, res) => {
       
       if (!studentName || !marks) continue;
       
-      // Find student by name
+      // Find student by id or trimmed name (mark tables have no school_id column)
       const studentResult = await client.query(
-        `SELECT id FROM ${schemaName}.${tableName} WHERE LOWER(student_name) = LOWER($1)`,
-        [studentName]
+        `SELECT id FROM ${schemaName}.${tableName} 
+         WHERE ($1::text IS NOT NULL AND id::text = $1::text)
+            OR LOWER(TRIM(student_name)) = LOWER(TRIM($2))
+         LIMIT 1`,
+        [studentMarks.studentId || null, studentName]
       );
       
       if (studentResult.rows.length === 0) {

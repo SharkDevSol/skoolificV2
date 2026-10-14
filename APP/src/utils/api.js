@@ -29,10 +29,11 @@ api.interceptors.request.use(
     }
 
     // Finance App priority:
-    // If on /app/finance route, or calling finance endpoints, use financeToken
+    // ONLY use financeToken if the user is actively inside the Finance App (/app/finance).
+    // Never allow financeToken to override admin authToken for background reports or main app endpoints.
     const isFinance = typeof window !== 'undefined' && (window.location.pathname.startsWith('/app/finance') || window.location.pathname === '/finance-app');
     const financeToken = localStorage.getItem('financeToken');
-    if (financeToken && (isFinance || config.url?.startsWith('/finance') || config.url?.includes('/finance/'))) {
+    if (isFinance && financeToken) {
       config.headers.Authorization = `Bearer ${financeToken}`;
     }
 
@@ -93,6 +94,12 @@ const clearAuthData = () => {
   localStorage.removeItem('userType');
   localStorage.removeItem('staffProfile');
   localStorage.removeItem('userPermissions');
+  try {
+    const saved = localStorage.getItem('rememberedCredentials');
+    if (saved && (saved.includes('[object Object]') || saved.includes('"username":{}') || saved.includes('"username":null'))) {
+      localStorage.removeItem('rememberedCredentials');
+    }
+  } catch {}
 };
 
 const clearFinanceAuthData = () => {
@@ -116,9 +123,21 @@ api.interceptors.response.use(
       const errorCode = error.response?.data?.code;
       const errorMessage = error.response?.data?.error;
       const action = error.response?.data?.action;
-      
-      console.error('🔒 Authentication Error:', errorMessage || 'Unauthorized');
-      
+      const reqUrl = error.config?.url || '';
+
+      console.error('🔒 Authentication Error on', reqUrl, errorMessage || 'Unauthorized');
+
+      // Do NOT kick the user out or clear session for non-critical background dashboard widgets/reports!
+      if (reqUrl.includes('/reports/') || reqUrl.includes('/dashboard/') || reqUrl.includes('/summary')) {
+        console.warn('⚠️ 401 on non-critical report endpoint, ignoring global logout:', reqUrl);
+        return Promise.reject(error);
+      }
+
+      // If user is already on the login page, do not trigger alerts or redirect loops
+      if (typeof window !== 'undefined' && (window.location.pathname === '/login' || window.location.pathname.endsWith('/login'))) {
+        return Promise.reject(error);
+      }
+
       // Handle signature mismatch specifically
       if (errorCode === 'SIGNATURE_MISMATCH' || action === 'LOGOUT_REQUIRED') {
         console.error('⚠️  JWT Signature Mismatch - Token was generated with different secret');
@@ -158,7 +177,11 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
 
-      // Clear auth data for other 401 errors
+      if (isRedirecting) {
+        return Promise.reject(error);
+      }
+
+      // Clear auth data for other genuine 401 errors
       clearAuthData();
       
       // Show user-friendly message
@@ -183,6 +206,12 @@ api.interceptors.response.use(
       console.error('🚫 Access Denied:', errorMessage || 'Forbidden');
       
       // Check if it's a token-related 403 (some servers return 403 instead of 401 for invalid tokens)
+      const reqUrl = error.config?.url || '';
+      if (reqUrl.includes('/reports/') || reqUrl.includes('/dashboard/') || reqUrl.includes('/summary')) {
+        console.warn('⚠️ 403 on non-critical report endpoint, ignoring global logout:', reqUrl);
+        return Promise.reject(error);
+      }
+
       if (errorMessage?.toLowerCase().includes('token') || 
           errorMessage?.toLowerCase().includes('expired') ||
           errorMessage?.toLowerCase().includes('invalid') ||

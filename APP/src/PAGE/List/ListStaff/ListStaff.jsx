@@ -108,15 +108,22 @@ const ListStaff = () => {
   };
 
   const filterStaffData = () => {
+    const rawTerm = typeof searchTerm === 'object' && searchTerm !== null ? (searchTerm.target?.value || '') : (searchTerm || '');
+    const term = String(rawTerm).trim().toLowerCase();
+
     let filtered = staffData.filter(staff => {
-      const name = staff.full_name || staff.name || '';
-      const email = staff.email || '';
-      const phone = staff.phone || '';
-      const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        email.toLowerCase().includes(searchTerm.toLowerCase()) || phone.includes(searchTerm);
       const matchesRole = filterRole === 'all' || staff.role === filterRole;
       const matchesType = filterType === 'all' || staff.staffType === filterType;
-      
+      if (!term) return matchesRole && matchesType;
+
+      const name = String(staff.full_name || staff.name || '').toLowerCase();
+      const username = String(staff.username || '').toLowerCase();
+      const email = String(staff.email || '').toLowerCase();
+      const phone = String(staff.phone || '');
+      const staffId = String(staff.global_staff_id || staff.id || '').toLowerCase();
+      const role = String(staff.role || '').toLowerCase();
+
+      const matchesSearch = name.includes(term) || username.includes(term) || email.includes(term) || phone.includes(term) || staffId.includes(term) || role.includes(term);
       return matchesSearch && matchesRole && matchesType;
     });
     setFilteredData(filtered);
@@ -597,8 +604,8 @@ const ListStaff = () => {
           <Input 
             prefixIcon={<FiSearch />}
             placeholder={t('searchStaff') || 'Search staff...'} 
-            value={searchTerm} 
-            onChange={setSearchTerm} 
+            value={typeof searchTerm === 'object' && searchTerm !== null ? (searchTerm.target?.value || '') : (searchTerm || '')} 
+            onChange={(e) => setSearchTerm(typeof e === 'object' && e?.target ? e.target.value : (e || ''))} 
           />
         </div>
         <div className={styles.filters}>

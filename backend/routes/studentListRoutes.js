@@ -6,7 +6,6 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
-const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 
 // Helper function to resolve database pool based on branch code
 const getPool = async (req) => {
@@ -371,6 +370,18 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
       return res.status(400).json({ error: "No valid fields provided to update" });
     }
 
+    // Fetch old student_name before update (for syncing to mark list / fault / attendance tables)
+    let oldStudentName = null;
+    if (safeColumns.includes('student_name')) {
+      try {
+        const oldRow = await pool.query(
+          `SELECT student_name FROM classes_schema."${actualTableName}" WHERE school_id::text = $1::text AND (class_id::text = $2::text OR class_id IS NULL) LIMIT 1`,
+          [String(schoolId), String(classId)]
+        );
+        oldStudentName = oldRow.rows[0]?.student_name || null;
+      } catch (_) {}
+    }
+
     // Build update query
     const setClause = safeColumns.map((col, idx) => `"${col}" = $${idx + 1}`).join(", ");
     let updateResult = await pool.query(
@@ -396,6 +407,89 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
     }
 
     let finalStudentRow = updateResult.rows[0];
+
+    // Sync student_name change to denormalized tables (mark list, faults, attendance, machine IDs)
+    if (safeColumns.includes('student_name') && oldStudentName && oldStudentName !== finalStudentRow.student_name) {
+      const newName = finalStudentRow.student_name;
+      console.log(`[StudentList] Syncing name change "${oldStudentName}" → "${newName}" (school_id=${schoolId}, class_id=${classId})`);
+      // Sync global_machine_ids
+      try {
+        await pool.query(
+          `UPDATE school_schema_points.global_machine_ids SET student_name = $1 WHERE school_id::text = $2::text AND class_id::text = $3::text AND student_name = $4`,
+          [newName, String(schoolId), String(classId), oldStudentName]
+        );
+      } catch (e) { console.log('Note: global_machine_ids sync failed:', e.message); }
+      // Sync all mark list tables in mark_data_schema (these tables only have student_name, no school_id/class_id)
+      try {
+        const mlTables = await pool.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_schema = 'mark_data_schema'`
+        );
+        for (const t of mlTables.rows) {
+          try {
+            await pool.query(
+              `UPDATE mark_data_schema."${t.table_name}" SET student_name = $1 WHERE student_name = $2`,
+              [newName, oldStudentName]
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
+      // Sync all fault tables in class_students_fault
+      try {
+        const faultTables = await pool.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_schema = 'class_students_fault'`
+        );
+        for (const t of faultTables.rows) {
+          try {
+            await pool.query(
+              `UPDATE class_students_fault."${t.table_name}" SET student_name = $1 WHERE school_id::text = $2::text AND class_id::text = $3::text AND student_name = $4`,
+              [newName, String(schoolId), String(classId), oldStudentName]
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
+      // Sync attendance tables in school_schema_points (weekly attendance etc.)
+      try {
+        const attTables = await pool.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_schema = 'school_schema_points' AND table_name LIKE '%attendance%'`
+        );
+        for (const t of attTables.rows) {
+          try {
+            await pool.query(
+              `UPDATE school_schema_points."${t.table_name}" SET student_name = $1 WHERE school_id::text = $2::text AND class_id::text = $3::text AND student_name = $4`,
+              [newName, String(schoolId), String(classId), oldStudentName]
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
+      // Sync evaluation_book_daily_entries (uses class_name + student_name)
+      try {
+        await pool.query(
+          `UPDATE evaluation_book_daily_entries SET student_name = $1 WHERE class_name = $2 AND student_name = $3`,
+          [newName, className, oldStudentName]
+        );
+      } catch (_) {}
+      // Sync evaluation_responses (uses student_name + student_class)
+      try {
+        await pool.query(
+          `UPDATE evaluation_responses SET student_name = $1 WHERE student_class = $2 AND student_name = $3`,
+          [newName, className, oldStudentName]
+        );
+      } catch (_) {}
+      // Sync kg_student_milestones (uses student_name + class_name)
+      try {
+        await pool.query(
+          `UPDATE kg_student_milestones SET student_name = $1 WHERE class_name = $2 AND student_name = $3`,
+          [newName, className, oldStudentName]
+        );
+      } catch (_) {}
+      // Sync kg_student_evaluations (linked via evaluation_id → kg_evaluations.class_name)
+      try {
+        await pool.query(
+          `UPDATE kg_student_evaluations SET student_name = $1 WHERE student_name = $2 AND evaluation_id IN (SELECT id FROM kg_evaluations WHERE class_name = $3)`,
+          [newName, oldStudentName, className]
+        );
+      } catch (_) {}
+    }
 
     // Handle class transfer if student was moved to a new class table
     if (targetClassTableName && targetClassTableName !== actualTableName) {
@@ -508,6 +602,23 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Student not found" });
+    }
+
+    // Renumber remaining students sequentially so there are no gaps (1,2,3,4 not 1,2,4,5)
+    try {
+      await pool.query(
+        `WITH ordered AS (
+           SELECT ctid, ROW_NUMBER() OVER (ORDER BY school_id::int) AS new_id
+           FROM classes_schema."${actualTableName}"
+         )
+         UPDATE classes_schema."${actualTableName}" t
+         SET school_id = o.new_id,
+             class_id = o.new_id::text
+         FROM ordered o
+         WHERE t.ctid = o.ctid`
+      );
+    } catch (renumberErr) {
+      console.log("Note: Could not renumber students:", renumberErr.message);
     }
 
     if (result.rows[0].image_student) {

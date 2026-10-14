@@ -3,11 +3,19 @@ import styles from './PermissionSelector.module.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiChevronDown, FiChevronRight, FiCheck, FiMinus } from 'react-icons/fi';
 import { ADMIN_PERMISSIONS } from '../config/adminPermissions';
+import { isPageAvailable } from '../config/availablePages';
 import { 
   getCategoryPermissionKeys, 
   isCategoryFullySelected, 
   isCategoryPartiallySelected 
 } from '../utils/permissionUtils';
+
+// Only show permissions for pages that actually exist in the app
+const FILTERED_PERMISSIONS = Object.fromEntries(
+  Object.entries(FILTERED_PERMISSIONS)
+    .map(([key, cat]) => [key, { ...cat, permissions: cat.permissions.filter(p => isPageAvailable(p.path)) }])
+    .filter(([, cat]) => cat.permissions.length > 0)
+);
 
 const PermissionSelector = ({ selectedPermissions = [], onChange, disabled = false }) => {
   const [expandedCategories, setExpandedCategories] = useState({
@@ -62,7 +70,7 @@ const PermissionSelector = ({ selectedPermissions = [], onChange, disabled = fal
   const handleSelectAll = () => {
     if (disabled) return;
     
-    const allKeys = Object.keys(ADMIN_PERMISSIONS).flatMap(
+    const allKeys = Object.keys(FILTERED_PERMISSIONS).flatMap(
       categoryKey => getCategoryPermissionKeys(categoryKey)
     );
     
@@ -73,7 +81,7 @@ const PermissionSelector = ({ selectedPermissions = [], onChange, disabled = fal
     }
   };
 
-  const totalPermissions = Object.values(ADMIN_PERMISSIONS).reduce(
+  const totalPermissions = Object.values(FILTERED_PERMISSIONS).reduce(
     (sum, cat) => sum + cat.permissions.length, 0
   );
 
@@ -97,7 +105,7 @@ const PermissionSelector = ({ selectedPermissions = [], onChange, disabled = fal
       </div>
 
       <div className={styles.categories}>
-        {Object.entries(ADMIN_PERMISSIONS).map(([categoryKey, category]) => {
+        {Object.entries(FILTERED_PERMISSIONS).map(([categoryKey, category]) => {
           const isExpanded = expandedCategories[categoryKey];
           const isFullySelected = isCategoryFullySelected(categoryKey, selectedPermissions);
           const isPartiallySelected = isCategoryPartiallySelected(categoryKey, selectedPermissions);

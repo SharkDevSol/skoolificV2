@@ -1,5 +1,13 @@
+import '../services/storage_service.dart';
+
 class ApiConstants {
-  static const String baseUrl = 'https://iqra.skoolific.com';
+  static String get baseUrl {
+    final branch = (StorageService.branchCode ?? StorageService.savedBranchCode ?? '').toUpperCase();
+    if (branch.contains('BILAL')) {
+      return 'https://bilal.skoolific.com';
+    }
+    return 'https://iqra.skoolific.com';
+  }
 
   // Auth
   static const String login = '/api/v2/branches/login';

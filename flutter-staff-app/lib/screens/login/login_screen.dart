@@ -25,7 +25,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   String? _error;
 
-  final List<String> _quickBranches = ['IQRA1', 'IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
+  final List<String> _quickBranches = ['IQRA1', 'IQRA2', 'IQRA3', 'IQRA4', 'IQRA5', 'BILAL'];
 
   @override
   void initState() {
@@ -57,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = tr(context, 'branch_required'));
       return;
     }
+    await StorageService.setSavedBranchCode(branch);
     if (username.isEmpty) {
       setState(() => _error = tr(context, 'username_required'));
       return;

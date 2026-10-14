@@ -4,16 +4,36 @@ const pool = require('../../config/db');
 const { getEthiopianDayOfWeek, getCurrentEthiopianDate } = require('../../utils/ethiopianCalendar');
 const { getEndpointPath, API_ENDPOINTS } = require('../../config/api.config');
 
+let branchAuth = null;
+try {
+  branchAuth = require('../../middleware/branchAuth');
+} catch (err) {}
+
+const branchMiddleware = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && branchAuth && branchAuth.authenticateWithBranch) {
+    return branchAuth.authenticateWithBranch(req, res, next);
+  }
+  if (branchAuth && branchAuth.validateBranchCode) {
+    return branchAuth.validateBranchCode(req, res, next);
+  }
+  next();
+};
+
+router.use(branchMiddleware);
+
+const getDb = (req) => req.branchPool || pool;
+
 // Helper function to calculate week number from day
 const getWeekNumber = (day) => {
   return Math.ceil(day / 7);
 };
 
 // Get all students from all class tables
-const getAllStudents = async (className = null, studentType = null) => {
+const getAllStudents = async (db, className = null, studentType = null) => {
   try {
     // Get all class tables
-    const tablesResult = await pool.query(`
+    const tablesResult = await db.query(`
       SELECT table_name 
       FROM information_schema.tables 
       WHERE table_schema = 'classes_schema'
@@ -31,7 +51,7 @@ const getAllStudents = async (className = null, studentType = null) => {
       }
 
       // Check if is_active column exists
-      const columnCheck = await pool.query(`
+      const columnCheck = await db.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_schema = 'classes_schema' 
@@ -85,7 +105,7 @@ const getAllStudents = async (className = null, studentType = null) => {
       }
 
       // Get students with all their details
-      const studentsResult = await pool.query(`
+      const studentsResult = await db.query(`
         SELECT 
           ${selectClause},
           '${tableName}' as class_name
@@ -119,7 +139,7 @@ router.get('/weekly', async (req, res) => {
     const monthNum = parseInt(month);
 
     // Check if ethiopian_year column exists
-    const columnCheck = await pool.query(`
+    const columnCheck = await getDb(req).query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_name = 'academic_student_attendance' 
@@ -158,7 +178,7 @@ router.get('/weekly', async (req, res) => {
 
     query += ` ORDER BY student_name, ethiopian_day`;
 
-    const result = await pool.query(query, params);
+    const result = await getDb(req).query(query, params);
 
     res.json({
       success: true,
@@ -168,6 +188,43 @@ router.get('/weekly', async (req, res) => {
   } catch (error) {
     console.error('Error fetching weekly attendance:', error);
     res.status(500).json({ error: 'Failed to fetch weekly attendance' });
+  }
+});
+
+// GET /api/academic/student-attendance/monthly — all attendance records for a month
+router.get('/monthly', async (req, res) => {
+  try {
+    const { year, month, class: className } = req.query;
+
+    if (!year || !month) {
+      return res.status(400).json({ error: 'Year and month are required' });
+    }
+
+    const yearNum = parseInt(year);
+    const monthNum = parseInt(month);
+
+    let query = `
+      SELECT * FROM academic_student_attendance
+      WHERE ethiopian_year = $1 AND ethiopian_month = $2
+    `;
+    const params = [yearNum, monthNum];
+
+    if (className) {
+      query += ` AND class_name = $${params.length + 1}`;
+      params.push(className);
+    }
+
+    query += ` ORDER BY student_name, ethiopian_day`;
+
+    const result = await getDb(req).query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching monthly attendance:', error);
+    res.status(500).json({ error: 'Failed to fetch monthly attendance' });
   }
 });
 
@@ -197,7 +254,7 @@ router.post('/check-in', async (req, res) => {
 
     // Get shift assignment for this class
     let shiftNumber = 1;
-    const shiftResult = await pool.query(
+    const shiftResult = await getDb(req).query(
       'SELECT shift_number FROM academic_class_shift_assignment WHERE class_name = $1',
       [className]
     );
@@ -207,7 +264,7 @@ router.post('/check-in', async (req, res) => {
     }
 
     // Get shift-specific time settings and auto-calculate status
-    const settingsResult = await pool.query(
+    const settingsResult = await getDb(req).query(
       'SELECT shift1_late_threshold, shift2_late_threshold FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1'
     );
 
@@ -229,7 +286,7 @@ router.post('/check-in', async (req, res) => {
     }
 
     // Insert or update attendance record
-    const result = await pool.query(`
+    const result = await getDb(req).query(`
       INSERT INTO academic_student_attendance (
         student_id, student_name, class_name, smachine_id,
         ethiopian_year, ethiopian_month, ethiopian_day,
@@ -294,7 +351,7 @@ router.get('/summary', async (req, res) => {
 
     query += ` GROUP BY status`;
 
-    const result = await pool.query(query, params);
+    const result = await getDb(req).query(query, params);
 
     // Format the response
     const summary = {
@@ -332,7 +389,7 @@ router.get('/students', async (req, res) => {
   try {
     const { class: className, studentType } = req.query;
 
-    const students = await getAllStudents(className, studentType);
+    const students = await getAllStudents(getDb(req), className, studentType);
 
     res.json({
       success: true,
@@ -349,7 +406,7 @@ router.get('/students', async (req, res) => {
 // Get all available classes
 router.get('/classes', async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await getDb(req).query(`
       SELECT table_name 
       FROM information_schema.tables 
       WHERE table_schema = 'classes_schema'
@@ -553,11 +610,11 @@ router.post('/mark-absent', async (req, res) => {
 // Get attendance time settings
 router.get('/settings', async (req, res) => {
   try {
-    let result = await pool.query('SELECT * FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
+    let result = await getDb(req).query('SELECT * FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
     
     if (result.rows.length === 0) {
       // Auto-insert default settings if table is empty
-      await pool.query(`
+      await getDb(req).query(`
         INSERT INTO academic_student_attendance_settings (
           check_in_start_time, check_in_end_time, late_threshold_time, absent_marking_time,
           shift1_check_in_start, shift1_check_in_end, shift1_late_threshold, shift1_absent_marking,
@@ -570,7 +627,7 @@ router.get('/settings', async (req, res) => {
           ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], true
         )
       `);
-      result = await pool.query('SELECT * FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
+      result = await getDb(req).query('SELECT * FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1');
     }
 
     res.json({
@@ -630,7 +687,7 @@ router.put('/settings', async (req, res) => {
       normalizedDayNames = numericDayIndices.map(d => DAY_NAMES[d]).filter(Boolean);
     }
 
-    let result = await pool.query(`
+    let result = await getDb(req).query(`
       UPDATE academic_student_attendance_settings
       SET 
         check_in_start_time = COALESCE($1, check_in_start_time),
@@ -668,7 +725,7 @@ router.put('/settings', async (req, res) => {
     ]);
 
     if (result.rows.length === 0) {
-      result = await pool.query(`
+      result = await getDb(req).query(`
         INSERT INTO academic_student_attendance_settings (
           check_in_start_time, check_in_end_time, late_threshold_time, absent_marking_time,
           shift1_check_in_start, shift1_check_in_end, shift1_late_threshold, shift1_absent_marking,
@@ -698,7 +755,7 @@ router.put('/settings', async (req, res) => {
     // Sync numeric school_days to schedule_schema.school_config
     if (numericDayIndices && numericDayIndices.length > 0) {
       try {
-        await pool.query(`
+        await getDb(req).query(`
           UPDATE schedule_schema.school_config
           SET school_days = $1, teaching_days_per_week = $2, updated_at = CURRENT_TIMESTAMP
           WHERE id = 1
@@ -741,7 +798,7 @@ router.put('/update', async (req, res) => {
 
     // Get shift assignment for this class
     let shiftNumber = 1;
-    const shiftResult = await pool.query(
+    const shiftResult = await getDb(req).query(
       'SELECT shift_number FROM academic_class_shift_assignment WHERE class_name = $1',
       [className]
     );
@@ -751,7 +808,7 @@ router.put('/update', async (req, res) => {
     }
 
     // Get shift-specific time settings
-    const settingsResult = await pool.query(
+    const settingsResult = await getDb(req).query(
       'SELECT shift1_late_threshold, shift2_late_threshold FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1'
     );
 
@@ -776,7 +833,7 @@ router.put('/update', async (req, res) => {
     }
 
     // Check if record exists
-    const existingRecord = await pool.query(`
+    const existingRecord = await getDb(req).query(`
       SELECT * FROM academic_student_attendance
       WHERE student_id = $1 
         AND class_name = $2 
@@ -789,7 +846,7 @@ router.put('/update', async (req, res) => {
 
     if (existingRecord.rows.length > 0) {
       // Update existing record
-      result = await pool.query(`
+      result = await getDb(req).query(`
         UPDATE academic_student_attendance
         SET 
           status = $1,
@@ -810,7 +867,7 @@ router.put('/update', async (req, res) => {
       const dayOfWeek = getEthiopianDayOfWeek(ethYear, ethMonth, ethDay);
 
       // Get student details
-      const studentResult = await pool.query(`
+      const studentResult = await getDb(req).query(`
         SELECT student_name, smachine_id
         FROM classes_schema."${className}"
         WHERE CAST(school_id AS VARCHAR) = $1
@@ -823,7 +880,7 @@ router.put('/update', async (req, res) => {
 
       const student = studentResult.rows[0];
 
-      result = await pool.query(`
+      result = await getDb(req).query(`
         INSERT INTO academic_student_attendance (
           student_id, student_name, class_name, smachine_id,
           ethiopian_year, ethiopian_month, ethiopian_day,
@@ -853,7 +910,7 @@ router.put('/update', async (req, res) => {
 // Get class shift assignments
 router.get('/class-shifts', async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await getDb(req).query(`
       SELECT class_name, shift_number, created_at, updated_at
       FROM academic_class_shift_assignment
       ORDER BY class_name
@@ -882,7 +939,7 @@ router.put('/class-shifts', async (req, res) => {
 
     // Update each class assignment
     const promises = Object.entries(assignments).map(([className, shiftNumber]) => {
-      return pool.query(`
+      return getDb(req).query(`
         INSERT INTO academic_class_shift_assignment (class_name, shift_number, updated_at)
         VALUES ($1, $2, NOW())
         ON CONFLICT (class_name) 

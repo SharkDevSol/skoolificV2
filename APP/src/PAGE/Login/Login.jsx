@@ -17,7 +17,11 @@ const REMEMBER_KEY = 'rememberedCredentials';
 
 const Login = () => {
   const { t } = useTranslation();
-  const [credentials, setCredentials] = useState({ username: '', password: '', branchCode: '' });
+  const [credentials, setCredentials] = useState({ 
+    username: '', 
+    password: '', 
+    branchCode: isFixedBranch() ? getBranchCode() : '' 
+  });
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [toast, setToast] = useState({ show: false, message: '', type: 'error' });
@@ -38,10 +42,29 @@ const Login = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setCredentials(prev => ({ ...prev, ...parsed }));
-        setRememberMe(true);
+        let cleanUsername = parsed.username;
+        if (typeof cleanUsername === 'object' && cleanUsername !== null) {
+          cleanUsername = cleanUsername.username || cleanUsername.name || '';
+        }
+        if (typeof cleanUsername !== 'string' || cleanUsername === '[object Object]') {
+          cleanUsername = '';
+        }
+        let cleanPassword = typeof parsed.password === 'string' ? parsed.password : '';
+        if (cleanPassword === '[object Object]') cleanPassword = '';
+
+        setCredentials(prev => ({
+          ...prev,
+          username: cleanUsername,
+          password: cleanPassword,
+          ...(parsed.branchCode && typeof parsed.branchCode === 'string' && parsed.branchCode !== '[object Object]' ? { branchCode: parsed.branchCode } : {})
+        }));
+        if (cleanUsername) {
+          setRememberMe(true);
+        } else {
+          localStorage.removeItem(REMEMBER_KEY);
+        }
       } catch {
-        // ignore malformed saved credentials
+        localStorage.removeItem(REMEMBER_KEY);
       }
     } else {
       // Use rememberedBranchCode for login form pre-fill (won't affect API calls)
@@ -58,7 +81,10 @@ const Login = () => {
   }, [navigate, location]);
 
   const handleInputChange = (field, value) => {
-    const processedValue = field === 'branchCode' ? value.toUpperCase() : value;
+    const rawValue = (value && typeof value === 'object' && 'target' in value) ? value.target.value : value;
+    let safeString = typeof rawValue === 'string' ? rawValue : (rawValue == null ? '' : String(rawValue));
+    if (safeString === '[object Object]') safeString = '';
+    const processedValue = field === 'branchCode' ? safeString.toUpperCase() : safeString;
     setCredentials(prev => ({ ...prev, [field]: processedValue }));
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
@@ -107,9 +133,10 @@ const Login = () => {
     setIsLoading(true);
 
     try {
+      const effectiveBranch = (isFixedBranch() ? getBranchCode() : credentials.branchCode || '').toUpperCase();
       const response = await axios.post('/api/v2/branches/login', {
         ...credentials,
-        branchCode: credentials.branchCode.toUpperCase(),
+        branchCode: effectiveBranch,
         userType: 'admin'
       });
 
@@ -251,14 +278,18 @@ const Login = () => {
         </div>
       </div>
 
-      <Toast
-        isOpen={toast.show}
-        onClose={() => setToast(prev => ({ ...prev, show: false }))}
-        message={toast.message}
-        type={toast.type}
-        duration={5000}
-        position="top-right"
-      />
+      {toast.show && toast.message && (
+        <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 9999 }}>
+          <Toast
+            isOpen={toast.show}
+            onClose={() => setToast(prev => ({ ...prev, show: false }))}
+            message={toast.message}
+            type={toast.type}
+            duration={5000}
+            position="top-right"
+          />
+        </div>
+      )}
     </div>
   );
 };

@@ -130,9 +130,20 @@ const ListStudent = () => {
   };
 
   const filterStudentData = () => {
+    const rawTerm = typeof searchTerm === 'object' && searchTerm !== null ? (searchTerm.target?.value || '') : (searchTerm || '');
+    const term = String(rawTerm).trim().toLowerCase();
+    
     let filtered = students.filter(student => {
-      const matchesSearch = student.student_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.guardian_name?.toLowerCase().includes(searchTerm.toLowerCase()) || student.guardian_phone?.includes(searchTerm);
+      if (!term) return filterGender === 'all' || student.gender === filterGender;
+      
+      const sName = String(student.student_name || '').toLowerCase();
+      const gName = String(student.guardian_name || '').toLowerCase();
+      const gPhone = String(student.guardian_phone || '');
+      const sPhone = String(student.student_phone || student.phone || '');
+      const sId = String(student.school_id || student.class_id || student.id || '').toLowerCase();
+      const cName = String(student.class || '').toLowerCase();
+
+      const matchesSearch = sName.includes(term) || gName.includes(term) || gPhone.includes(term) || sPhone.includes(term) || sId.includes(term) || cName.includes(term);
       const matchesGender = filterGender === 'all' || student.gender === filterGender;
       return matchesSearch && matchesGender;
     });
@@ -593,8 +604,8 @@ const ListStudent = () => {
           <Input 
             prefixIcon={<FiSearch />}
             placeholder={t('students.list.search', 'Search students...')} 
-            value={searchTerm} 
-            onChange={setSearchTerm} 
+            value={typeof searchTerm === 'object' && searchTerm !== null ? (searchTerm.target?.value || '') : (searchTerm || '')} 
+            onChange={(e) => setSearchTerm(typeof e === 'object' && e?.target ? e.target.value : (e || ''))} 
           />
         </div>
         <div className={styles.filters}>

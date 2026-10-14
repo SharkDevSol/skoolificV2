@@ -160,22 +160,21 @@ router.post('/', async (req, res) => {
   try {
     const { name, email, username, password, permissions = [] } = req.body;
     
-    // Validate required fields
-    if (!name || !email || !username || !password) {
+    // Validate required fields (email is optional — the form marks it optional)
+    if (!name || !username || !password) {
       return res.status(400).json({ 
         error: 'Missing required fields',
         details: {
           name: !name ? 'Name is required' : null,
-          email: !email ? 'Email is required' : null,
           username: !username ? 'Username is required' : null,
           password: !password ? 'Password is required' : null
         }
       });
     }
     
-    // Validate email format
+    // Validate email format only when provided
     const emailRegex = /^\S+@\S+\.\S+$/;
-    if (!emailRegex.test(email)) {
+    if (email && !emailRegex.test(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
     
@@ -188,13 +187,15 @@ router.post('/', async (req, res) => {
       return res.status(409).json({ error: 'Username already exists', code: 'DUPLICATE_USERNAME' });
     }
     
-    // Check for duplicate email
-    const emailCheck = await pool.query(
-      'SELECT id FROM admin_sub_accounts WHERE email = $1',
-      [email]
-    );
-    if (emailCheck.rows.length > 0) {
-      return res.status(409).json({ error: 'Email already exists', code: 'DUPLICATE_EMAIL' });
+    // Check for duplicate email (only when email is provided)
+    if (email) {
+      const emailCheck = await pool.query(
+        'SELECT id FROM admin_sub_accounts WHERE email = $1',
+        [email]
+      );
+      if (emailCheck.rows.length > 0) {
+        return res.status(409).json({ error: 'Email already exists', code: 'DUPLICATE_EMAIL' });
+      }
     }
     
     // Hash password
@@ -206,7 +207,7 @@ router.post('/', async (req, res) => {
       INSERT INTO admin_sub_accounts (name, email, username, password_hash, permissions)
       VALUES ($1, $2, $3, $4, $5)
       RETURNING id, name, email, username, is_active, permissions, created_at
-    `, [name, email, username, passwordHash, JSON.stringify(permissions)]);
+    `, [name, email || null, username, passwordHash, JSON.stringify(permissions)]);
     
     res.status(201).json({ 
       success: true, 

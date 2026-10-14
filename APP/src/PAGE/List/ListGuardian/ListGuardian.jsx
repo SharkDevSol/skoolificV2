@@ -52,12 +52,24 @@ const ListGuardian = () => {
   };
 
   const filterGuardians = () => {
-    const term = searchTerm.toLowerCase();
+    const rawTerm = typeof searchTerm === 'object' && searchTerm !== null ? (searchTerm.target?.value || '') : (searchTerm || '');
+    const term = String(rawTerm).trim().toLowerCase();
+    
+    if (!term) {
+      setFilteredGuardians(guardians);
+      setCurrentPage(1);
+      return;
+    }
+
     const filtered = guardians.filter(guardian => {
-      const name = (guardian.guardian_name || '').toLowerCase();
-      const phone = (guardian.guardian_phone || '').toLowerCase();
-      const email = (guardian.guardian_email || '').toLowerCase();
-      return name.includes(term) || phone.includes(term) || email.includes(term);
+      const name = String(guardian.guardian_name || '').toLowerCase();
+      const username = String(guardian.guardian_username || guardian.username || '').toLowerCase();
+      const phone = String(guardian.guardian_phone || guardian.phone || '');
+      const email = String(guardian.guardian_email || guardian.email || '').toLowerCase();
+      const relation = String(guardian.guardian_relation || guardian.relation || '').toLowerCase();
+      const studentName = String(guardian.student_name || guardian.students || '').toLowerCase();
+
+      return name.includes(term) || username.includes(term) || phone.includes(term) || email.includes(term) || relation.includes(term) || studentName.includes(term);
     });
     setFilteredGuardians(filtered);
     setCurrentPage(1);

@@ -56,8 +56,11 @@ const GuardianLogin = () => {
   }, [navigate]);
 
   const handleInputChange = (field, value) => {
-        const processedValue = field === 'branchCode' ? value.toUpperCase().trim() : value;
-        setCredentials(prev => ({ ...prev, [field]: processedValue }));
+    const rawValue = (value && typeof value === 'object' && 'target' in value) ? value.target.value : value;
+    let safeString = typeof rawValue === 'string' ? rawValue : (rawValue == null ? '' : String(rawValue));
+    if (safeString === '[object Object]') safeString = '';
+    const processedValue = field === 'branchCode' ? safeString.toUpperCase().trim() : safeString;
+    setCredentials(prev => ({ ...prev, [field]: processedValue }));
     
     // Clear error for this field when user starts typing
     if (errors[field]) {

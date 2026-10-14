@@ -289,7 +289,12 @@ class StudentMarkRow {
     } else {
       marks.forEach((k, v) => m[k] = v);
     }
-    return {'studentName': studentName, 'marks': m};
+    return {
+      'studentName': studentName,
+      'studentId': studentId,
+      'school_id': studentId,
+      'marks': m,
+    };
   }
 
   /// Rule: a component that is non-empty (not 0 / not null) is LOCKED.

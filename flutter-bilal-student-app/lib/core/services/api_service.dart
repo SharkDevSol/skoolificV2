@@ -1,0 +1,673 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import '../constants/api_constants.dart';
+import '../services/storage_service.dart';
+import '../../models/models.dart';
+
+class ApiService {
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
+  ApiService._internal();
+
+  // T5: global request timeout — on slow internet requests used to hang
+  // forever. 12s is long enough for weak connections, short enough to show
+  // a clear error instead of an endless spinner.
+  static const Duration _timeout = Duration(seconds: 12);
+
+  /// T5: GET with timeout + one retry on network failure (slow connections
+  /// often drop the first request; a single silent retry fixes most of them).
+  Future<http.Response> get(Uri url, {Map<String, String>? headers}) async {
+    try {
+      return await http
+          .get(url, headers: headers)
+          .timeout(_timeout);
+    } on SocketException {
+      // one silent retry (fresh connection) — only on network failure
+      return await http.get(url, headers: headers).timeout(_timeout);
+    }
+  }
+
+  String _handleError(dynamic e) {
+    if (e is SocketException || e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
+      return 'Connection issue. Please check your internet.';
+    }
+    if (e is ApiException) return e.message;
+    return 'An unexpected error occurred.';
+  }
+
+  Future<Map<String, dynamic>> login({
+    required String branchCode,
+    required String username,
+    required String password,
+  }) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.login}'),
+        headers: ApiConstants.publicHeaders(),
+        body: jsonEncode({
+          'branchCode': branchCode,
+          'username': username,
+          'password': password,
+          'userType': 'student',
+        }),
+      );
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200 && data['success'] == true) {
+        return data;
+      }
+      throw ApiException(data['message'] ?? data['error'] ?? 'Login failed');
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+  }
+
+  Map<String, String> _headers() => ApiConstants.authHeaders(
+        StorageService.token ?? '',
+        StorageService.branchCode ?? '',
+      );
+
+  Future<User> studentProfile(String username) async {
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.studentProfile}/$username'),
+        headers: _headers(),
+      );
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        final student = data['student'] is Map
+            ? Map<String, dynamic>.from(data['student'] as Map)
+            : <String, dynamic>{};
+        return User(
+          id: student['id'] ?? student['school_id'] ?? 0,
+          username: username,
+          name: student['student_name'] ?? student['name'] ?? username,
+          role: 'student',
+          branchCode: StorageService.branchCode ?? '',
+          phone: student['phone']?.toString(),
+          className: student['class']?.toString() ?? student['class_name']?.toString(),
+          schoolId: student['school_id']?.toString(),
+          gender: student['gender']?.toString(),
+          age: student['age']?.toString(),
+        );
+      }
+      throw ApiException('Failed to load profile');
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+  }
+
+  Future<GuardianMarksResponse> studentMarks(String username) async {
+    String schoolId = '';
+    String className = '';
+    try {
+      final profile = await studentProfile(username);
+      schoolId = profile.schoolId ?? '';
+      className = profile.className ?? '';
+    } catch (_) {
+      // Profile endpoint missing on older servers — fall back to the cached
+      // login session (class + school_id now come with the login response).
+      final cached = StorageService.user;
+      if (cached != null && cached.isNotEmpty) {
+        final j = jsonDecode(cached) as Map<String, dynamic>;
+        schoolId = (j['school_id'] ?? j['schoolId'] ?? '').toString();
+        className = (j['class'] ?? j['className'] ?? '').toString();
+      }
+    }
+    if (schoolId.isEmpty || className.isEmpty) {
+      return GuardianMarksResponse(wards: [], marks: [], subjects: [], termCount: 4);
+    }
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.studentMarks}/$schoolId/$className'),
+        headers: _headers(),
+      );
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        final d = data['data'] is Map ? data['data'] as Map<String, dynamic> : data as Map<String, dynamic>;
+        final marksList = (d['marks'] as List?) ?? [];
+        final marks = marksList
+            .map((m) => Mark.fromJson(Map<String, dynamic>.from(m as Map)))
+            .toList();
+        final subjects = (d['subjects'] as List?)?.map((s) => s.toString()).toList() ?? [];
+        final termCount = d['termCount'] is int ? d['termCount'] as int : 4;
+        return GuardianMarksResponse(
+          wards: [],
+          marks: marks,
+          subjects: subjects,
+          termCount: termCount,
+        );
+      }
+      throw ApiException('Failed to load marks');
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> aiStudentTests(String username, String className) async {
+    try {
+      final uri = Uri.parse(
+        '${ApiConstants.baseUrl}${ApiConstants.aiStudentTests}?className=$className&studentUsername=$username',
+      );
+      final res = await get(uri, headers: _headers());
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        final tests = data['data'] is List ? data['data'] as List : [];
+        return tests.map((t) => Map<String, dynamic>.from(t as Map)).toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> aiStudentResults(String username) async {
+    try {
+      final uri = Uri.parse(
+        '${ApiConstants.baseUrl}${ApiConstants.aiStudentResults}?studentUsername=$username',
+      );
+      final res = await get(uri, headers: _headers());
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        final results = data['data'] is List ? data['data'] as List : [];
+        return results.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> aiStudentResult(int examId, String username) async {
+    try {
+      final uri = Uri.parse(
+        '${ApiConstants.baseUrl}${ApiConstants.aiStudentResult}/$examId?studentUsername=$username',
+      );
+      final res = await get(uri, headers: _headers());
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200 && data['data'] is Map) {
+        return Map<String, dynamic>.from(data['data'] as Map);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<User> guardianProfile(String username) async {
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianProfile}/$username'),
+        headers: _headers(),
+      );
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        final role = data['role'] ?? 'guardian';
+        
+        // Extract guardian name and phone from the first student if available
+        String? guardianName;
+        String? guardianPhone;
+        if (data['student'] is List && (data['student'] as List).isNotEmpty) {
+          final firstStudent = data['student'][0];
+          guardianName = firstStudent['guardian_name']?.toString();
+          guardianPhone = firstStudent['guardian_phone']?.toString();
+        }
+        
+        return User(
+          id: data['id'] ?? 0,
+          username: username,
+          name: guardianName ?? username,
+          role: role,
+          branchCode: StorageService.branchCode ?? '',
+          phone: guardianPhone,
+        );
+      }
+      throw ApiException('Failed to load profile');
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+  }
+
+  Future<List<Ward>> guardianWards(String username) async {
+    // 1. Direct profile fetch (returns all wards for this guardian)
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianProfile}/$username'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['student'] is List) {
+          final list = (data['student'] as List)
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+          if (list.isNotEmpty) return list;
+        } else if (data is List) {
+          final list = data
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+          if (list.isNotEmpty) return list;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fallback to guardianList if profile failed
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianList}'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body) as List;
+        Map<String, dynamic>? me;
+        for (final g in list) {
+          if (g is Map && g['guardian_username']?.toString() == username) {
+            me = Map<String, dynamic>.from(g);
+            break;
+          }
+        }
+        if (me == null) {
+          for (final g in list) {
+            if (g is Map &&
+                (g['guardian_phone']?.toString() == username ||
+                 g['id']?.toString() == username)) {
+              me = Map<String, dynamic>.from(g);
+              break;
+            }
+          }
+        }
+        if (me == null && list.isNotEmpty && list.length == 1) {
+          me = Map<String, dynamic>.from(list.first as Map);
+        }
+        if (me != null && me['students'] is List) {
+          return (me['students'] as List)
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+        }
+      }
+    } catch (e) {
+      // Return empty list on error for wards
+    }
+    return [];
+  }
+
+  Future<GuardianMarksResponse> guardianMarks(String username) async {
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianMarks}/$username'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        return GuardianMarksResponse.fromJson(jsonDecode(res.body));
+      }
+      throw ApiException('Failed to load marks');
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+  }
+
+  Future<GuardianPaymentsResponse> guardianPayments(String username) async {
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianPayments}/$username'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        return GuardianPaymentsResponse.fromJson(jsonDecode(res.body));
+      }
+      throw ApiException('Failed to load payments');
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+  }
+
+  Future<List<Post>> guardianPosts([String? schoolId]) async {
+    // 1. If schoolId is provided and numeric, try guardian profile posts
+    final numericId = schoolId != null ? int.tryParse(schoolId) : null;
+    if (numericId != null) {
+      try {
+        final res = await get(
+          Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianPosts}/$numericId'),
+          headers: _headers(),
+        );
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final list = data is List ? data : (data['posts'] is List ? data['posts'] : []);
+          final posts = (list as List).map((p) => Post.fromJson(p)).toList();
+          if (posts.isNotEmpty) return posts;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fallback to general feed (/api/posts/feed)
+    try {
+      final feedRes = await get(
+        Uri.parse('${ApiConstants.baseUrl}/api/posts/feed'),
+        headers: _headers(),
+      );
+      if (feedRes.statusCode == 200) {
+        final data = jsonDecode(feedRes.body);
+        final list = data is List ? data : (data['posts'] is List ? data['posts'] : []);
+        return (list as List).map((p) => Post.fromJson(p)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  // 4.1: like a post — POST /api/posts/{id}/like
+  Future<void> likePost(String postId) async {
+    final res = await http.post(
+      Uri.parse('${ApiConstants.baseUrl}${ApiConstants.postLike}/$postId/like'),
+      headers: _headers(),
+    );
+    if (res.statusCode != 200) {
+      throw ApiException('Could not like post');
+    }
+  }
+
+  // 7.1: discipline faults for a class — GET /api/faults/faults/:className
+  Future<List<FaultRecord>> classFaults(String className) async {
+    final res = await get(
+      Uri.parse('${ApiConstants.baseUrl}/api/faults/faults/$className'),
+      headers: _headers(),
+    );
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      final list = data is List ? data : (data['faults'] is List ? data['faults'] : []);
+      return (list as List).map((f) => FaultRecord.fromJson(f)).toList();
+    }
+    return [];
+  }
+
+  /// FIX 3: real class ranking from server — GET /api/mark-list/full-ranking/:className
+  /// Returns {termNumber: {rank, rankDisplay, average}} for ONE student.
+  Future<Map<int, Map<String, dynamic>>> studentRanking(
+      String className, String studentName) async {
+    final res = await get(
+      Uri.parse('${ApiConstants.baseUrl}/api/mark-list/full-ranking/$className'),
+      headers: _headers(),
+    );
+    if (res.statusCode != 200) return {};
+    final data = jsonDecode(res.body);
+    final terms = data['terms'] as List? ?? [];
+    final target = studentName.trim().toLowerCase();
+    final out = <int, Map<String, dynamic>>{};
+    for (final t in terms) {
+      final rankings = (t['rankings'] as List?) ?? [];
+      for (final r in rankings) {
+        final name = (r['studentName'] ?? '').toString().trim().toLowerCase();
+        if (name == target) {
+          out[t['termNumber'] as int] = {
+            'rank': r['rank'],
+            'rankDisplay': r['rankDisplay'],
+            'average': r['average'],
+            'total': rankings.length, // students in class
+          };
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
+  // 8.1: chat contacts (teachers) — GET /api/chats/contacts/teachers
+  Future<List<Map<String, dynamic>>> contactsTeachers() async {
+    final res = await get(
+      Uri.parse('${ApiConstants.baseUrl}${ApiConstants.chatContacts}'),
+      headers: _headers(),
+    );
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      final list = data is List ? data : (data['teachers'] is List ? data['teachers'] : <dynamic>[]);
+      return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    return [];
+  }
+
+  // 8.1: create conversation — POST /api/chats/conversations
+  Future<String?> createConversation(String type, List<Map<String, dynamic>> participants) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}'),
+            headers: _headers(),
+            body: jsonEncode({'type': type, 'participants': participants}),
+          )
+          .timeout(_timeout);
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final data = jsonDecode(res.body);
+        return (data['id'] ?? data['conversation_id'] ?? '').toString();
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // 8.1: chat conversations — GET /api/chats/conversations?userId=
+  Future<List<ChatConversation>> conversations(
+    String userId, {
+    String myUsername = '',
+    String myName = '',
+  }) async {
+    final res = await get(
+      Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}?userId=$userId'),
+      headers: _headers(),
+    );
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      final list = data is List
+          ? data
+          : (data['conversations'] is List
+              ? data['conversations']
+              : (data['data'] is List ? data['data'] : <dynamic>[]));
+      return (list as List)
+          .map((c) => ChatConversation.fromJson(
+                c,
+                myUsername: myUsername.isNotEmpty ? myUsername : userId,
+                myName: myName,
+              ))
+          .toList();
+    }
+    return [];
+  }
+
+  // 8.1: messages in a conversation — GET /api/chats/conversations/:id/messages
+  Future<List<ChatMessage>> conversationMessages(
+    String conversationId,
+    String myUsername, {
+    String myUserId = '',
+    String myName = '',
+  }) async {
+    final res = await get(
+      Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
+      headers: _headers(),
+    );
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      final list = data is List
+          ? data
+          : (data['messages'] is List ? data['messages'] : <dynamic>[]);
+      return (list as List)
+          .map((m) => ChatMessage.fromJson(
+                m,
+                myUsername,
+                myUserId: myUserId,
+                myName: myName,
+              ))
+          .toList();
+    }
+    return [];
+  }
+
+  // 8.1: send message — POST /api/chats/conversations/:id/messages
+  Future<void> sendMessage(String conversationId, String content) async {
+    int senderId = 0;
+    String senderName = '';
+    String senderType = 'student';
+    String senderUsername = '';
+
+    final userJson = StorageService.user;
+    if (userJson != null && userJson.isNotEmpty) {
+      try {
+        final parsed = jsonDecode(userJson) as Map<String, dynamic>;
+        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+        senderName = parsed['name']?.toString() ?? parsed['student_name']?.toString() ?? '';
+        senderType = 'student';
+        senderUsername = parsed['username']?.toString() ?? '';
+      } catch (_) {}
+    }
+
+    final res = await http.post(
+      Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages'),
+      headers: _headers(),
+      body: jsonEncode({
+        'content': content,
+        'messageText': content,
+        'senderId': senderId.toString(),
+        'senderUsername': senderUsername,
+        'senderType': 'student',
+        'senderName': senderName
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw ApiException('Could not send message');
+    }
+  }
+
+  // FIX (1B): send message WITH media — multipart/form-data with files.
+  // Backend accepts upload.array('attachments', 5).
+  Future<void> sendMessageWithMedia(String conversationId, String content,
+      List<String> filePaths) async {
+    int senderId = 0;
+    String senderName = '';
+    String senderType = 'student';
+
+    final userJson = StorageService.user;
+    if (userJson != null && userJson.isNotEmpty) {
+      try {
+        final parsed = jsonDecode(userJson) as Map<String, dynamic>;
+        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+        senderName = parsed['name']?.toString() ?? parsed['student_name']?.toString() ?? '';
+        senderType = 'student';
+      } catch (_) {}
+    }
+
+    final uri = Uri.parse(
+        '${ApiConstants.baseUrl}${ApiConstants.conversations}/$conversationId/messages');
+    final req = http.MultipartRequest('POST', uri);
+    req.headers.addAll(_headers());
+    req.fields['content'] = content;
+    req.fields['messageText'] = content;
+    req.fields['senderId'] = senderId.toString();
+    req.fields['senderType'] = senderType;
+    req.fields['senderName'] = senderName;
+    for (final p in filePaths) {
+      req.files.add(await http.MultipartFile.fromPath('attachments', p));
+    }
+    final streamed = await req.send().timeout(const Duration(seconds: 60));
+    if (streamed.statusCode != 200 && streamed.statusCode != 201) {
+      throw ApiException('Could not send message');
+    }
+  }
+
+  Future<AttendanceSummary> monthlySummary(String className, String schoolId,
+      {required int year, required int month}) async {
+    try {
+      final res = await get(
+        Uri.parse(
+            '${ApiConstants.baseUrl}${ApiConstants.monthlySummary}/$className/$schoolId?year=$year&month=$month'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        return AttendanceSummary.fromJson(jsonDecode(res.body));
+      }
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+    return AttendanceSummary(present: 0, absent: 0, late: 0, leave: 0, total: 0, percentage: 0);
+  }
+
+  Future<List<AttendanceDay>> studentAttendance(String className, String schoolId,
+      {required int year, required int month}) async {
+    try {
+      final res = await get(
+        Uri.parse(
+            '${ApiConstants.baseUrl}${ApiConstants.studentAttendance}/$className/$schoolId?year=$year&month=$month'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final list = data['attendance'] as List?;
+        return list?.map((d) => AttendanceDay.fromJson(d)).toList() ?? [];
+      }
+    } catch (e) {
+      throw ApiException(_handleError(e));
+    }
+    return [];
+  }
+
+  Future<Map<String, dynamic>> chatConversations(String userId) async {
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.conversations}?userId=$userId'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) return jsonDecode(res.body);
+    } catch (e) {
+      // Ignore
+    }
+    return {};
+  }
+
+  /// T10: change password — POST /api/user-profile/student/change-password
+  /// Returns null on success, error message string on failure.
+  Future<String?> changePassword(
+      String username, String currentPassword, String newPassword) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/api/user-profile/student/change-password'),
+        headers: _headers(),
+        body: jsonEncode({
+          'username': username,
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      ).timeout(_timeout);
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200 && data['success'] == true) return null;
+      return data['error']?.toString() ?? 'Failed to change password';
+    } catch (e) {
+      return _handleError(e);
+    }
+  }
+
+  /// T10: change username — POST /api/user-profile/student/change-username
+  /// Returns null on success, error message string on failure.
+  Future<String?> changeUsername(
+      String currentUsername, String newUsername, String password) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/api/user-profile/student/change-username'),
+        headers: _headers(),
+        body: jsonEncode({
+          'currentUsername': currentUsername,
+          'newUsername': newUsername,
+          'password': password,
+        }),
+      ).timeout(_timeout);
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200 && data['success'] == true) return null;
+      return data['error']?.toString() ?? 'Failed to change username';
+    } catch (e) {
+      return _handleError(e);
+    }
+  }
+}
+
+class ApiException implements Exception {
+  final String message;
+  ApiException(this.message);
+  @override
+  String toString() => message;
+}

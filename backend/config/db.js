@@ -8,4 +8,12 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
 });
 
+// Keep per-backend connections low so the shared database (max_connections=100)
+// is never exhausted across all branches. Fail fast instead of hanging the request.
+pool.options.max = 5;
+pool.options.idleTimeoutMillis = 30000;
+pool.options.connectionTimeoutMillis = 8000;
+pool.options.idleInTransactionSessionTimeout = 60000;
+pool.options.keepAlive = true;
+
 module.exports = pool;

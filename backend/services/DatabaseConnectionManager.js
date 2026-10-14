@@ -79,9 +79,11 @@ class DatabaseConnectionManager {
       database: branchConfig.database_name,
       password: branchConfig.database_password || String(process.env.DB_PASSWORD || '12345678'),
       port: branchConfig.database_port || 5432,
-      max: 20, // Maximum number of clients in the pool
+      max: 5,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 8000,
+      idleInTransactionSessionTimeout: 60000,
+      keepAlive: true,
     });
 
     // Test the connection
