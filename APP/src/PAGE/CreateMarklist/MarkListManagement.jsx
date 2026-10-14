@@ -819,7 +819,7 @@ const TeacherAssignment = () => {
     <div className="teacher-assignment">
       <div className="assignment-header">
         <h2>Teacher-Subject Assignment</h2>
-        <p>Assign teachers to subject-class combinations. Green checkboxes are auto-connected from schedule.</p>
+        <p>Assign teachers to subject-class combinations. Green = auto-connected from schedule.</p>
       </div>
 
       {existingAssignments.length > 0 && (
@@ -837,58 +837,49 @@ const TeacherAssignment = () => {
       )}
 
       <form onSubmit={handleSubmit} className="assignment-form">
-        <div className="assignment-table-container">
-          <table className="assignment-table">
-            <thead>
-              <tr>
-                <th className="teacher-header">Teachers / Subject Classes</th>
-                {subjectClassCombinations.map(combination => (
-                  <th key={`${combination.subject_name}-${combination.class_name}`} className="subject-header">
-                    <div className="subject-class-header">
-                      <div className="subject-name">{combination.subject_name}</div>
-                      <div className="class-name">Class {combination.class_name}</div>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {teachers.map(teacher => (
-                <tr key={teacher.name}>
-                  <td className="teacher-name">
-                    <div className="teacher-info">
-                      <div className="name">{teacher.name}</div>
-                      <div className="role">{teacher.role}</div>
-                    </div>
-                  </td>
-                  {subjectClassCombinations.map(combination => {
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+          {subjectClassCombinations.map(combination => {
+            const assignedTeachers = teachers.filter(teacher => {
+              const key = normKey(teacher.name, combination.subject_class);
+              const item = assignments[key];
+              return item && (item.checked === true || item.checked === 'auto');
+            });
+            return (
+              <div key={`${combination.subject_name}-${combination.class_name}`} style={{ background: '#fff', borderRadius: '12px', padding: '1rem', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {combination.subject_name}
+                    <span style={{ background: '#f1f5f9', color: '#475569', borderRadius: '999px', padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 500 }}>
+                      Class {combination.class_name}
+                    </span>
+                  </h3>
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#6b7280' }}>
+                    {assignedTeachers.length} teacher{assignedTeachers.length !== 1 ? 's' : ''} assigned
+                  </p>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
+                  {teachers.map(teacher => {
                     const key = normKey(teacher.name, combination.subject_class);
                     const stateItem = assignments[key];
                     const isChecked = stateItem?.checked === true || stateItem?.checked === 'auto';
                     const isAuto = stateItem?.checked === 'auto';
-
                     return (
-                      <td key={`${combination.subject_name}-${combination.class_name}`} className="assignment-cell">
-                        <label className="checkbox-container" title={isAuto ? 'Auto-connected from schedule' : ''}>
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            className={isAuto ? 'auto-checked' : ''}
-                            onChange={(e) => handleAssignmentChange(
-                              teacher.name, 
-                              combination.subject_class,
-                              e.target.checked
-                            )}
-                          />
-                          <span className="checkmark">✓</span>
-                        </label>
-                      </td>
+                      <label key={teacher.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', borderRadius: '8px', background: isChecked ? '#f0fdf4' : '#f9fafb', cursor: 'pointer', fontSize: '0.9rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => handleAssignmentChange(teacher.name, combination.subject_class, e.target.checked)}
+                          style={{ accentColor: isAuto ? '#22c55e' : '#3b82f6' }}
+                        />
+                        <span style={{ fontWeight: 500 }}>{teacher.name}</span>
+                        {isAuto && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#16a34a', fontWeight: 600 }}>AUTO</span>}
+                      </label>
                     );
                   })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {message && (
