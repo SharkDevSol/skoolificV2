@@ -98,7 +98,25 @@ const StudentAttendanceTimeSettings = () => {
         }));
       }
 
-      if (ccRes.data && ccRes.data.success) setClassConfigs(ccRes.data.data || {});
+      if (ccRes.data && ccRes.data.success) {
+        const raw = ccRes.data.data;
+        const asMap = {};
+        if (Array.isArray(raw)) {
+          raw.forEach(r => {
+            if (r.class_name) {
+              asMap[r.class_name] = {
+                shift_number: r.shift_number || 1,
+                shift: r.shift_number || 1,
+                isKG: r.is_kg || false,
+                isEvening: r.is_evening || false
+              };
+            }
+          });
+        } else if (raw && typeof raw === 'object') {
+          Object.assign(asMap, raw);
+        }
+        setClassConfigs(asMap);
+      }
 
       const cls = clsRes.data?.data || [];
       setClassConfigs(prev => {
