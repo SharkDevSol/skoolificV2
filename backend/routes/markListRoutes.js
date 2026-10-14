@@ -1058,7 +1058,7 @@ router.get('/teacher-mark-lists/:teacherName', async (req, res) => {
     const db = req.branchPool || pool;
     // Get teacher's assigned subject-class combinations
     const assignmentsResult = await db.query(
-      'SELECT subject_class FROM subjects_of_school_schema.teachers_subjects WHERE teacher_name = $1',
+      'SELECT subject_class FROM subjects_of_school_schema.teachers_subjects WHERE LOWER(TRIM(teacher_name)) = LOWER(TRIM($1))',
       [teacherName]
     );
     
@@ -1080,43 +1080,19 @@ router.get('/teacher-mark-lists/:teacherName', async (req, res) => {
     console.log(`Term count: ${termCount}`);
     
     for (const assignment of assignments) {
-      // Parse subject and class from subject_class string
       const match = assignment.subject_class.match(/^(.+) Class (.+)$/);
       if (match) {
         const [, subjectName, className] = match;
         
-        console.log(`Processing: ${subjectName} Class ${className}`);
-        
-        // Check which terms have mark list forms
-        const schemaName = getSubjectSchemaName(subjectName);
-        
+        // Return all assignments — APK handles missing forms by showing Create Mark Components
         for (let term = 1; term <= termCount; term++) {
-          const tableName = `${className.toLowerCase()}_term_${term}`;
-          
-          try {
-            // Check if table exists
-            const tableExistsResult = await db.query(`
-              SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = $1 AND table_name = $2
-              )
-            `, [schemaName, tableName]);
-            
-            if (tableExistsResult.rows[0].exists) {
-              markListForms.push({
-                subjectName,
-                className,
-                termNumber: term,
-                subjectClass: assignment.subject_class,
-                formId: `${subjectName}_${className}_${term}`
-              });
-              console.log(`✓ Added: ${subjectName} Class ${className} Term ${term}`);
-            } else {
-              console.log(`✗ Table not found: ${schemaName}.${tableName}`);
-            }
-          } catch (error) {
-            console.log(`Error checking table ${schemaName}.${tableName}:`, error.message);
-          }
+          markListForms.push({
+            subjectName,
+            className,
+            termNumber: term,
+            subjectClass: assignment.subject_class,
+            formId: `${subjectName}_${className}_${term}`
+          });
         }
       } else {
         console.log(`Could not parse subject_class: ${assignment.subject_class}`);
