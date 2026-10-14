@@ -826,15 +826,17 @@ const TeacherAssignment = () => {
 
   return (
     <div className="teacher-assignment">
-      <div className="assignment-header">
-        <h2>Teacher-Subject Assignment</h2>
-        <p>Assign one teacher per subject-class combination. Green = auto-connected from schedule.</p>
+      <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff', paddingBottom: '0.75rem', marginBottom: '0.5rem', borderBottom: '1px solid #f3f4f6' }}>
+        <div className="assignment-header" style={{ marginBottom: 0 }}>
+          <h2>Teacher-Subject Assignment</h2>
+          <p>Assign one teacher per subject-class combination. Green = auto-connected from schedule.</p>
+        </div>
         <input
           type="text"
-          placeholder="Search teacher..."
+          placeholder="🔍 Search teacher..."
           value={searchTeacher}
           onChange={(e) => setSearchTeacher(e.target.value)}
-          style={{ marginTop: '0.75rem', padding: '0.6rem 1rem', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', width: '100%', maxWidth: '400px' }}
+          style={{ marginTop: '0.5rem', padding: '0.6rem 1rem', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', width: '100%', maxWidth: '400px', position: 'sticky', top: 0, background: '#fff' }}
         />
       </div>
 
