@@ -826,18 +826,28 @@ const TeacherAssignment = () => {
 
   return (
     <div className="teacher-assignment">
-      <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff', paddingBottom: '0.75rem', marginBottom: '0.5rem', borderBottom: '1px solid #f3f4f6' }}>
-        <div className="assignment-header" style={{ marginBottom: 0 }}>
-          <h2>Teacher-Subject Assignment</h2>
-          <p>Assign one teacher per subject-class combination. Green = auto-connected from schedule.</p>
-        </div>
+      <div style={{ position: 'fixed', top: '70px', right: '20px', zIndex: 9999, background: '#fff', padding: '0.6rem 0.8rem', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <input
           type="text"
           placeholder="🔍 Search teacher..."
           value={searchTeacher}
           onChange={(e) => setSearchTeacher(e.target.value)}
-          style={{ marginTop: '0.5rem', padding: '0.6rem 1rem', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', width: '100%', maxWidth: '400px', position: 'sticky', top: 0, background: '#fff' }}
+          style={{ padding: '0.5rem 0.9rem', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', width: '260px' }}
         />
+        {searchTeacher && (
+          <button
+            type="button"
+            onClick={() => setSearchTeacher('')}
+            style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', padding: '0.35rem 0.6rem', cursor: 'pointer', fontSize: '0.8rem' }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      <div className="assignment-header">
+        <h2>Teacher-Subject Assignment</h2>
+        <p>Assign one teacher per subject-class combination. Green = auto-connected from schedule.</p>
       </div>
 
       {existingAssignments.length > 0 && (
