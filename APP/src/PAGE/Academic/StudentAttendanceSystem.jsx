@@ -77,6 +77,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
   const [reportSummary, setReportSummary] = useState({ present: 0, absent: 0, leave: 0, late: 0, total: 0 });
   const [reportType, setReportType] = useState('week'); // 'week' | 'month'
   const [reportWeek, setReportWeek] = useState('');
+  const reportDateInit = React.useRef(false);
 
   const ethiopianMonths = useMemo(
     () => [
@@ -671,7 +672,8 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
   }, [selectedClass]);
 
   useEffect(() => {
-    if (currentEthiopianDate && !reportInitialized) {
+    if (currentEthiopianDate && !reportDateInit.current) {
+      reportDateInit.current = true;
       setReportDate({ year: currentEthiopianDate.year, month: currentEthiopianDate.month, day: currentEthiopianDate.day });
     }
   }, [currentEthiopianDate]);
