@@ -120,10 +120,11 @@ const StudentAttendanceTimeSettings = () => {
 
       const cls = clsRes.data?.data || [];
       setClassConfigs(prev => {
-        if (Object.keys(prev).length > 0) return prev;
-        const derived = {};
-        cls.forEach(c => { derived[c] = { shift_number: 1, isKG: false, isEvening: false }; });
-        return derived;
+        const merged = {};
+        cls.forEach(c => {
+          merged[c] = prev[c] || { shift_number: 1, shift: 1, isKG: false, isEvening: false };
+        });
+        return merged;
       });
     } catch (err) {
       console.error('Error loading settings:', err);
