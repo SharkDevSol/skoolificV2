@@ -116,40 +116,50 @@ const SubjectConfiguration = ({ onSubjectsConfigured }) => {
         <p>Add, edit, or remove subjects. Existing subjects are preserved.</p>
       </div>
 
-      <button
-        type="button"
-        onClick={async () => {
-          setLoading(true);
-          setMessage('');
-          const existingNames = new Set(subjects.map(s => s.subject_name.trim().toLowerCase()));
-          const toAdd = BASIC_SUBJECTS.filter(name => !existingNames.has(name.toLowerCase()));
-          if (toAdd.length === 0) {
-            setMessage('All basic subjects already exist.');
-            setLoading(false);
-            return;
-          }
-          let added = 0;
-          for (const name of toAdd) {
-            try {
-              const res = await fetch(`${API_BASE_URL}/mark-list/add-subject`, {
-                method: 'POST',
-                headers: getHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({ subject_name: name }),
-              });
-              if (res.ok) added++;
-            } catch {}
-          }
-          setMessage(`Added ${added} basic subjects.`);
-          fetchSubjects();
-          if (onSubjectsConfigured) onSubjectsConfigured();
-          setLoading(false);
-        }}
-        className={styles.secondaryButton}
-        disabled={loading}
-        style={{ marginBottom: '1rem', width: '100%', padding: '0.75rem' }}
-      >
-        {loading ? 'Adding...' : 'Add Basic Subjects'}
-      </button>
+      <div style={{ marginBottom: '1rem' }}>
+        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'block' }}>Quick Add Basic Subjects</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          {BASIC_SUBJECTS.map(name => {
+            const exists = subjects.some(s => s.subject_name.trim().toLowerCase() === name.toLowerCase());
+            return (
+              <button
+                key={name}
+                type="button"
+                disabled={exists || loading}
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    const res = await fetch(`${API_BASE_URL}/mark-list/add-subject`, {
+                      method: 'POST',
+                      headers: getHeaders({ 'Content-Type': 'application/json' }),
+                      body: JSON.stringify({ subject_name: name }),
+                    });
+                    if (res.ok) {
+                      setMessage(`${name} added!`);
+                      fetchSubjects();
+                      if (onSubjectsConfigured) onSubjectsConfigured();
+                    }
+                  } catch {}
+                  setLoading(false);
+                }}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '999px',
+                  border: exists ? '1px solid #e5e7eb' : '1px solid #3b82f6',
+                  background: exists ? '#f9fafb' : '#eff6ff',
+                  color: exists ? '#9ca3af' : '#1d4ed8',
+                  fontSize: '0.8rem',
+                  fontWeight: 500,
+                  cursor: exists ? 'default' : 'pointer',
+                  opacity: exists ? 0.5 : 1,
+                }}
+              >
+                {exists ? '✓ ' : '+ '}{name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Add new subject */}
       <div className={styles.inputGroup}>
