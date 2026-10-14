@@ -309,18 +309,32 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
         const weeks = response.data.data.weeks;
         const currentWeekId = response.data.data.currentWeekId;
         
-        // Mark current week (prefer backend's currentWeekId)
+        // Mark current week: try backend ID first, fallback to finding week containing today
         const weeksWithCurrent = weeks.map(week => ({
           ...week,
           isCurrent: currentWeekId ? week.id === currentWeekId : false
         }));
+
+        // Fallback: if no week matched, find the week whose days contain today
+        if (!weeksWithCurrent.some(w => w.isCurrent) && currentEthiopianDate) {
+          const todayNum = currentEthiopianDate.day;
+          const todayMonth = currentEthiopianDate.month;
+          const todayYear = currentEthiopianDate.year;
+          const found = weeksWithCurrent.find(w => {
+            if (!w.days || w.days.length === 0) return false;
+            return w.days.some(d => d.year === todayYear && d.month === todayMonth && d.day === todayNum);
+          });
+          if (found) {
+            found.isCurrent = true;
+            console.log('Fallback: found current week by date match:', found.label);
+          }
+        }
         
         setSchoolWeeks(weeksWithCurrent);
         
         console.log(`Loaded ${weeksWithCurrent.length} school weeks for year ${selectedYear}`);
         console.log('Current Ethiopian date:', currentEthiopianDate);
         
-        // Select current week if found, otherwise first week
         const currentWeek = weeksWithCurrent.find(w => w.isCurrent);
         if (currentWeek) {
           console.log('Auto-selecting current week:', currentWeek.label);
