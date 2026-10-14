@@ -71,7 +71,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
   // Report feature states
   const [showReport, setShowReport] = useState(false);
   const [reportClass, setReportClass] = useState('');
-  const [reportDate, setReportDate] = useState({ year: 2018, month: 1, day: 1 });
+  const [reportDate, setReportDate] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() + 1, day: 1 });
   const [reportData, setReportData] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportSummary, setReportSummary] = useState({ present: 0, absent: 0, leave: 0, late: 0, total: 0 });
@@ -605,60 +605,70 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
       setReportLoading(true);
       setReportData([]);
 
-      let records = [];
+      // Always fetch BOTH week and month data
+      const weekId = reportWeek || selectedWeekId;
+      const week = schoolWeeks.find(w => w.id === weekId);
+      const monthNum = reportDate.month;
+      const yearNum = reportDate.year;
 
-      if (reportType === 'month') {
-        if (!reportDate.year || !reportDate.month) {
-          alert('Please select year and month');
-          return;
-        }
-        const response = await axios.get(`${API_BASE_URL}/academic/student-attendance/monthly`, {
-          params: { year: reportDate.year, month: reportDate.month, class: reportClass }
-        });
-        records = response.data.success ? (response.data.data || []) : [];
-      } else {
-        // Week report — use selected week or current week
-        const weekId = reportWeek || selectedWeekId;
-        if (!weekId) {
-          alert('Please select a school week');
-          return;
-        }
-        const week = schoolWeeks.find(w => w.id === weekId);
-        if (!week) {
-          alert('Week not found');
-          return;
-        }
-        const monthNum = week.month || reportDate.month;
-        const response = await axios.get(`${API_BASE_URL}/academic/student-attendance/weekly`, {
-          params: { week: week.week_number || 1, year: reportDate.year || week.year, month: monthNum, class: reportClass }
-        });
-        records = response.data.success ? (response.data.data || []) : [];
-      }
+      const [weekRes, monthRes] = await Promise.all([
+        week ? axios.get(`${API_BASE_URL}/academic/student-attendance/weekly`, {
+          params: { week: week.week_number || 1, year: yearNum, month: monthNum, class: reportClass }
+        }) : Promise.resolve({ data: { success: false, data: [] } }),
+        axios.get(`${API_BASE_URL}/academic/student-attendance/monthly`, {
+          params: { year: yearNum, month: monthNum, class: reportClass }
+        })
+      ]);
 
-      // Aggregate per-student counts
+      const weekRecords = weekRes.data.success ? (weekRes.data.data || []) : [];
+      const monthRecords = monthRes.data.success ? (monthRes.data.data || []) : [];
+
+      // Aggregate per-student: week counts + month counts
       const perStudent = {};
-      records.forEach(r => {
+      const ensure = (r) => {
         const name = r.student_name || 'Unknown';
         if (!perStudent[name]) {
-          perStudent[name] = { name, classId: r.class_id || '', smachineId: r.smachine_id || '', present: 0, absent: 0, late: 0, leave: 0, total: 0 };
+          perStudent[name] = {
+            name,
+            classId: r.class_id || '',
+            wPresent: 0, wAbsent: 0, wLate: 0, wLeave: 0,
+            mPresent: 0, mAbsent: 0, mLate: 0, mLeave: 0
+          };
         }
-        const status = (r.status || '').toUpperCase();
-        if (status === 'PRESENT') perStudent[name].present++;
-        else if (status === 'ABSENT') perStudent[name].absent++;
-        else if (status === 'LATE') perStudent[name].late++;
-        else if (status === 'LEAVE') perStudent[name].leave++;
-        perStudent[name].total++;
+        return perStudent[name];
+      };
+
+      weekRecords.forEach(r => {
+        const s = ensure(r);
+        const st = (r.status || '').toUpperCase();
+        if (st === 'PRESENT') s.wPresent++;
+        else if (st === 'ABSENT') s.wAbsent++;
+        else if (st === 'LATE') s.wLate++;
+        else if (st === 'LEAVE') s.wLeave++;
+      });
+
+      monthRecords.forEach(r => {
+        const s = ensure(r);
+        const st = (r.status || '').toUpperCase();
+        if (st === 'PRESENT') s.mPresent++;
+        else if (st === 'ABSENT') s.mAbsent++;
+        else if (st === 'LATE') s.mLate++;
+        else if (st === 'LEAVE') s.mLeave++;
       });
 
       const studentRows = Object.values(perStudent).sort((a, b) => a.name.localeCompare(b.name));
       setReportData(studentRows);
 
-      const present = studentRows.reduce((s, r) => s + r.present, 0);
-      const absent = studentRows.reduce((s, r) => s + r.absent, 0);
-      const late = studentRows.reduce((s, r) => s + r.late, 0);
-      const leave = studentRows.reduce((s, r) => s + r.leave, 0);
+      const wP = studentRows.reduce((s, r) => s + r.wPresent, 0);
+      const wA = studentRows.reduce((s, r) => s + r.wAbsent, 0);
+      const wL = studentRows.reduce((s, r) => s + r.wLate, 0);
+      const wLv = studentRows.reduce((s, r) => s + r.wLeave, 0);
+      const mP = studentRows.reduce((s, r) => s + r.mPresent, 0);
+      const mA = studentRows.reduce((s, r) => s + r.mAbsent, 0);
+      const mL = studentRows.reduce((s, r) => s + r.mLate, 0);
+      const mLv = studentRows.reduce((s, r) => s + r.mLeave, 0);
 
-      setReportSummary({ present, late, absent, leave, total: records.length });
+      setReportSummary({ weekPresent: wP, weekAbsent: wA, weekLate: wL, weekLeave: wLv, monthPresent: mP, monthAbsent: mA, monthLate: mL, monthLeave: mLv });
     } catch (err) {
       console.error('Error fetching report data:', err);
       alert('Failed to fetch report data');
@@ -666,6 +676,29 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
       setReportLoading(false);
     }
   };
+
+  // Auto-open report with current class + current week when page loads
+  useEffect(() => {
+    if (selectedClass && !reportClass) setReportClass(selectedClass);
+  }, [selectedClass]);
+
+  useEffect(() => {
+    if (currentEthiopianDate && !reportDate.setOnce) {
+      setReportDate({ year: currentEthiopianDate.year, month: currentEthiopianDate.month, day: currentEthiopianDate.day, setOnce: true });
+    }
+  }, [currentEthiopianDate]);
+
+  useEffect(() => {
+    const cw = schoolWeeks.find(w => w.isCurrent);
+    if (cw && !reportWeek) setReportWeek(cw.id);
+  }, [schoolWeeks]);
+
+  // Auto-generate report when opened with data ready
+  useEffect(() => {
+    if (showReport && reportClass && (reportWeek || selectedWeekId) && !reportLoading && reportData.length === 0) {
+      fetchReportData();
+    }
+  }, [showReport, reportClass, reportWeek, selectedWeekId]);
 
   const printReport = () => {
     window.print();
@@ -901,38 +934,24 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
         {showReport && (
           <div className={styles.reportContent}>
             <div className={styles.reportFilters}>
-              <div className={styles.filterGroup}>
-                <label>{t('students.attendance.reportType', 'Report Type')}</label>
-                <div className={styles.buttonGroup}>
-                  <Button type="button" variant={reportType === 'week' ? 'primary' : 'secondary'} onClick={() => setReportType('week')}>
-                    {t('students.attendance.week', 'Week')}
-                  </Button>
-                  <Button type="button" variant={reportType === 'month' ? 'primary' : 'secondary'} onClick={() => setReportType('month')}>
-                    {t('students.attendance.month', 'Month')}
-                  </Button>
-                </div>
-              </div>
               <Select
                 label={t('students.attendance.class', 'Class')}
                 options={reportClassOptions}
                 value={reportClass}
                 onChange={setReportClass}
               />
-              {reportType === 'week' ? (
-                <Select
-                  label={t('students.attendance.schoolWeek', 'School Week')}
-                  options={weekSelectOptions}
-                  value={reportWeek || selectedWeekId}
-                  onChange={setReportWeek}
-                />
-              ) : (
-                <Select
-                  label={t('students.attendance.month', 'Month')}
-                  options={monthSelectOptions}
-                  value={String(reportDate.month)}
-                  onChange={(v) => setReportDate({ ...reportDate, month: parseInt(v, 10) })}
-                />
-              )}
+              <Select
+                label={t('students.attendance.schoolWeek', 'School Week')}
+                options={weekSelectOptions}
+                value={reportWeek || selectedWeekId}
+                onChange={setReportWeek}
+              />
+              <Select
+                label={t('students.attendance.month', 'Month')}
+                options={monthSelectOptions}
+                value={String(reportDate.month)}
+                onChange={(v) => setReportDate({ ...reportDate, month: parseInt(v, 10) })}
+              />
               <Input
                 type="number"
                 label={t('students.attendance.year', 'Year')}
@@ -968,39 +987,44 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                 {/* Report Summary */}
                 <div className={styles.reportSummary}>
                   <h3 className={styles.reportSummaryTitle}>
-                    {reportClass} — {reportType === 'week'
-                      ? `${t('students.attendance.week', 'Week')} ${(schoolWeeks.find(w => w.id === (reportWeek || selectedWeekId)) || {}).week_number || ''} ${reportDate.year}`
-                      : `${ethiopianMonths[reportDate.month - 1]} ${reportDate.year}`}
+                    {reportClass} — Week {(schoolWeeks.find(w => w.id === (reportWeek || selectedWeekId)) || {}).week_number || '?'} + Month {ethiopianMonths[reportDate.month - 1]} {reportDate.year}
                   </h3>
                   <div className={styles.summaryCards}>
-                    <StatCard title={t('students.attendance.present', 'Present')} value={reportSummary.present} icon={<CheckCircle size={24} />} variant="success" />
-                    <StatCard title={t('students.attendance.late', 'Late')} value={reportSummary.late} icon={<Clock size={24} />} variant="warning" />
-                    <StatCard title={t('students.attendance.absent', 'Absent')} value={reportSummary.absent} icon={<XCircle size={24} />} variant="error" />
-                    <StatCard title={t('students.attendance.leave', 'Leave')} value={reportSummary.leave} icon={<Calendar size={24} />} variant="secondary" />
-                    <StatCard title={t('students.attendance.totalRecords', 'Total')} value={reportSummary.total} icon={<Users size={24} />} variant="primary" />
+                    <StatCard title="Week Present" value={reportSummary.weekPresent || 0} icon={<CheckCircle size={24} />} variant="success" />
+                    <StatCard title="Week Absent" value={reportSummary.weekAbsent || 0} icon={<XCircle size={24} />} variant="error" />
+                    <StatCard title="Week Late" value={reportSummary.weekLate || 0} icon={<Clock size={24} />} variant="warning" />
+                    <StatCard title="Week Leave" value={reportSummary.weekLeave || 0} icon={<Calendar size={24} />} variant="secondary" />
+                  </div>
+                  <div className={styles.summaryCards}>
+                    <StatCard title="Month Present" value={reportSummary.monthPresent || 0} icon={<CheckCircle size={24} />} variant="success" />
+                    <StatCard title="Month Absent" value={reportSummary.monthAbsent || 0} icon={<XCircle size={24} />} variant="error" />
+                    <StatCard title="Month Late" value={reportSummary.monthLate || 0} icon={<Clock size={24} />} variant="warning" />
+                    <StatCard title="Month Leave" value={reportSummary.monthLeave || 0} icon={<Calendar size={24} />} variant="secondary" />
                   </div>
                 </div>
 
-                {/* Ranking: most absent / present / late / leave */}
-                {reportData.length > 0 && (
-                  <div className={styles.reportSummary}>
-                    <h3 className={styles.reportSummaryTitle}>{t('students.attendance.ranking', 'Student Ranking')}</h3>
-                    <div className={styles.summaryCards}>
-                      {[
-                        { label: t('students.attendance.mostAbsent', 'Most Absent'), row: [...reportData].sort((a, b) => b.absent - a.absent)[0], count: [...reportData].sort((a, b) => b.absent - a.absent)[0]?.absent },
-                        { label: t('students.attendance.mostPresent', 'Most Present'), row: [...reportData].sort((a, b) => b.present - a.present)[0], count: [...reportData].sort((a, b) => b.present - a.present)[0]?.present },
-                        { label: t('students.attendance.mostLate', 'Most Late'), row: [...reportData].sort((a, b) => b.late - a.late)[0], count: [...reportData].sort((a, b) => b.late - a.late)[0]?.late },
-                        { label: t('students.attendance.mostLeave', 'Most Leave'), row: [...reportData].sort((a, b) => b.leave - a.leave)[0], count: [...reportData].sort((a, b) => b.leave - a.leave)[0]?.leave },
-                      ].map((item, i) => (
-                        <div key={i} className={styles.rankCard}>
-                          <span className={styles.rankLabel}>{item.label}</span>
-                          <span className={styles.rankName}>{item.row?.name || '-'}</span>
-                          <span className={styles.rankCount}>{item.count || 0}</span>
+                {/* Ranking */}
+                <div className={styles.reportSummary}>
+                  <h3 className={styles.reportSummaryTitle}>Student Ranking (Week)</h3>
+                  <div className={styles.summaryCards}>
+                    {[
+                      { label: 'Most Absent', field: 'wAbsent' },
+                      { label: 'Most Present', field: 'wPresent' },
+                      { label: 'Most Late', field: 'wLate' },
+                      { label: 'Most Leave', field: 'wLeave' },
+                    ].map(({ label, field }) => {
+                      const sorted = [...reportData].sort((a, b) => b[field] - a[field]);
+                      const top = sorted[0];
+                      return (
+                        <div key={label} className={styles.rankCard}>
+                          <span className={styles.rankLabel}>{label}</span>
+                          <span className={styles.rankName}>{top?.name || '-'}</span>
+                          <span className={styles.rankCount}>{top?.classId ? `Class ${top.classId}` : ''} — {top?.[field] || 0}</span>
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
 
                 {/* Per-student Report Table */}
                 <div className={styles.reportTable}>
@@ -1009,12 +1033,15 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                       <tr>
                         <th>#</th>
                         <th>Student Name</th>
-                        <th>Class ID</th>
-                        <th>Present</th>
-                        <th>Absent</th>
+                        <th>Class</th>
+                        <th>W-Pre</th>
+                        <th>Abs</th>
                         <th>Late</th>
                         <th>Leave</th>
-                        <th>Total</th>
+                        <th>M-Pre</th>
+                        <th>M-Abs</th>
+                        <th>M-Late</th>
+                        <th>M-Leave</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1022,12 +1049,15 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                         <tr key={record.name || index}>
                           <td>{index + 1}</td>
                           <td className={styles.studentName}>{record.name}</td>
-                          <td>{classIdLabel(record.classId) || 'N/A'}</td>
-                          <td className={styles.presentCell}>{record.present}</td>
-                          <td className={styles.absentCell}>{record.absent}</td>
-                          <td className={styles.lateCell}>{record.late}</td>
-                          <td className={styles.leaveCell}>{record.leave}</td>
-                          <td>{record.total}</td>
+                          <td>{record.classId || 'N/A'}</td>
+                          <td className={styles.presentCell}>{record.wPresent}</td>
+                          <td className={styles.absentCell}>{record.wAbsent}</td>
+                          <td className={styles.lateCell}>{record.wLate}</td>
+                          <td className={styles.leaveCell}>{record.wLeave}</td>
+                          <td className={styles.presentCell}>{record.mPresent}</td>
+                          <td className={styles.absentCell}>{record.mAbsent}</td>
+                          <td className={styles.lateCell}>{record.mLate}</td>
+                          <td className={styles.leaveCell}>{record.mLeave}</td>
                         </tr>
                       ))}
                     </tbody>
