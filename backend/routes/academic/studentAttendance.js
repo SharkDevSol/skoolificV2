@@ -910,8 +910,13 @@ router.put('/update', async (req, res) => {
 // Get class shift assignments
 router.get('/class-shifts', async (req, res) => {
   try {
+    await getDb(req).query(`
+      ALTER TABLE academic_class_shift_assignment ADD COLUMN IF NOT EXISTS is_kg BOOLEAN DEFAULT false;
+      ALTER TABLE academic_class_shift_assignment ADD COLUMN IF NOT EXISTS is_evening BOOLEAN DEFAULT false;
+    `);
+
     const result = await getDb(req).query(`
-      SELECT class_name, shift_number, created_at, updated_at
+      SELECT class_name, shift_number, is_kg, is_evening, created_at, updated_at
       FROM academic_class_shift_assignment
       ORDER BY class_name
     `);
@@ -957,6 +962,49 @@ router.put('/class-shifts', async (req, res) => {
   } catch (error) {
     console.error('Error updating class shift assignments:', error);
     res.status(500).json({ error: 'Failed to update class shift assignments' });
+  }
+});
+
+// PUT /api/academic/student-attendance/class-configs
+// Save class configs (shift, isKG, isEvening) from Attendance Time Settings
+router.put('/class-configs', async (req, res) => {
+  try {
+    const { classConfigs } = req.body;
+
+    if (!classConfigs || typeof classConfigs !== 'object') {
+      return res.status(400).json({ error: 'Invalid classConfigs data' });
+    }
+
+    const db = getDb(req);
+
+    // Ensure table has is_kg / is_evening columns
+    await db.query(`
+      ALTER TABLE academic_class_shift_assignment ADD COLUMN IF NOT EXISTS is_kg BOOLEAN DEFAULT false;
+      ALTER TABLE academic_class_shift_assignment ADD COLUMN IF NOT EXISTS is_evening BOOLEAN DEFAULT false;
+    `);
+
+    const promises = Object.entries(classConfigs).map(([className, cfg]) => {
+      const shift = cfg.shift || cfg.shift_number || 1;
+      const isKG = cfg.isKG || false;
+      const isEvening = cfg.isEvening || false;
+      return db.query(`
+        INSERT INTO academic_class_shift_assignment (class_name, shift_number, is_kg, is_evening, updated_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (class_name)
+        DO UPDATE SET shift_number = $2, is_kg = $3, is_evening = $4, updated_at = NOW()
+      `, [className, shift, isKG, isEvening]);
+    });
+
+    await Promise.all(promises);
+
+    res.json({
+      success: true,
+      message: 'Class configs updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Error updating class configs:', error);
+    res.status(500).json({ error: 'Failed to update class configs' });
   }
 });
 
