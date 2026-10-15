@@ -811,11 +811,10 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
           <div className={styles.todayBadge}>
             <Calendar size={18} aria-hidden="true" />
             <span>
-              {t('students.attendance.today', 'Today')}: {ethiopianMonths[currentEthiopianDate.month - 1]}{' '}
-              {currentEthiopianDate.day}, {currentEthiopianDate.year}
+              📅 {ethiopianMonths[currentEthiopianDate.month - 1]} {currentEthiopianDate.day}, {currentEthiopianDate.year}
               {(() => {
                 const cw = schoolWeeks.find(w => w.isCurrent);
-                return cw ? ` • ${t('students.attendance.week', 'Week')} ${cw.week_number || ''}` : '';
+                return cw ? ` • Week ${cw.week_number || ''}` : '';
               })()}
             </span>
           </div>
@@ -828,18 +827,17 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
         </div>
       )}
 
-      <Card className={styles.timeCard} padding="md">
-        <div className={styles.timeCardHeader}>
-          <Clock size={18} className={styles.timeCardIcon} aria-hidden="true" />
-          <span>{t('students.attendance.currentTime', 'Current Time')}</span>
-        </div>
-        <div className={styles.timeCardBody}>
-          <div className={styles.liveClock}>{formatCurrentTime()}</div>
-          <div className={styles.liveDate}>{formatCurrentDate()}</div>
-        </div>
-      </Card>
+      {/* Summary Cards - top for instant visibility */}
+      <div className={styles.summaryCards}>
+        <StatCard title={t('students.attendance.presentCount', 'Present')} value={summary.present} icon={<CheckCircle size={24} />} variant="success" />
+        <StatCard title={t('students.attendance.lateCount', 'Late')} value={summary.late} icon={<Clock size={24} />} variant="warning" />
+        <StatCard title={t('students.attendance.absentCount', 'Absent')} value={summary.absent} icon={<XCircle size={24} />} variant="error" />
+        <StatCard title={t('students.attendance.leaveCount', 'On Leave')} value={summary.leave} icon={<Calendar size={24} />} variant="secondary" />
+        <StatCard title={t('students.attendance.totalRecords', 'Total Records')} value={summary.total} icon={<Users size={24} />} variant="primary" />
+      </div>
 
-      <Card title={t('common.filter', 'Filter')} className={styles.filtersCard} padding="lg">
+      {/* Filters */}
+      <Card title={`🔍 ${t('common.filter', 'Filters')}`} className={styles.filtersCard} padding="lg">
         <div className={styles.filtersGrid}>
           {preSelectedClass ? (
             <div className={styles.filterField}>
@@ -894,7 +892,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                 onClick={goToCurrentWeek}
                 disabled={schoolWeeks.length === 0}
               >
-                {t('students.attendance.currentWeek', 'Current Week')}
+                📅 {t('students.attendance.currentWeek', 'Current Week')}
               </Button>
               <Button
                 type="button"
@@ -911,9 +909,10 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
         </div>
       </Card>
 
+      {/* Report Section */}
       <Card
         className={styles.reportSection}
-        title={t('students.attendance.reportTitle', 'Attendance Report')}
+        title={`📊 ${t('students.attendance.reportTitle', 'Attendance Report')}`}
         actions={
           <Button
             type="button"
@@ -1076,39 +1075,6 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
           </div>
         )}
       </Card>
-
-      <div className={styles.summaryCards}>
-        <StatCard
-          title={t('students.attendance.presentCount', 'Present')}
-          value={summary.present}
-          icon={<CheckCircle size={24} />}
-          variant="success"
-        />
-        <StatCard
-          title={t('students.attendance.lateCount', 'Late')}
-          value={summary.late}
-          icon={<Clock size={24} />}
-          variant="warning"
-        />
-        <StatCard
-          title={t('students.attendance.absentCount', 'Absent')}
-          value={summary.absent}
-          icon={<XCircle size={24} />}
-          variant="error"
-        />
-        <StatCard
-          title={t('students.attendance.leaveCount', 'On Leave')}
-          value={summary.leave}
-          icon={<Calendar size={24} />}
-          variant="secondary"
-        />
-        <StatCard
-          title={t('students.attendance.totalRecords', 'Total Records')}
-          value={summary.total}
-          icon={<Users size={24} />}
-          variant="primary"
-        />
-      </div>
 
       {settings?.school_days && (
         <div className={styles.schoolDaysInfo}>
