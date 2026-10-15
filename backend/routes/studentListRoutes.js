@@ -559,6 +559,35 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
               console.log(`[StudentList] Transfer: deleted ${unpaidIds.length} unpaid invoices for ${rowSid}`);
             }
 
+            // If old and new class charge the SAME registration fee and SAME
+            // monthly fee, move the paid invoices to the new fee structure
+            // ("transfer the paid month to there"). If fees differ, paid
+            // invoices stay under the old fee structure so amounts already
+            // collected are never distorted. Either way each month keeps
+            // exactly one invoice - no double months.
+            try {
+              const oldFS = await prisma.feeStructure.findFirst({
+                where: { gradeLevel: actualTableName, isActive: true },
+                include: { items: true }
+              }) || await prisma.feeStructure.findFirst({
+                where: { gradeLevel: actualTableName },
+                include: { items: true }
+              });
+              const regFeeOf = fs => { try { return parseFloat(JSON.parse(fs.description || '{}').registrationFee) || 0; } catch (_) { return 0; } };
+              const monthlyOf = fs => (fs.items || []).reduce((s, it) => s + parseFloat(it.amount || 0), 0);
+              if (oldFS && Math.abs(regFeeOf(oldFS) - regFeeOf(newFS)) < 0.01 && Math.abs(monthlyOf(oldFS) - monthlyOf(newFS)) < 0.01) {
+                const moved = await prisma.invoice.updateMany({
+                  where: { studentId: rowSid, paidAmount: { gt: 0 } },
+                  data: { feeStructureId: newFS.id }
+                });
+                console.log(`[StudentList] Transfer: fees equal - moved ${moved.count} paid invoices to ${targetClassTableName}`);
+              } else {
+                console.log(`[StudentList] Transfer: fees differ - paid invoices kept under ${actualTableName}`);
+              }
+            } catch (feeErr) {
+              console.error('[StudentList] Fee comparison failed:', feeErr.message);
+            }
+
             // Regenerate months under the new class fee structure.
             // Months that still have an invoice (paid ones) are skipped.
             let selectedMonths = [];
@@ -779,6 +808,25 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
         [String(schoolId)]
       );
     } catch (_) {}
+
+    // Delete the student's invoices too (payment allocations + items first)
+    // so a deleted student leaves no orphan rows in finance reports
+    try {
+      const { branchPrisma: prisma } = require('../services/BranchPrismaService');
+      const sid = `00000000-0000-0000-${String(schoolId).padStart(4, '0')}-${String(classId).padStart(12, '0')}`;
+      const invs = await prisma.invoice.findMany({ where: { studentId: sid }, select: { id: true } });
+      if (invs.length > 0) {
+        const ids = invs.map(i => i.id);
+        await prisma.$transaction(async (tx) => {
+          await tx.paymentAllocation.deleteMany({ where: { invoiceId: { in: ids } } });
+          await tx.invoiceItem.deleteMany({ where: { invoiceId: { in: ids } } });
+          await tx.invoice.deleteMany({ where: { id: { in: ids } } });
+        });
+        console.log(`[StudentList] Deleted ${invs.length} invoices for deleted student ${sid}`);
+      }
+    } catch (invErr) {
+      console.error('Note: invoice cleanup after student delete failed:', invErr.message);
+    }
 
     res.json({ message: "Student deleted successfully", deletedStudent: result.rows[0] });
   } catch (error) {
