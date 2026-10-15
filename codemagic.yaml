@@ -60,22 +60,103 @@ workflows:
         submit_to_testflight: true
 
   iqra-parent-ios:
-    name: IQRA Parent iOS (unsigned)
+    name: IQRA Parent iOS (App Store)
     environment:
+      groups:
+        - ios_credentials
       flutter: stable
       xcode: latest
       cocoapods: default
+    integrations:
+      app_store_connect: OneCo Solutions
     triggering:
       events:
         - push
         - tag
+      branch_patterns:
+        - pattern: main
+          include: true
     working_directory: flutter-parent-app
     scripts:
+      - name: Set up keychain and code signing
+        script: |
+          keychain initialize
+          CERT_KEY_ARG=""
+          if [ -n "$CERTIFICATE_PRIVATE_KEY" ]; then
+            CERT_KEY_ARG="--certificate-key=@env:CERTIFICATE_PRIVATE_KEY"
+          fi
+          app-store-connect fetch-signing-files "com.skoolific.iqraParent" \
+            --type IOS_APP_STORE \
+            $CERT_KEY_ARG \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles --project ios/Runner.xcodeproj --archive-method app-store --code-signing-setup-verbose-logging
       - name: Fetch dependencies
         script: flutter pub get
-      - name: Build unsigned iOS IPA
-        script: flutter build ipa --release --no-codesign
+      - name: Install pods
+        script: find . -name "Podfile" -execdir pod install \;
+      - name: Build IPA for App Store
+        script: |
+          if [ -f "$HOME/export_options.plist" ]; then
+            flutter build ipa --release --export-options-plist=$HOME/export_options.plist
+          else
+            flutter build ipa --release
+          fi
     artifacts:
       - build/ios/ipa/*.ipa
-      - build/ios/archive/Runner.xcarchive
-      - build/ios/iphoneos/Runner.app
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
+  bilal-parent-ios:
+    name: Bilal Parent iOS (App Store)
+    environment:
+      groups:
+        - ios_credentials
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    integrations:
+      app_store_connect: OneCo Solutions
+    triggering:
+      events:
+        - push
+        - tag
+      branch_patterns:
+        - pattern: main
+          include: true
+    working_directory: flutter-bilal-parent-app
+    scripts:
+      - name: Set up keychain and code signing
+        script: |
+          keychain initialize
+          CERT_KEY_ARG=""
+          if [ -n "$CERTIFICATE_PRIVATE_KEY" ]; then
+            CERT_KEY_ARG="--certificate-key=@env:CERTIFICATE_PRIVATE_KEY"
+          fi
+          app-store-connect fetch-signing-files "com.skoolific.bilalParent" \
+            --type IOS_APP_STORE \
+            $CERT_KEY_ARG \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles --project ios/Runner.xcodeproj --archive-method app-store --code-signing-setup-verbose-logging
+      - name: Fetch dependencies
+        script: flutter pub get
+      - name: Install pods
+        script: find . -name "Podfile" -execdir pod install \;
+      - name: Build IPA for App Store
+        script: |
+          if [ -f "$HOME/export_options.plist" ]; then
+            flutter build ipa --release --export-options-plist=$HOME/export_options.plist
+          else
+            flutter build ipa --release
+          fi
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
