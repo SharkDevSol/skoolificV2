@@ -495,18 +495,33 @@ router.post('/create-mark-forms', async (req, res) => {
     }
     const actualClassName = classResult.rows[0].table_name;
     
-    // Validate subject exists
-    const subjectResult = await client.query(
-      'SELECT subject_name FROM subjects_of_school_schema.subjects WHERE subject_name = $1',
+    // Validate subject exists (case-insensitive & trimmed)
+    let subjectResult = await client.query(
+      'SELECT subject_name FROM subjects_of_school_schema.subjects WHERE LOWER(TRIM(subject_name)) = LOWER(TRIM($1))',
       [subjectName]
     );
     if (subjectResult.rows.length === 0) {
-      throw new Error(`Subject ${subjectName} not found`);
+      const mappingCheck = await client.query(
+        'SELECT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(TRIM(subject_name)) = LOWER(TRIM($1)) LIMIT 1',
+        [subjectName]
+      );
+      if (mappingCheck.rows.length > 0) {
+        await client.query(
+          'INSERT INTO subjects_of_school_schema.subjects (subject_name) VALUES ($1) ON CONFLICT (subject_name) DO NOTHING',
+          [mappingCheck.rows[0].subject_name]
+        );
+        subjectResult = mappingCheck;
+      } else {
+        throw new Error(`Subject ${subjectName} not found`);
+      }
     }
     
     // Create schema for the subject if it doesn't exist
     const schemaName = getSubjectSchemaName(subjectName);
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
+    try {
+      await client.query(`GRANT ALL ON SCHEMA ${schemaName} TO PUBLIC`);
+    } catch (_) {}
     
     // Create table name for the specific class and term
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
@@ -530,7 +545,7 @@ router.post('/create-mark-forms', async (req, res) => {
     ];
     
     const markColumns = markComponents.map(component => 
-      `${sanitizeComponentKey(component.name)} DECIMAL(5,2) DEFAULT 0`
+      `"${sanitizeComponentKey(component.name)}" DECIMAL(5,2) DEFAULT 0`
     );
     
     const additionalColumns = [
@@ -559,7 +574,9 @@ router.post('/create-mark-forms', async (req, res) => {
     `, [actualClassName]);
     
     const hasIsActive = columnCheck.rows.length > 0;
-    const whereClause = hasIsActive ? 'WHERE is_active = TRUE OR is_active IS NULL' : '';
+    const whereClause = hasIsActive 
+      ? 'WHERE (is_active = TRUE OR is_active IS NULL) AND student_name IS NOT NULL AND TRIM(student_name) != \'\'' 
+      : 'WHERE student_name IS NOT NULL AND TRIM(student_name) != \'\'';
     
     // Get students from the class table in classes_schema (only active students)
     const studentsResult = await client.query(`
