@@ -1059,10 +1059,15 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
       };
     });
 
-    // Separate active vs inactive vs removed (transferred-out) students
-    const activeStudents = students.filter(s => s.onRoster && !s.inactive);
-    const inactiveStudents = students.filter(s => s.onRoster && s.inactive);
+    // Transferred-out (Removed) students are NOT listed at all - their rows
+    // and payments belong to their current class, where they are shown. This
+    // keeps deleted/transferred students out of this class's table entirely.
     const removedStudents = students.filter(s => s.onRoster === false);
+    const visibleStudents = students.filter(s => s.onRoster === true);
+
+    // Separate active vs inactive students (visible roster only)
+    const activeStudents = visibleStudents.filter(s => !s.inactive);
+    const inactiveStudents = visibleStudents.filter(s => s.inactive);
 
     // Separate paying and free students (within ACTIVE roster only)
     const payingStudents = activeStudents.filter(s => !s.is_free);
@@ -1099,12 +1104,12 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
     console.log(`   Unlocked Total Amount (Paying Only): ${summary.unlockedTotalAmount.toFixed(2)} Birr`);
     console.log(`   Unlocked Total Paid (Paying Only): ${summary.unlockedTotalPaid.toFixed(2)} Birr`);
     console.log(`   Unlocked Total Pending (Paying Only): ${summary.unlockedTotalPending.toFixed(2)} Birr`);
-    console.log(`   Students in response: ${students.length}`);
-    console.log(`   Student names: ${students.map(s => s.studentName).join(', ')}\n`);
+    console.log(`   Students in response: ${visibleStudents.length} (transferred-out excluded: ${removedStudents.length})`);
+    console.log(`   Student names: ${visibleStudents.map(s => s.studentName).join(', ')}\n`);
 
     res.json({
       summary,
-      students
+      students: visibleStudents
     });
 
   } catch (error) {

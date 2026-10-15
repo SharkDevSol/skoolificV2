@@ -6,6 +6,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
+const { authenticateWithBranch } = require("../middleware/branchAuth");
 
 // Helper function to resolve database pool based on branch code
 const getPool = async (req) => {
@@ -771,22 +772,9 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    // Renumber remaining students sequentially so there are no gaps (1,2,3,4 not 1,2,4,5)
-    try {
-      await pool.query(
-        `WITH ordered AS (
-           SELECT ctid, ROW_NUMBER() OVER (ORDER BY school_id::int) AS new_id
-           FROM classes_schema."${actualTableName}"
-         )
-         UPDATE classes_schema."${actualTableName}" t
-         SET school_id = o.new_id,
-             class_id = o.new_id::text
-         FROM ordered o
-         WHERE t.ctid = o.ctid`
-      );
-    } catch (renumberErr) {
-      console.log("Note: Could not renumber students:", renumberErr.message);
-    }
+    // NOTE: sequential renumbering removed on purpose - rewriting school_id /
+    // class_id after a delete changes every remaining student's sid and
+    // orphans (or worse, mis-attributes) all of their invoices.
 
     if (result.rows[0].image_student) {
       const filePath = path.join(__dirname, "../Uploads", result.rows[0].image_student);
@@ -809,23 +797,33 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
       );
     } catch (_) {}
 
-    // Delete the student's invoices too (payment allocations + items first)
-    // so a deleted student leaves no orphan rows in finance reports
+    // Delete the student's invoices AND payments too (allocations + items
+    // first) so a deleted student leaves no rows behind that could still be
+    // shown or counted in finance reports.
     try {
       const { branchPrisma: prisma } = require('../services/BranchPrismaService');
-      const sid = `00000000-0000-0000-${String(schoolId).padStart(4, '0')}-${String(classId).padStart(12, '0')}`;
-      const invs = await prisma.invoice.findMany({ where: { studentId: sid }, select: { id: true } });
-      if (invs.length > 0) {
-        const ids = invs.map(i => i.id);
+      const schoolPadded = String(schoolId).padStart(4, '0');
+      const sidFilter = (classId && classId !== 'undefined' && classId !== 'null')
+        ? { studentId: `00000000-0000-0000-${schoolPadded}-${String(classId).padStart(12, '0')}` }
+        : { studentId: { startsWith: `00000000-0000-0000-${schoolPadded}-` } };
+
+      const invs = await prisma.invoice.findMany({ where: sidFilter, select: { id: true } });
+      const pays = await prisma.payment.findMany({ where: sidFilter, select: { id: true } });
+      if (invs.length > 0 || pays.length > 0) {
+        const invIds = invs.map(i => i.id);
+        const payIds = pays.map(p => p.id);
         await prisma.$transaction(async (tx) => {
-          await tx.paymentAllocation.deleteMany({ where: { invoiceId: { in: ids } } });
-          await tx.invoiceItem.deleteMany({ where: { invoiceId: { in: ids } } });
-          await tx.invoice.deleteMany({ where: { id: { in: ids } } });
+          await tx.paymentAllocation.deleteMany({
+            where: { OR: [{ invoiceId: { in: invIds } }, { paymentId: { in: payIds } }] }
+          });
+          await tx.invoiceItem.deleteMany({ where: { invoiceId: { in: invIds } } });
+          await tx.invoice.deleteMany({ where: { id: { in: invIds } } });
+          await tx.payment.deleteMany({ where: { id: { in: payIds } } });
         });
-        console.log(`[StudentList] Deleted ${invs.length} invoices for deleted student ${sid}`);
+        console.log(`[StudentList] Deleted ${invs.length} invoices + ${payIds.length} payments for deleted student`);
       }
     } catch (invErr) {
-      console.error('Note: invoice cleanup after student delete failed:', invErr.message);
+      console.error('Note: invoice/payment cleanup after student delete failed:', invErr.message);
     }
 
     res.json({ message: "Student deleted successfully", deletedStudent: result.rows[0] });
@@ -894,7 +892,10 @@ router.put('/toggle-active/:className/:schoolId/:classId', async (req, res) => {
 });
 
 // TOGGLE FREE STUDENT
-router.put('/toggle-free/:className/:schoolId/:classId', async (req, res) => {
+// Requires an authenticated branch session and writes an audit-log entry so
+// every change of free/exemption status is traceable (prevents unauthenticated
+// or accidental mass-exemptions from happening unnoticed).
+router.put('/toggle-free/:className/:schoolId/:classId', authenticateWithBranch, async (req, res) => {
   const { className, schoolId, classId } = req.params;
   const { is_free, exemption_type, exemption_reason } = req.body || {};
   
@@ -954,7 +955,27 @@ router.put('/toggle-free/:className/:schoolId/:classId', async (req, res) => {
     if (updateResult.rowCount === 0) {
       return res.status(404).json({ error: 'Student not found' });
     }
-    
+
+    // Audit trail: who changed free status, when, and to what
+    try {
+      const { branchPrisma: auditPrisma } = require('../services/BranchPrismaService');
+      const rawUid = String(req.user?.id ?? req.user?.sub ?? '0').replace(/[^0-9]/g, '').slice(0, 12).padStart(12, '0');
+      const sidUuid = `00000000-0000-0000-${String(schoolId).replace(/[^0-9]/g, '').slice(0, 4).padStart(4, '0')}-${String(classId).replace(/[^0-9]/g, '').slice(0, 12).padStart(12, '0')}`;
+      await auditPrisma.auditLog.create({
+        data: {
+          entityType: 'Student',
+          entityId: sidUuid,
+          action: 'UPDATE',
+          userId: `00000000-0000-0000-0000-${rawUid}`,
+          oldValue: { is_free: false },
+          newValue: { is_free, exemption_type: is_free ? exemption_type : null, class: actualTableName, by: String(req.user?.username || '') },
+          timestamp: new Date()
+        }
+      });
+    } catch (auditErr) {
+      console.error('toggle-free audit log failed:', auditErr.message);
+    }
+
     res.json({
       success: true,
       message: is_free 

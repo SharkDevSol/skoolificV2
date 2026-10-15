@@ -65,10 +65,8 @@ router.get('/current-month', authenticateWithBranch, async (req, res) => {
     }
 
     if (selectedMonths.length === 0) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'No months configured for this fee structure'
-      });
+      // Default to the standard 10-month year (same as generate-all fallback)
+      selectedMonths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     }
 
     // Sort months to get them in order
@@ -156,10 +154,9 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
     }
 
     if (selectedMonths.length === 0) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'No months configured for this fee structure'
-      });
+      // Fee structures without configured months default to the standard
+      // 10-month year so generation never fails with "No months configured"
+      selectedMonths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     }
 
     selectedMonths.sort((a, b) => a - b);
