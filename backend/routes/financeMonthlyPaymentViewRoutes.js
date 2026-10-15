@@ -938,6 +938,46 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
       } catch (fallbackError) {
         console.error('Error fetching from Student table:', fallbackError.message);
       }
+
+      // Cross-class fallback: a transferred-out student keeps the SAME sid in
+      // the destination class table (transfer copies school_id/class_id), so
+      // the real name is recoverable there - shown with the "Removed" badge.
+      // Only truly deleted students remain "Unknown".
+      const unresolved = orphanIds.filter(id => !studentNameMap.has(id));
+      if (unresolved.length > 0) {
+        try {
+          const classTables = await prisma.$queryRawUnsafe(`
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'classes_schema' AND table_type = 'BASE TABLE'`);
+          const predicates = unresolved.map(id => {
+            const p = id.split('-');
+            return `(school_id = ${parseInt(p[3], 10)} AND class_id = ${parseInt(p[4], 10)})`;
+          }).join(' OR ');
+          for (const t of classTables) {
+            const rows = await prisma.$queryRawUnsafe(`
+              SELECT school_id, class_id, student_name FROM classes_schema."${t.table_name}"
+              WHERE ${predicates}`);
+            for (const r of rows) {
+              const sid = `00000000-0000-0000-${String(r.school_id).padStart(4, '0')}-${String(r.class_id).padStart(12, '0')}`;
+              if (!studentNameMap.has(sid)) {
+                studentNameMap.set(sid, {
+                  name: r.student_name,
+                  is_free: false,
+                  exemption_type: null,
+                  exemption_reason: null,
+                  is_active: true
+                });
+              }
+            }
+          }
+          const resolvedCount = unresolved.filter(id => studentNameMap.has(id)).length;
+          if (resolvedCount > 0) {
+            console.log(`Recovered ${resolvedCount} transferred-out student names from other class tables`);
+          }
+        } catch (crossError) {
+          console.error('Cross-class name lookup failed:', crossError.message);
+        }
+      }
     }
 
     if (rosterFetchError) {
