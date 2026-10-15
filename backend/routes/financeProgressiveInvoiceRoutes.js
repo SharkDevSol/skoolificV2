@@ -224,63 +224,61 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
       });
     }
 
-    // Check which students already have invoices
-    const existingInvoices = await prisma.invoice.findMany({
-      where: {
-        feeStructureId: feeStructureId
-      },
-      select: {
-        studentId: true
-      },
-      distinct: ['studentId']
+    // Build a set of (studentId|monthNumber) pairs that ALREADY have an invoice
+    // under ANY fee structure. Checking only this fee structure let transferred
+    // students be re-invoiced for months they already had (KG1B bug: every
+    // student ended up with 10x2 months after a class transfer).
+    let existingInvoices = await prisma.invoice.findMany({
+      select: { studentId: true, metadata: true }
     });
-
-    const studentsWithInvoices = new Set(existingInvoices.map(inv => inv.studentId));
-    
-    // Filter to only students who don't have invoices yet
-    const newStudents = students.filter(student => {
-      const studentUuid = compositeIdToUuid(student.id);
-      return !studentsWithInvoices.has(studentUuid);
-    });
+    let existingStudentMonths = new Set();
+    for (const inv of existingInvoices) {
+      const m = inv.metadata?.monthNumber;
+      if (m && inv.studentId) existingStudentMonths.add(`${inv.studentId}|${m}`);
+    }
 
     // If regenerate flag is true, include all students and delete existing invoices
-    let studentsToProcess = newStudents;
+    let studentsToProcess = students;
     
-    if (regenerate && existingInvoices.length > 0) {
-      console.log(`⚠️  REGENERATE MODE: Deleting ${existingInvoices.length} existing invoices...`);
-      
+    if (regenerate) {
       const allInvoices = await prisma.invoice.findMany({
         where: { feeStructureId: feeStructureId },
         select: { id: true }
       });
       
-      const invoiceIds = allInvoices.map(inv => inv.id);
-      
-      await prisma.$transaction(async (tx) => {
-        // Delete payment allocations
-        await tx.paymentAllocation.deleteMany({
-          where: { invoiceId: { in: invoiceIds } }
+      if (allInvoices.length > 0) {
+        console.log(`⚠️  REGENERATE MODE: Deleting ${allInvoices.length} existing invoices...`);
+        
+        const invoiceIds = allInvoices.map(inv => inv.id);
+        
+        await prisma.$transaction(async (tx) => {
+          // Delete payment allocations
+          await tx.paymentAllocation.deleteMany({
+            where: { invoiceId: { in: invoiceIds } }
+          });
+
+          // Delete invoice items
+          await tx.invoiceItem.deleteMany({
+            where: { invoiceId: { in: invoiceIds } }
+          });
+
+          // Delete invoices
+          await tx.invoice.deleteMany({
+            where: { id: { in: invoiceIds } }
+          });
         });
 
-        // Delete invoice items
-        await tx.invoiceItem.deleteMany({
-          where: { invoiceId: { in: invoiceIds } }
-        });
-
-        // Delete invoices
-        await tx.invoice.deleteMany({
-          where: { feeStructureId: feeStructureId }
-        });
+        console.log(`✅ Deleted all invoices for regeneration`);
+      }
+      // Rebuild the month set after deletion so deleted months are regenerated
+      existingInvoices = await prisma.invoice.findMany({
+        select: { studentId: true, metadata: true }
       });
-
-      console.log(`✅ Deleted all invoices for regeneration`);
-      studentsToProcess = students; // Process all students
-    } else if (newStudents.length === 0 && existingInvoices.length > 0) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'All students already have invoices',
-        details: `Found invoices for all ${students.length} students. Use regenerate option if you want to recreate them.`
-      });
+      existingStudentMonths = new Set();
+      for (const inv of existingInvoices) {
+        const m = inv.metadata?.monthNumber;
+        if (m && inv.studentId) existingStudentMonths.add(`${inv.studentId}|${m}`);
+      }
     }
 
     if (studentsToProcess.length === 0) {
@@ -290,7 +288,7 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
       });
     }
 
-    console.log(`📝 Generating invoices for ${studentsToProcess.length} students (${students.length - studentsToProcess.length} already have invoices)`);
+    console.log(`📝 Generating invoices for ${studentsToProcess.length} students (months already invoiced will be skipped)`);
 
     // Get active late fee rules to determine grace period
     const lateFeeRules = await prisma.lateFeeRule.findMany({
@@ -353,6 +351,7 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
     // Generate invoices for ALL months for ALL students
     let totalSuccessCount = 0;
     let totalErrorCount = 0;
+    let totalSkippedCount = 0;
     const errors = [];
     const monthlyResults = [];
     
@@ -362,6 +361,7 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
       
       let monthSuccessCount = 0;
       let monthErrorCount = 0;
+      let monthSkippedCount = 0;
 
       // Calculate due date based on month start + grace period
       const dueDate = getEthiopianMonthDueDate(targetMonth, gracePeriodDays);
@@ -370,6 +370,12 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
         try {
           // Convert composite ID to UUID format
           const studentId = compositeIdToUuid(student.id);
+
+          // Skip months that already have an invoice (any fee structure)
+          if (existingStudentMonths.has(`${studentId}|${targetMonth}`)) {
+            monthSkippedCount++;
+            continue;
+          }
 
           // Create invoice number
           const invoiceNumber = `INV-${Date.now()}-${student.id.replace(/[^a-zA-Z0-9]/g, '')}-M${monthIndex + 1}`;
@@ -440,6 +446,7 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
 
           monthSuccessCount++;
           totalSuccessCount++;
+          existingStudentMonths.add(`${studentId}|${targetMonth}`);
 
         } catch (error) {
           console.error(`Error creating invoice for ${student.name} - ${monthName}:`, error);
@@ -454,8 +461,10 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
         monthName: monthName,
         monthIndex: monthIndex + 1,
         successCount: monthSuccessCount,
-        errorCount: monthErrorCount
+        errorCount: monthErrorCount,
+        skippedCount: monthSkippedCount
       });
+      totalSkippedCount += monthSkippedCount;
     }
 
     res.status(201).json({
@@ -465,6 +474,7 @@ router.post('/generate-all', authenticateWithBranch, requirePermission(FINANCE_P
         totalStudents: students.length,
         totalInvoices: totalSuccessCount,
         totalSuccessCount,
+        totalSkippedCount,
         totalErrorCount,
         errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
         monthlyResults: monthlyResults,

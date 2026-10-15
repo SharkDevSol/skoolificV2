@@ -521,6 +521,144 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
         );
 
         finalStudentRow = insertRes.rows[0];
+
+        // --- Invoice reset on transfer ---
+        // Delete the student's UNPAID invoices (any fee structure) and regenerate
+        // them under the new class fee structure. Paid/partially-paid invoices are
+        // kept: deleting them would erase recorded payments (money already
+        // collected) and would double-charge months that were already paid.
+        try {
+          const { branchPrisma: prisma } = require('../services/BranchPrismaService');
+          const rowSid = `00000000-0000-0000-${String(finalStudentRow.school_id).padStart(4, '0')}-${String(finalStudentRow.class_id).padStart(12, '0')}`;
+
+          const newFS = await prisma.feeStructure.findFirst({
+            where: { gradeLevel: targetClassTableName, isActive: true },
+            include: { items: true }
+          }) || await prisma.feeStructure.findFirst({
+            where: { gradeLevel: targetClassTableName },
+            include: { items: true }
+          });
+
+          if (!newFS) {
+            console.log(`[StudentList] No fee structure for ${targetClassTableName} - invoice reset skipped for ${rowSid}`);
+          } else {
+            const existingInvoices = await prisma.invoice.findMany({
+              where: { studentId: rowSid },
+              select: { id: true, paidAmount: true }
+            });
+            const unpaidIds = existingInvoices
+              .filter(inv => parseFloat(inv.paidAmount || '0') === 0)
+              .map(inv => inv.id);
+
+            if (unpaidIds.length > 0) {
+              await prisma.$transaction(async (tx) => {
+                await tx.paymentAllocation.deleteMany({ where: { invoiceId: { in: unpaidIds } } });
+                await tx.invoiceItem.deleteMany({ where: { invoiceId: { in: unpaidIds } } });
+                await tx.invoice.deleteMany({ where: { id: { in: unpaidIds } } });
+              });
+              console.log(`[StudentList] Transfer: deleted ${unpaidIds.length} unpaid invoices for ${rowSid}`);
+            }
+
+            // Regenerate months under the new class fee structure.
+            // Months that still have an invoice (paid ones) are skipped.
+            let selectedMonths = [];
+            let registrationFee = 0;
+            try {
+              const monthsData = JSON.parse(newFS.description || '{}');
+              selectedMonths = monthsData.months || [];
+              registrationFee = parseFloat(monthsData.registrationFee) || 0;
+            } catch (_) {}
+
+            if (selectedMonths.length === 0) {
+              console.log(`[StudentList] No months configured for ${targetClassTableName} - regeneration skipped`);
+            } else {
+              selectedMonths.sort((a, b) => a - b);
+              const monthlyAmount = newFS.items.reduce((sum, it) => sum + parseFloat(it.amount || 0), 0);
+              const accountId = newFS.items[0]?.accountId;
+              const ethiopianMonths = ['Meskerem','Tikimt','Hidar','Tahsas','Tir','Yekatit','Megabit','Miazia','Genbot','Sene','Hamle','Nehase','Pagume'];
+
+              const remaining = await prisma.invoice.findMany({
+                where: { studentId: rowSid },
+                select: { metadata: true }
+              });
+              const doneMonths = new Set(remaining.map(r => r.metadata?.monthNumber).filter(Boolean));
+
+              const lateFeeRules = await prisma.lateFeeRule.findMany({
+                where: { isActive: true },
+                orderBy: { gracePeriodDays: 'desc' }
+              });
+              const gracePeriodDays = lateFeeRules.length > 0 ? lateFeeRules[0].gracePeriodDays : 0;
+              const ethiopianNewYear = new Date(2025, 8, 11);
+
+              let created = 0;
+              for (let monthIndex = 0; monthIndex < selectedMonths.length; monthIndex++) {
+                const targetMonth = selectedMonths[monthIndex];
+                if (doneMonths.has(targetMonth)) continue;
+
+                const monthName = ethiopianMonths[targetMonth - 1] || `Month ${targetMonth}`;
+                const monthStartDate = new Date(ethiopianNewYear);
+                monthStartDate.setDate(monthStartDate.getDate() + (targetMonth - 1) * 30);
+                const dueDate = new Date(monthStartDate);
+                dueDate.setDate(dueDate.getDate() + gracePeriodDays);
+
+                const isFirstMonth = monthIndex === 0;
+                const invoiceAmount = isFirstMonth ? monthlyAmount + registrationFee : monthlyAmount;
+                const invoiceNumber = `INV-${Date.now()}-${rowSid.replace(/[^a-zA-Z0-9]/g, '')}-M${monthIndex + 1}`;
+                const academicYearId = newFS.academicYearId;
+                const campusId = newFS.campusId || '00000000-0000-0000-0000-000000000001';
+
+                const invoiceItems = [{
+                  description: `${monthName} Monthly Fee (Month ${monthIndex + 1} of ${selectedMonths.length})`,
+                  feeCategory: 'TUITION',
+                  amount: monthlyAmount,
+                  accountId
+                }];
+                if (isFirstMonth && registrationFee > 0) {
+                  invoiceItems.push({
+                    description: 'Registration Fee (One-time)',
+                    feeCategory: 'TUITION',
+                    amount: registrationFee,
+                    accountId
+                  });
+                }
+
+                await prisma.invoice.create({
+                  data: {
+                    invoiceNumber,
+                    studentId: rowSid,
+                    academicYearId,
+                    termId: null,
+                    feeStructureId: newFS.id,
+                    issueDate: new Date(),
+                    dueDate,
+                    totalAmount: invoiceAmount,
+                    discountAmount: 0,
+                    lateFeeAmount: 0,
+                    netAmount: invoiceAmount,
+                    paidAmount: 0,
+                    status: 'ISSUED',
+                    campusId,
+                    createdBy: '00000000-0000-0000-0000-' + String(req.user?.id || '000000000001').padStart(12, '0'),
+                    metadata: {
+                      month: monthName,
+                      monthNumber: targetMonth,
+                      monthIndex: monthIndex + 1,
+                      totalMonths: selectedMonths.length,
+                      isAutoGenerated: true,
+                      registrationFee: isFirstMonth ? registrationFee : 0
+                    },
+                    items: { create: invoiceItems }
+                  }
+                });
+                doneMonths.add(targetMonth);
+                created++;
+              }
+              console.log(`[StudentList] Transfer: regenerated ${created} invoices under ${targetClassTableName} for ${rowSid}`);
+            }
+          }
+        } catch (invoiceErr) {
+          console.error(`[StudentList] Invoice reset failed for transfer to ${targetClassTableName}:`, invoiceErr.message);
+        }
       } catch (transferErr) {
         console.error(`[StudentList] Error transferring student to ${targetClassTableName}:`, transferErr);
       }
