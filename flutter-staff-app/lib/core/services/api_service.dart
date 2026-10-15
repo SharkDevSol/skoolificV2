@@ -42,6 +42,27 @@ class ApiService {
 
   bool _ok(http.Response r) => r.statusCode >= 200 && r.statusCode < 300;
 
+  /// Retry helper: retries on network errors/timeouts up to [retries] times
+  /// with increasing delay. Only retries on connection errors, not HTTP errors.
+  Future<T> _retry<T>(
+    Future<T> Function() fn, {
+    int retries = 3,
+    Duration delay = const Duration(milliseconds: 800),
+  }) async {
+    for (int i = 0; i < retries; i++) {
+      try {
+        return await fn();
+      } catch (e) {
+        // Don't retry on HTTP exceptions (server responded)
+        if (e is ApiException) rethrow;
+        // Retry on timeout/socket/connection errors
+        if (i == retries - 1) rethrow;
+        await Future.delayed(delay * (i + 1));
+      }
+    }
+    throw Exception('retry exhausted');
+  }
+
   /// Details of the most recent failed write (used to detect admin locks,
   /// validation errors etc. instead of a bare `false`).
   int? lastStatusCode;
@@ -143,14 +164,19 @@ class ApiService {
 
   Future<List<TeacherAssignment>> getTeacherMarkLists(String teacherName) async {
     final enc = Uri.encodeComponent(teacherName.trim());
-    final res = await http.get(_u('${ApiConstants.teacherMarkLists}/$enc'), headers: _headers).timeout(const Duration(seconds: 8));
-    if (!_ok(res)) return [];
-    final data = _safeJson(res.body);
-    if (data is Map && data['assignments'] is List) {
-      return (data['assignments'] as List)
-          .map((a) => TeacherAssignment.fromJson(Map<String, dynamic>.from(a)))
-          .toList();
-    }
+    try {
+      final res = await _retry(
+        () => http.get(_u('${ApiConstants.teacherMarkLists}/$enc'), headers: _headers).timeout(const Duration(seconds: 15)),
+        retries: 3,
+      );
+      if (!_ok(res)) return [];
+      final data = _safeJson(res.body);
+      if (data is Map && data['assignments'] is List) {
+        return (data['assignments'] as List)
+            .map((a) => TeacherAssignment.fromJson(Map<String, dynamic>.from(a)))
+            .toList();
+      }
+    } catch (_) {}
     return [];
   }
 
@@ -163,7 +189,10 @@ class ApiService {
   }) async {
     final s = Uri.encodeComponent(subjectName);
     final c = Uri.encodeComponent(className);
-    final res = await http.get(_u('${ApiConstants.markList}/$s/$c/$termNumber'), headers: _headers).timeout(const Duration(seconds: 15));
+    final res = await _retry(
+      () => http.get(_u('${ApiConstants.markList}/$s/$c/$termNumber'), headers: _headers).timeout(const Duration(seconds: 20)),
+      retries: 3,
+    );
     if (!_ok(res)) throw ApiException(res.statusCode, _err(res));
     return _safeJson(res.body) as Map<String, dynamic>;
   }
@@ -198,16 +227,19 @@ class ApiService {
     required List<Map<String, dynamic>> rows,
   }) async {
     if (rows.isEmpty) return true;
-    final res = await http
-        .post(_u(ApiConstants.bulkUpdateMarks),
-            headers: _headers,
-            body: jsonEncode({
-              'subjectName': subjectName,
-              'className': className,
-              'termNumber': termNumber,
-              'marksData': rows,
-            }))
-        .timeout(const Duration(seconds: 25));
+    final res = await _retry(
+      () => http
+          .post(_u(ApiConstants.bulkUpdateMarks),
+              headers: _headers,
+              body: jsonEncode({
+                'subjectName': subjectName,
+                'className': className,
+                'termNumber': termNumber,
+                'marksData': rows,
+              }))
+          .timeout(const Duration(seconds: 30)),
+      retries: 3,
+    );
     final ok = _ok(res);
     lastStatusCode = ok ? null : res.statusCode;
     lastError = ok ? null : _err(res);
@@ -234,10 +266,17 @@ class ApiService {
 
   Future<Map<String, dynamic>> getTeacherAssignment(String teacherName) async {
     final enc = Uri.encodeComponent(teacherName.trim());
-    final res = await http.get(_u('${ApiConstants.teacherAssignment}/$enc'), headers: _headers).timeout(const Duration(seconds: 6));
-    if (!_ok(res)) return <String, dynamic>{};
-    final d = _safeJson(res.body);
-    return d is Map<String, dynamic> ? d : <String, dynamic>{};
+    try {
+      final res = await _retry(
+        () => http.get(_u('${ApiConstants.teacherAssignment}/$enc'), headers: _headers).timeout(const Duration(seconds: 12)),
+        retries: 3,
+      );
+      if (!_ok(res)) return <String, dynamic>{};
+      final d = _safeJson(res.body);
+      return d is Map<String, dynamic> ? d : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
   }
 
   Future<List<String>> getSchoolDays() async {
@@ -271,7 +310,10 @@ class ApiService {
     required String className,
     required String weekStart,
   }) async {
-    final res = await http.get(_u('${ApiConstants.weeklyAttendance}/$className/$weekStart'), headers: _headers).timeout(const Duration(seconds: 15));
+    final res = await _retry(
+      () => http.get(_u('${ApiConstants.weeklyAttendance}/$className/$weekStart'), headers: _headers).timeout(const Duration(seconds: 20)),
+      retries: 3,
+    );
     if (!_ok(res)) throw ApiException(res.statusCode, _err(res));
     final d = _safeJson(res.body);
     if (d is Map<String, dynamic>) return d;
@@ -283,15 +325,18 @@ class ApiService {
     required String weekStart,
     required int globalStaffId,
   }) async {
-    final res = await http
-        .post(_u(ApiConstants.createWeeklyAttendance),
-            headers: _headers,
-            body: jsonEncode({
-              'className': className,
-              'weekStart': weekStart,
-              'globalStaffId': globalStaffId,
-            }))
-        .timeout(const Duration(seconds: 20));
+    final res = await _retry(
+      () => http
+          .post(_u(ApiConstants.createWeeklyAttendance),
+              headers: _headers,
+              body: jsonEncode({
+                'className': className,
+                'weekStart': weekStart,
+                'globalStaffId': globalStaffId,
+              }))
+          .timeout(const Duration(seconds: 25)),
+      retries: 3,
+    );
     return _ok(res);
   }
 
@@ -302,17 +347,23 @@ class ApiService {
     required int globalStaffId,
     required List<Map<String, dynamic>> records,
   }) async {
-    final res = await http
-        .put(_u('${ApiConstants.weeklyAttendance}/$className/$weekStart'),
-            headers: _headers,
-            body: jsonEncode({'globalStaffId': globalStaffId, 'records': records}))
-        .timeout(const Duration(seconds: 25));
+    final res = await _retry(
+      () => http
+          .put(_u('${ApiConstants.weeklyAttendance}/$className/$weekStart'),
+              headers: _headers,
+              body: jsonEncode({'globalStaffId': globalStaffId, 'records': records}))
+          .timeout(const Duration(seconds: 30)),
+      retries: 3,
+    );
     return _ok(res);
   }
 
   Future<List<Map<String, dynamic>>> getClassStudents(String className) async {
     try {
-      final res = await http.get(_u('${ApiConstants.classStudents}/$className'), headers: _headers).timeout(const Duration(seconds: 12));
+      final res = await _retry(
+        () => http.get(_u('${ApiConstants.classStudents}/$className'), headers: _headers).timeout(const Duration(seconds: 15)),
+        retries: 3,
+      );
       if (_ok(res)) {
         final d = _safeJson(res.body);
         if (d is List) return d.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -327,7 +378,10 @@ class ApiService {
   /// Full student rows (includes guardian_username / guardian_phone / class_id).
   Future<List<Map<String, dynamic>>> getStudentRows(String className) async {
     try {
-      final res = await http.get(_u('${ApiConstants.studentListStudents}/$className'), headers: _headers).timeout(const Duration(seconds: 15));
+      final res = await _retry(
+        () => http.get(_u('${ApiConstants.studentListStudents}/$className'), headers: _headers).timeout(const Duration(seconds: 20)),
+        retries: 3,
+      );
       if (_ok(res)) {
         final d = _safeJson(res.body);
         if (d is List) return d.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -351,7 +405,10 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> getFaultStudents(String className) async {
     try {
-      final res = await http.get(_u('${ApiConstants.faultsStudents}/$className'), headers: _headers).timeout(const Duration(seconds: 12));
+      final res = await _retry(
+        () => http.get(_u('${ApiConstants.faultsStudents}/$className'), headers: _headers).timeout(const Duration(seconds: 15)),
+        retries: 3,
+      );
       if (_ok(res)) {
         final d = _safeJson(res.body);
         if (d is List) return d.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -362,7 +419,10 @@ class ApiService {
 
   Future<List<FaultRecord>> getFaultHistory(String className) async {
     try {
-      final res = await http.get(_u('${ApiConstants.faultsList}/$className'), headers: _headers).timeout(const Duration(seconds: 12));
+      final res = await _retry(
+        () => http.get(_u('${ApiConstants.faultsList}/$className'), headers: _headers).timeout(const Duration(seconds: 15)),
+        retries: 3,
+      );
       if (_ok(res)) {
         final d = _safeJson(res.body);
         if (d is List) {
@@ -401,19 +461,22 @@ class ApiService {
         final streamed = await req.send().timeout(const Duration(seconds: 30));
         return streamed.statusCode >= 200 && streamed.statusCode < 300;
       }
-      final res = await http
-          .post(_u(ApiConstants.addFault),
-              headers: _headers,
-              body: jsonEncode({
-                'className': className,
-                'student_name': studentName,
-                'fault_type': faultType,
-                'fault_level': faultLevel,
-                'date': date,
-                'description': description,
-                'reported_by': reportedBy,
-              }))
-          .timeout(const Duration(seconds: 15));
+      final res = await _retry(
+        () => http
+            .post(_u(ApiConstants.addFault),
+                headers: _headers,
+                body: jsonEncode({
+                  'className': className,
+                  'student_name': studentName,
+                  'fault_type': faultType,
+                  'fault_level': faultLevel,
+                  'date': date,
+                  'description': description,
+                  'reported_by': reportedBy,
+                }))
+            .timeout(const Duration(seconds: 20)),
+        retries: 3,
+      );
       return _ok(res);
     } catch (_) {
       return false;
@@ -601,7 +664,10 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> getEvalBookAssignments(int teacherId) async {
     try {
-      final res = await http.get(_u('${ApiConstants.evalBookAssignments}/$teacherId'), headers: _headers).timeout(const Duration(seconds: 12));
+      final res = await _retry(
+        () => http.get(_u('${ApiConstants.evalBookAssignments}/$teacherId'), headers: _headers).timeout(const Duration(seconds: 15)),
+        retries: 3,
+      );
       if (_ok(res)) {
         final d = _safeJson(res.body);
         if (d is List) return d.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -611,7 +677,10 @@ class ApiService {
   }
 
   Future<bool> submitDailyEvaluation(Map<String, dynamic> data) async {
-    final res = await http.post(_u(ApiConstants.evalBookDaily), headers: _headers, body: jsonEncode(data)).timeout(const Duration(seconds: 15));
+    final res = await _retry(
+      () => http.post(_u(ApiConstants.evalBookDaily), headers: _headers, body: jsonEncode(data)).timeout(const Duration(seconds: 20)),
+      retries: 3,
+    );
     return _ok(res);
   }
 
