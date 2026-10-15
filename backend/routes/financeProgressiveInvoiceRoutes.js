@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const { branchPrisma: prisma } = require('../services/BranchPrismaService');
 const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
-const prisma = new PrismaClient();
 const { 
   calculateStudentBalance, 
   generateInvoiceWithBalance 
