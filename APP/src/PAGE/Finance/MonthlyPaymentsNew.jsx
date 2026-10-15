@@ -1486,6 +1486,40 @@ ${index + 1}. ${student.studentName || 'Unknown'}
                           🎓 {student.exemption_type || 'FREE'}
                         </span>
                       )}
+                      {student.inactive && (
+                        <span
+                          style={{
+                            marginLeft: '8px',
+                            padding: '4px 10px',
+                            background: '#6c757d',
+                            color: 'white',
+                            borderRadius: '12px',
+                            fontSize: '0.75em',
+                            fontWeight: 'bold',
+                            display: 'inline-block'
+                          }}
+                          title="Student is deactivated (no longer active in this class)"
+                        >
+                          Inactive
+                        </span>
+                      )}
+                      {student.onRoster === false && (
+                        <span
+                          style={{
+                            marginLeft: '8px',
+                            padding: '4px 10px',
+                            background: '#dc3545',
+                            color: 'white',
+                            borderRadius: '12px',
+                            fontSize: '0.75em',
+                            fontWeight: 'bold',
+                            display: 'inline-block'
+                          }}
+                          title="Student is no longer in this class - showing because payments exist"
+                        >
+                          Removed
+                        </span>
+                      )}
                     </td>
                     <td>
                       {student.is_free ? (

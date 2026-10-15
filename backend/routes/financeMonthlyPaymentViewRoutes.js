@@ -164,9 +164,9 @@ router.get('/overview', authenticateWithBranch, requirePermission(FINANCE_PERMIS
     console.log('========================================');
     console.log(`Current Ethiopian Month: ${currentEthiopianMonth}\n`);
 
-    // Get all active fee structures
+    // Get all fee structures (including inactive ones - a class may still have
+    // enrolled students even if its fee structure was marked inactive, e.g. KG2B)
     const feeStructures = await prisma.feeStructure.findMany({
-      where: { isActive: true },
       include: { items: true }
     });
 
@@ -296,9 +296,18 @@ router.get('/overview', authenticateWithBranch, requirePermission(FINANCE_PERMIS
         console.error(`ERROR fetching free students for ${className}:`, error.message);
       }
 
-      // STEP 3: Get ALL invoices for this class
+      // STEP 3: Get ALL invoices for this class + invoices owned by this class's
+      // active students (students transferred from another class still have their
+      // invoices under the old class fee structure - without this their payments
+      // were invisible in their current class)
+      const rosterSids = Array.from(activeStudentIds);
       const allInvoices = await prisma.invoice.findMany({
-        where: { feeStructureId: feeStructure.id },
+        where: {
+          OR: [
+            { feeStructureId: feeStructure.id },
+            ...(rosterSids.length > 0 ? [{ studentId: { in: rosterSids } }] : [])
+          ]
+        },
         include: { items: true }
       });
 
@@ -460,8 +469,79 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
     const { className } = req.params;
     const currentEthiopianMonth = parseInt(req.query.currentMonth) || 5; // Default to Tir (month 5)
 
-    // Get fee structure for this class
-    const feeStructure = await prisma.feeStructure.findFirst({
+    // STEP 1: Roster (source of truth for names). Fetch ALL students in this class
+    // table - active AND inactive - so every student shows in the list. Students
+    // transferred from another class appear here with their existing invoices
+    // (matched by studentId below, not by fee structure).
+    const studentNameMap = new Map(); // studentId -> { name, is_free, exemption_*, inactive }
+    const rosterSids = [];
+
+    try {
+      const columnCheck = await prisma.$queryRawUnsafe(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_schema = 'classes_schema' 
+          AND table_name = '${className}'
+          AND column_name IN ('is_active', 'is_free', 'student_type', 'is_kg', 'is_evening_class')
+      `);
+
+      const columnNames = columnCheck.map(c => c.column_name);
+      const hasIsActive = columnNames.includes('is_active');
+      const hasStudentType = columnNames.includes('student_type');
+      const hasIsKg = columnNames.includes('is_kg');
+      const hasIsEvening = columnNames.includes('is_evening_class');
+
+      let whereClause = 'WHERE 1=1';
+
+      // V2 Enhancement: Add student type filter support
+      const studentTypeFilter = req.query.studentType; // 'kg', 'evening', 'kg_evening', 'regular', or 'all'
+      if (studentTypeFilter && studentTypeFilter !== 'all') {
+        if (hasStudentType) {
+          whereClause += ` AND student_type = '${studentTypeFilter}'`;
+        } else if (hasIsKg && hasIsEvening) {
+          if (studentTypeFilter === 'kg') {
+            whereClause += ` AND is_kg = TRUE AND is_evening_class = FALSE`;
+          } else if (studentTypeFilter === 'evening') {
+            whereClause += ` AND is_evening_class = TRUE AND is_kg = FALSE`;
+          } else if (studentTypeFilter === 'kg_evening') {
+            whereClause += ` AND is_kg = TRUE AND is_evening_class = TRUE`;
+          } else if (studentTypeFilter === 'regular') {
+            whereClause += ` AND (is_kg = FALSE OR is_kg IS NULL) AND (is_evening_class = FALSE OR is_evening_class IS NULL)`;
+          }
+        }
+      }
+
+      const selectIsActive = hasIsActive ? ', is_active' : '';
+
+      const roster = await prisma.$queryRawUnsafe(`
+        SELECT school_id, class_id, student_name, is_free, exemption_type, exemption_reason${selectIsActive}
+        FROM classes_schema."${className}"
+        ${whereClause}
+      `);
+
+      console.log(`Roster for ${className}: ${roster.length} students`);
+
+      for (const student of roster) {
+        const schoolIdPadded = String(student.school_id).padStart(4, '0');
+        const classIdPadded = String(student.class_id).padStart(12, '0');
+        const studentId = `00000000-0000-0000-${schoolIdPadded}-${classIdPadded}`;
+        rosterSids.push(studentId);
+        studentNameMap.set(studentId, {
+          name: student.student_name,
+          is_free: student.is_free || false,
+          exemption_type: student.exemption_type || null,
+          exemption_reason: student.exemption_reason || null,
+          inactive: hasIsActive && student.is_active === false
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching roster from classes_schema:', error.message);
+      // Continue with empty roster - invoice holders still show (as Unknown student)
+    }
+
+    // Get fee structure for this class (prefer active, fall back to inactive fee
+    // structures so classes like KG2B still work)
+    let feeStructure = await prisma.feeStructure.findFirst({
       where: {
         gradeLevel: className,
         isActive: true
@@ -470,6 +550,12 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
         items: true
       }
     });
+    if (!feeStructure) {
+      feeStructure = await prisma.feeStructure.findFirst({
+        where: { gradeLevel: className },
+        include: { items: true }
+      });
+    }
 
     if (!feeStructure) {
       return res.status(404).json({
@@ -478,10 +564,15 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
       });
     }
 
-    // Get all invoices for this class
+    // Get invoices: this class's fee structure + invoices owned by current roster
+    // students (covers students transferred from another class - their invoices
+    // still sit under the old class fee structure)
     const invoices = await prisma.invoice.findMany({
       where: {
-        feeStructureId: feeStructure.id
+        OR: [
+          { feeStructureId: feeStructure.id },
+          ...(rosterSids.length > 0 ? [{ studentId: { in: rosterSids } }] : [])
+        ]
       },
       include: {
         items: true,
@@ -562,124 +653,33 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
       }
     }
 
-    // Fetch student names from the actual class tables in classes_schema
-    const studentIds = Array.from(studentMap.keys());
-    const studentNameMap = new Map();
-
-    // Try to fetch from classes_schema tables
-    try {
-      // Get the class name from fee structure
-      const className = feeStructure.gradeLevel;
-      
-      // OPTIMIZED: Check for is_active, student_type, is_kg, is_evening_class columns ONCE, not in the loop
-      const columnCheck = await prisma.$queryRawUnsafe(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_schema = 'classes_schema' 
-          AND table_name = '${className}'
-          AND column_name IN ('is_active', 'student_type', 'is_kg', 'is_evening_class')
-      `);
-      
-      const columnNames = columnCheck.map(c => c.column_name);
-      const hasIsActive = columnNames.includes('is_active');
-      const hasStudentType = columnNames.includes('student_type');
-      const hasIsKg = columnNames.includes('is_kg');
-      const hasIsEvening = columnNames.includes('is_evening_class');
-      
-      let whereClause = hasIsActive 
-        ? 'WHERE (is_active = TRUE OR is_active IS NULL)'
-        : 'WHERE 1=1';
-      
-      // V2 Enhancement: Add student type filter support
-      const studentTypeFilter = req.query.studentType; // 'kg', 'evening', 'kg_evening', 'regular', or 'all'
-      if (studentTypeFilter && studentTypeFilter !== 'all') {
-        if (hasStudentType) {
-          whereClause += ` AND student_type = '${studentTypeFilter}'`;
-        } else if (hasIsKg && hasIsEvening) {
-          // Fallback to individual columns
-          if (studentTypeFilter === 'kg') {
-            whereClause += ` AND is_kg = TRUE AND is_evening_class = FALSE`;
-          } else if (studentTypeFilter === 'evening') {
-            whereClause += ` AND is_evening_class = TRUE AND is_kg = FALSE`;
-          } else if (studentTypeFilter === 'kg_evening') {
-            whereClause += ` AND is_kg = TRUE AND is_evening_class = TRUE`;
-          } else if (studentTypeFilter === 'regular') {
-            whereClause += ` AND (is_kg = FALSE OR is_kg IS NULL) AND (is_evening_class = FALSE OR is_evening_class IS NULL)`;
-          }
-        }
-      }
-      
-      // OPTIMIZED: Fetch ALL students in a SINGLE query instead of looping
-      const allStudents = await prisma.$queryRawUnsafe(`
-        SELECT school_id, class_id, student_name, is_free, exemption_type, exemption_reason
-        FROM classes_schema."${className}"
-        ${whereClause}
-      `);
-      
-      console.log(`Fetched ${allStudents.length} students from classes_schema.${className}`);
-      
-      // Build the student name map
-      for (const student of allStudents) {
-        const schoolIdPadded = String(student.school_id).padStart(4, '0');
-        const classIdPadded = String(student.class_id).padStart(12, '0');
-        const studentId = `00000000-0000-0000-${schoolIdPadded}-${classIdPadded}`;
-        
-        // Only add students that have invoices
-        if (studentIds.includes(studentId)) {
-          studentNameMap.set(studentId, {
-            name: student.student_name,
-            is_free: student.is_free || false,
-            exemption_type: student.exemption_type || null,
-            exemption_reason: student.exemption_reason || null
-          });
-          console.log(`Found student: ${studentId} → ${student.student_name}${student.is_free ? ' [FREE]' : ''}`);
-        }
-      }
-
-      console.log(`Mapped ${studentNameMap.size} student names from classes_schema.${className}`);
-      
-      // Log which students are in the name map
-      console.log('Students in name map:');
-      for (const [id, info] of studentNameMap.entries()) {
-        console.log(`  - ${id}: ${info.name}`);
-      }
-      
-    } catch (error) {
-      console.error('Error fetching student names from classes_schema:', error.message);
-      
-      // Fallback: Try to fetch from Prisma Student table
-      try {
-        const studentRecords = await prisma.student.findMany({
-          where: {
-            id: {
-              in: studentIds
-            }
-          },
-          select: {
-            id: true,
-            studentName: true
-          }
+    // Every roster student must appear even if they have no invoices yet
+    for (const studentId of rosterSids) {
+      if (!studentMap.has(studentId)) {
+        studentMap.set(studentId, {
+          studentId,
+          invoices: [],
+          totalAmount: 0,
+          totalPaid: 0,
+          totalBalance: 0,
+          unlockedTotalAmount: 0,
+          unlockedTotalPaid: 0,
+          unlockedTotalBalance: 0,
+          unpaidMonths: 0,
+          unlockedUnpaidMonths: 0,
+          overdueMonths: 0,
+          lastPaymentDate: null
         });
-
-        studentRecords.forEach(record => {
-          studentNameMap.set(record.id, record.studentName);
-        });
-      } catch (fallbackError) {
-        console.error('Error fetching from Student table:', fallbackError.message);
       }
     }
 
-    // Convert to array and add month status visualization
-    // Filter out students who don't have names (deactivated students)
-    console.log(`\nTotal students in studentMap: ${studentMap.size}`);
-    console.log('Student IDs in studentMap:', Array.from(studentMap.keys()));
-    
+    const rosterSet = new Set(rosterSids);
+
+    // Convert to array and add month status visualization.
+    // NOTE: no more hasName filter - roster students (active + inactive) always
+    // show, and invoice holders missing from the class table still show so their
+    // payments are never silently dropped.
     const students = Array.from(studentMap.values())
-      .filter(student => {
-        const hasName = studentNameMap.has(student.studentId);
-        console.log(`  Checking ${student.studentId}: hasName=${hasName}`);
-        return hasName;
-      }) // Only include students with names (active students)
       .map(student => {
       // Create month status array for visualization
       const monthStatuses = student.invoices
@@ -703,12 +703,15 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
       // Get exemption status
       const studentInfo = studentNameMap.get(student.studentId);
       const isFree = studentInfo?.is_free || false;
+      const inactive = studentInfo ? !!studentInfo.inactive : true;
 
       // Determine student status based on payment of ALL months (including locked)
       let studentStatus;
-      
-      // If student is exempt, mark as EXEMPT
-      if (isFree) {
+
+      if (student.invoices.length === 0) {
+        studentStatus = 'PENDING'; // On roster but no invoices generated yet
+      } else if (isFree) {
+        // If student is exempt, mark as EXEMPT
         studentStatus = 'EXEMPT';
       } else {
         const allMonthsPaid = student.invoices.every(inv => inv.status === 'PAID');
@@ -732,23 +735,32 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
 
       return {
         ...student,
-        studentName: studentInfo?.name || 'Unknown',
+        studentName: studentInfo?.name || 'Unknown student',
         is_free: isFree,
         exemption_type: studentInfo?.exemption_type || null,
         exemption_reason: studentInfo?.exemption_reason || null,
+        inactive,
+        onRoster: rosterSet.has(student.studentId),
         monthStatuses,
         status: studentStatus
       };
     });
 
-    // Separate paying and free students
-    const payingStudents = students.filter(s => !s.is_free);
-    const freeStudents = students.filter(s => s.is_free);
+    // Separate ACTIVE roster students (drive the summary - matches the overview
+    // endpoint) from inactive / removed students (still listed for visibility)
+    const activeStudents = students.filter(s => s.onRoster && !s.inactive);
+    const inactiveRosterStudents = students.filter(s => s.onRoster && s.inactive);
+    const removedStudents = students.filter(s => !s.onRoster);
 
-    // Calculate summary (ONLY paying students - exclude free students from financial totals)
+    const payingStudents = activeStudents.filter(s => !s.is_free);
+    const freeStudents = activeStudents.filter(s => s.is_free);
+
+    // Calculate summary (ONLY active paying students - exclude free/inactive/removed from financial totals)
     const summary = {
       className: className,
-      totalStudents: students.length,
+      totalStudents: activeStudents.length,
+      inactiveStudents: inactiveRosterStudents.length,
+      removedStudents: removedStudents.length,
       freeStudents: freeStudents.length,
       payingStudents: payingStudents.length,
       paidCount: payingStudents.filter(s => s.status === 'PAID').length, // All months paid
@@ -1120,9 +1132,8 @@ router.get('/unpaid-students', authenticateWithBranch, requirePermission(FINANCE
     console.log('========================================');
     console.log(`Current Ethiopian Month: ${currentEthiopianMonth}\n`);
 
-    // Get all active fee structures
+    // Get all fee structures (including inactive - class may still have students)
     const feeStructures = await prisma.feeStructure.findMany({
-      where: { isActive: true },
       include: { items: true }
     });
 
@@ -1205,9 +1216,16 @@ router.get('/unpaid-students', authenticateWithBranch, requirePermission(FINANCE
         continue;
       }
 
-      // Get ALL invoices for this class
+      // Get invoices for this class + invoices owned by current students
+      // (transferred students keep invoices under their old class fee structure)
+      const rosterSids = Array.from(activeStudentIds);
       const allInvoices = await prisma.invoice.findMany({
-        where: { feeStructureId: feeStructure.id },
+        where: {
+          OR: [
+            { feeStructureId: feeStructure.id },
+            ...(rosterSids.length > 0 ? [{ studentId: { in: rosterSids } }] : [])
+          ]
+        },
         include: { items: true }
       });
 
