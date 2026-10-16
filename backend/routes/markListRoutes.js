@@ -597,25 +597,31 @@ router.post('/create-mark-forms', async (req, res) => {
     }
     
     // Store mark form configuration with unique constraint
+    // Store mark form configuration with unique index/constraint
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${schemaName}.form_config (
         id SERIAL PRIMARY KEY,
-        class_name VARCHAR(50) NOT NULL,
+        class_name VARCHAR(100) NOT NULL,
         term_number INTEGER NOT NULL,
-        mark_components JSONB NOT NULL,
+        mark_components JSONB NOT NULL DEFAULT '[]'::jsonb,
         pass_threshold DECIMAL(5,2) DEFAULT 50.00,
         is_locked BOOLEAN DEFAULT FALSE,
         locked_at TIMESTAMP,
         locked_by VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_class_term UNIQUE (class_name, term_number)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    // Ensure a unique index exists on (class_name, term_number) regardless of table constraint naming
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS ${sanitizeComponentKey(schemaName)}_fc_uniq 
+      ON ${schemaName}.form_config (class_name, term_number)
     `);
     
     await client.query(`
       INSERT INTO ${schemaName}.form_config (class_name, term_number, mark_components, pass_threshold)
       VALUES ($1, $2, $3, $4)
-      ON CONFLICT ON CONSTRAINT unique_class_term DO UPDATE SET
+      ON CONFLICT (class_name, term_number) DO UPDATE SET
         mark_components = EXCLUDED.mark_components,
         pass_threshold = EXCLUDED.pass_threshold,
         created_at = CURRENT_TIMESTAMP
