@@ -223,8 +223,14 @@ api.interceptors.response.use(
           return Promise.reject(error);
         }
         
-        // Clear auth data
+        // Clear auth data. When inside the finance app we MUST also clear the
+        // finance session keys — otherwise financeToken/financeUser survive,
+        // FinanceApp bounces the user from the login page back into the app,
+        // and the 403→login→app cycle repeats as an infinite reload loop.
         clearAuthData();
+        if (isFinanceAppRoute()) {
+          clearFinanceAuthData();
+        }
 
         isRedirecting = true;
 
