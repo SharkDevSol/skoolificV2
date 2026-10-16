@@ -597,7 +597,7 @@ router.post('/create-mark-forms', async (req, res) => {
     }
     
     // Store mark form configuration with unique constraint
-    // Store mark form configuration with unique index/constraint
+    // Store mark form configuration with unique constraint
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${schemaName}.form_config (
         id SERIAL PRIMARY KEY,
@@ -608,14 +608,9 @@ router.post('/create-mark-forms', async (req, res) => {
         is_locked BOOLEAN DEFAULT FALSE,
         locked_at TIMESTAMP,
         locked_by VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (class_name, term_number)
       )
-    `);
-
-    // Ensure a unique index exists on (class_name, term_number) regardless of table constraint naming
-    await client.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS ${sanitizeComponentKey(schemaName)}_fc_uniq 
-      ON ${schemaName}.form_config (class_name, term_number)
     `);
     
     await client.query(`
