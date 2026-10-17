@@ -736,8 +736,10 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
     }
 
     const result = await db.query(`
-      SELECT * FROM "${schemaName}"."${tableName}"
-      ORDER BY LOWER(student_name) ASC
+      SELECT wa.*, COALESCE(cs.student_name, wa.student_name) AS student_name
+      FROM "${schemaName}"."${tableName}" wa
+      LEFT JOIN classes_schema."${className}" cs ON TRIM(wa.school_id) = TRIM(cs.school_id::text)
+      ORDER BY LOWER(COALESCE(cs.student_name, wa.student_name)) ASC
     `);
 
     res.json({ exists: true, data: result.rows });
