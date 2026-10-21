@@ -701,43 +701,102 @@ const handleGetMarkList = async (req, res) => {
     }
 
     const markListResult = await client.query(
-      `SELECT student_name FROM ${schemaName}.${tableName}`
+      `SELECT * FROM ${schemaName}.${tableName}`
     );
-    const markListStudents = markListResult.rows.map(r => r.student_name);
-    
-    // Find students to add (in class but not in mark list)
-    const studentsToAdd = activeStudents.filter(
-      student => !markListStudents.includes(student.student_name)
-    );
-    
-    // Find students to remove (in mark list but not active in class)
-    const activeStudentNames = activeStudents.map(s => s.student_name);
-    const studentsToRemove = markListStudents.filter(
-      name => !activeStudentNames.includes(name)
-    );
-    
-    // Add new students
-    for (const student of studentsToAdd) {
-      await client.query(
-        `INSERT INTO ${schemaName}.${tableName} (student_name, age, gender) 
-         VALUES ($1, $2, $3)`,
-        [student.student_name, student.age, student.gender]
-      );
+    const markRows = markListResult.rows || [];
+
+    const norm = (v) => String(v ?? '').trim().toLowerCase();
+
+    // Students on the roster with no mark row yet (new students), and mark
+    // rows whose student is no longer on the roster (left/deactivated/renamed).
+    const markByName = new Map();
+    for (const row of markRows) {
+      const k = norm(row.student_name);
+      if (!markByName.has(k)) markByName.set(k, row);
     }
-    
-    // Remove deactivated students
-    for (const studentName of studentsToRemove) {
-      await client.query(
-        `DELETE FROM ${schemaName}.${tableName} WHERE student_name = $1`,
-        [studentName]
-      );
+    const activeByName = new Map();
+    for (const s of activeStudents) {
+      const k = norm(s.student_name);
+      if (!activeByName.has(k)) activeByName.set(k, s);
+    }
+
+    const studentsToAdd = activeStudents.filter(
+      student => !markByName.has(norm(student.student_name))
+    );
+    const orphanRows = markRows.filter(
+      row => !activeByName.has(norm(row.student_name))
+    );
+
+    // A renamed student keeps the same age and gender. When the counts line
+    // up and the match is unique, rename the row IN PLACE so the marks (and
+    // the row id the app has cached) survive the rename.
+    const renamedRowIds = new Set();
+    if (studentsToAdd.length > 0 && studentsToAdd.length === orphanRows.length) {
+      const remaining = [...orphanRows];
+      for (const student of studentsToAdd) {
+        const candidates = remaining.filter(o =>
+          String(o.age ?? '') === String(student.age ?? '') &&
+          String(o.gender ?? '') === String(student.gender ?? '')
+        );
+        if (candidates.length !== 1) continue;
+        const orphan = candidates[0];
+        remaining.splice(remaining.indexOf(orphan), 1);
+        try {
+          await client.query(
+            `UPDATE ${schemaName}.${tableName}
+             SET student_name = $1, age = $2, gender = $3
+             WHERE id = $4`,
+            [student.student_name, student.age, student.gender, orphan.id]
+          );
+          renamedRowIds.add(orphan.id);
+          markByName.set(norm(student.student_name), {
+            ...orphan,
+            student_name: student.student_name,
+            age: student.age,
+            gender: student.gender,
+          });
+        } catch (renameErr) {
+          console.warn(`[MarkList] Rename failed for "${student.student_name}":`, renameErr.message);
+        }
+      }
+    }
+
+    // Add new students (never fail the whole request because of one row)
+    let studentsAdded = 0;
+    for (const student of studentsToAdd) {
+      if (markByName.has(norm(student.student_name))) continue; // renamed above
+      try {
+        await client.query(
+          `INSERT INTO ${schemaName}.${tableName} (student_name, age, gender) 
+           VALUES ($1, $2, $3)`,
+          [student.student_name, student.age, student.gender]
+        );
+        studentsAdded++;
+      } catch (insertErr) {
+        console.warn(`[MarkList] Could not add "${student.student_name}" to ${schemaName}.${tableName}:`, insertErr.message);
+      }
+    }
+
+    // Remove rows for students who are no longer on the roster
+    let studentsRemoved = 0;
+    for (const orphan of orphanRows) {
+      if (renamedRowIds.has(orphan.id)) continue;
+      try {
+        await client.query(
+          `DELETE FROM ${schemaName}.${tableName} WHERE id = $1`,
+          [orphan.id]
+        );
+        studentsRemoved++;
+      } catch (deleteErr) {
+        console.warn(`[MarkList] Could not remove "${orphan.student_name}" from ${schemaName}.${tableName}:`, deleteErr.message);
+      }
     }
     
     // Get updated mark list data (only active students)
     const result = await client.query(
       `SELECT * FROM ${schemaName}.${tableName} ORDER BY student_name`
     );
-    
+
     // Get form configuration
     const configResult = await client.query(
       `SELECT * FROM ${schemaName}.form_config WHERE LOWER(class_name) = LOWER($1) AND term_number = $2`,
@@ -746,18 +805,45 @@ const handleGetMarkList = async (req, res) => {
 
     const formConfig = configResult.rows[0] || null;
 
+    // Make sure EVERY current student is in the response, even if the row
+    // could not be written to the table (the app must still show them).
+    const responseRows = [...result.rows];
+    const responseNames = new Set(responseRows.map(r => norm(r.student_name)));
+    let syntheticId = -1;
+    for (const student of activeStudents) {
+      const k = norm(student.student_name);
+      if (responseNames.has(k)) continue;
+      const row = {
+        id: syntheticId--,
+        student_name: student.student_name,
+        age: student.age,
+        gender: student.gender,
+        total: 0,
+        pass_status: 'Fail',
+      };
+      for (const comp of (formConfig?.mark_components || [])) {
+        const key = String(comp.name || '').toLowerCase().replace(/[\s\-\.]+/g, '_');
+        if (key) row[key] = 0;
+      }
+      responseRows.push(row);
+      responseNames.add(k);
+    }
+    responseRows.sort((a, b) =>
+      String(a.student_name || '').toLowerCase().localeCompare(String(b.student_name || '').toLowerCase())
+    );
+
     res.json({
       // Staff app requires formId + components at top level — without them
       // it treats the form as missing and shows no components.
-      formId: formConfig?.id || (formConfig ? 1 : (result.rows.length > 0 ? 1 : null)),
-      form_id: formConfig?.id || (formConfig ? 1 : (result.rows.length > 0 ? 1 : null)),
+      formId: formConfig?.id || (formConfig ? 1 : (responseRows.length > 0 ? 1 : null)),
+      form_id: formConfig?.id || (formConfig ? 1 : (responseRows.length > 0 ? 1 : null)),
       components: formConfig?.mark_components || [],
-      students: result.rows,
-      markList: result.rows,
+      students: responseRows,
+      markList: responseRows,
       config: formConfig,
       syncInfo: {
-        studentsAdded: studentsToAdd.length,
-        studentsRemoved: studentsToRemove.length
+        studentsAdded: studentsAdded,
+        studentsRemoved: studentsRemoved
       }
     });
   } catch (error) {
@@ -852,7 +938,24 @@ router.put('/update-marks', async (req, res) => {
       WHERE id = $${updateValues.length}
     `;
     
-    await client.query(updateQuery, updateValues);
+    const updateRes = await client.query(updateQuery, updateValues);
+
+    if (updateRes.rowCount === 0) {
+      // The cached row id no longer exists (the mark list was re-synced).
+      // Fall back to the student name when the client sends one, so the marks
+      // are not silently dropped.
+      const fallbackName = req.body?.studentName || req.body?.student_name;
+      if (fallbackName) {
+        const byName = await client.query(
+          `SELECT id FROM ${schemaName}.${tableName} WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1)) LIMIT 1`,
+          [fallbackName]
+        );
+        if (byName.rows.length > 0) {
+          updateValues[updateValues.length - 1] = byName.rows[0].id;
+          await client.query(updateQuery, updateValues);
+        }
+      }
+    }
     
     await client.query('COMMIT');
     res.json({ message: 'Marks updated successfully', total, passStatus });
@@ -1654,21 +1757,43 @@ router.post('/bulk-update-marks', async (req, res) => {
       
       if (!studentName || !marks) continue;
       
-      // Find student by id or trimmed name (mark tables have no school_id column)
-      const studentResult = await client.query(
+      // Find the student by NAME first. Mark tables have no student-id
+      // column, so their row ids are not stable across add/remove — trusting
+      // the cached id can write the marks to the wrong student.
+      let studentResult = await client.query(
         `SELECT id FROM ${schemaName}.${tableName} 
-         WHERE ($1::text IS NOT NULL AND id::text = $1::text)
-            OR LOWER(TRIM(student_name)) = LOWER(TRIM($2))
+         WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))
          LIMIT 1`,
-        [studentMarks.studentId || null, studentName]
+        [studentName]
       );
-      
-      if (studentResult.rows.length === 0) {
-        console.log(`Student not found: ${studentName}`);
-        continue;
+
+      if (studentResult.rows.length === 0 && studentMarks.studentId) {
+        // Fall back to the row id (legacy clients / renamed students). The
+        // row keeps its current name so a rename is never undone.
+        studentResult = await client.query(
+          `SELECT id FROM ${schemaName}.${tableName} 
+           WHERE id::text = $1::text
+           LIMIT 1`,
+          [studentMarks.studentId]
+        );
       }
-      
-      const studentId = studentResult.rows[0].id;
+
+      let studentId = studentResult.rows.length > 0 ? studentResult.rows[0].id : null;
+
+      if (studentId === null) {
+        // The student is not in this mark list yet (added to the class after
+        // the form was created) — create the row instead of dropping the marks.
+        try {
+          const inserted = await client.query(
+            `INSERT INTO ${schemaName}.${tableName} (student_name) VALUES ($1) RETURNING id`,
+            [studentName]
+          );
+          if (inserted.rows.length > 0) studentId = inserted.rows[0].id;
+        } catch (insertErr) {
+          console.log(`Could not add student "${studentName}": ${insertErr.message}`);
+          continue;
+        }
+      }
       
       // Build update query
       const updateColumns = [];

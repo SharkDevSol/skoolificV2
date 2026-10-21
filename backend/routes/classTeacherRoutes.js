@@ -735,14 +735,78 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
       return res.json({ exists: false, data: [] });
     }
 
+    // Saved attendance rows for this week
     const result = await db.query(`
-      SELECT wa.*, COALESCE(cs.student_name, wa.student_name) AS student_name
-      FROM "${schemaName}"."${tableName}" wa
-      LEFT JOIN classes_schema."${className}" cs ON TRIM(wa.school_id) = TRIM(cs.school_id::text)
-      ORDER BY LOWER(COALESCE(cs.student_name, wa.student_name)) ASC
+      SELECT * FROM "${schemaName}"."${tableName}"
     `);
+    const savedRows = result.rows || [];
 
-    res.json({ exists: true, data: result.rows });
+    // CURRENT class roster. The weekly table is a snapshot taken when the
+    // week was created, so students added afterwards are missing from it and
+    // renamed students keep their old name. Reading the roster here makes the
+    // response always reflect the class as it is right now.
+    let roster = [];
+    try {
+      const hasIsActive = (await db.query(`
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'classes_schema' AND table_name = $1 AND column_name = 'is_active'
+      `, [className])).rows.length > 0;
+
+      const rosterRes = await db.query(`
+        SELECT cs.school_id::text AS school_id,
+               cs.class_id::text  AS class_id,
+               cs.student_name    AS student_name
+        FROM classes_schema."${className}" cs
+        WHERE cs.school_id IS NOT NULL AND cs.student_name IS NOT NULL
+          ${hasIsActive ? 'AND (cs.is_active = TRUE OR cs.is_active IS NULL)' : ''}
+      `);
+      roster = rosterRes.rows || [];
+    } catch (rosterErr) {
+      // Class table missing/unreadable — keep the saved snapshot as-is.
+      console.warn(`[ClassTeacher] Roster unavailable for ${className}:`, rosterErr.message);
+      roster = [];
+    }
+
+    // Merge: roster (live names) + saved attendance. Students that are on the
+    // roster but have no saved row yet are new — they are returned with empty
+    // days so the app can show (and let the teacher mark) them.
+    const savedById = new Map();
+    for (const row of savedRows) {
+      savedById.set(String(row.school_id).trim(), row);
+    }
+
+    const merged = [];
+    const seenIds = new Set();
+    for (const student of roster) {
+      const key = String(student.school_id).trim();
+      seenIds.add(key);
+      const saved = savedById.get(key);
+      if (saved) {
+        merged.push({ ...saved, student_name: student.student_name });
+      } else {
+        merged.push({
+          id: null,
+          school_id: student.school_id,
+          class_id: student.class_id,
+          student_name: student.student_name,
+          monday: null, tuesday: null, wednesday: null,
+          thursday: null, friday: null, saturday: null, sunday: null,
+          created_by: null, created_at: null, updated_at: null,
+        });
+      }
+    }
+    // Saved rows for students who are no longer on the roster (left/deactivated)
+    // keep their history.
+    for (const row of savedRows) {
+      const key = String(row.school_id).trim();
+      if (!seenIds.has(key)) merged.push(row);
+    }
+
+    merged.sort((a, b) =>
+      String(a.student_name || '').toLowerCase().localeCompare(String(b.student_name || '').toLowerCase())
+    );
+
+    res.json({ exists: true, data: merged });
   } catch (error) {
     console.error('Error fetching weekly attendance:', error);
     res.status(500).json({ error: 'Failed to fetch weekly attendance', details: error.message });
