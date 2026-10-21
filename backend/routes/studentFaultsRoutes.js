@@ -73,6 +73,36 @@ const initializeFaultsSchema = async () => {
 };
 initializeFaultsSchema();
 
+/**
+ * Resolve a class name to the table that actually holds its students.
+ *
+ * The class list also contains classes taken from the school-wide class
+ * configuration, and a branch does not necessarily have a table for every
+ * one of them (IQRA1 has G4A/G4B but no G4). Looking the class up in
+ * classes_schema first and then in public keeps those classes from breaking
+ * the discipline screens with a 500.
+ *
+ * @returns {Promise<{schema: string, table: string}|null>}
+ */
+const resolveClassTable = async (db, className) => {
+  if (!className) return null;
+  try {
+    const res = await db.query(`
+      SELECT table_schema, table_name
+      FROM information_schema.tables
+      WHERE LOWER(table_name) = LOWER($1)
+        AND table_schema IN ('classes_schema', 'public')
+        AND table_name NOT IN ('users', 'school_student_count')
+      ORDER BY CASE table_schema WHEN 'classes_schema' THEN 0 ELSE 1 END
+      LIMIT 1
+    `, [String(className).trim()]);
+    if (res.rows.length === 0) return null;
+    return { schema: res.rows[0].table_schema, table: res.rows[0].table_name };
+  } catch (e) {
+    return null;
+  }
+};
+
 // Get all classes
 router.get('/classes', async (req, res) => {
   try {
@@ -93,18 +123,34 @@ router.get('/students/:className', async (req, res) => {
   }
   const db = getDB(req);
   try {
-    const actualClassName = (await resolveActualClassTable(db, className)) || className;
+    // This branch may not have a table for every class in the class list.
+    // Return an empty list instead of failing the whole screen.
+    const resolved = await resolveClassTable(db, className);
+    if (!resolved) {
+      console.log(`No student table for class "${className}" in this branch`);
+      return res.json([]);
+    }
+    const { schema: classSchema, table: actualClassName } = resolved;
 
-    // Check if is_active column exists
-    const colCheck = await db.query(`
+    // Build the select list from the columns the table actually has
+    const colRows = await db.query(`
       SELECT column_name FROM information_schema.columns
-      WHERE table_schema = 'classes_schema' AND table_name = $1 AND column_name = 'is_active'
-    `, [actualClassName]);
-    const hasIsActive = colCheck.rows.length > 0;
+      WHERE table_schema = $1 AND table_name = $2
+    `, [classSchema, actualClassName]);
+    const hasColumn = (c) => colRows.rows.some(r => r.column_name === c);
+    if (!hasColumn('student_name')) {
+      console.log(`Class table "${actualClassName}" has no student_name column`);
+      return res.json([]);
+    }
+    const selectList = [
+      'school_id', 'class_id', 'school_id AS student_id', 'school_id AS id',
+      'student_name', 'age', 'gender', 'image_student'
+    ].filter((c) => hasColumn(c.includes(' AS ') ? c.split(' AS ')[0].trim() : c.trim()));
+    const hasIsActive = hasColumn('is_active');
 
     const result = await db.query(`
-      SELECT school_id, class_id, school_id AS student_id, school_id AS id, student_name, age, gender, image_student
-      FROM classes_schema."${actualClassName}"
+      SELECT ${selectList.join(', ')}
+      FROM "${classSchema}"."${actualClassName}"
       ${hasIsActive ? "WHERE is_active = TRUE OR is_active IS NULL" : ""}
       ORDER BY LOWER(student_name) ASC
     `);
@@ -181,7 +227,8 @@ router.post('/add-fault', upload, async (req, res) => {
     `, [actualClassName]);
     if (classExists.rows.length === 0) {
       console.error(`Class does not exist: ${actualClassName}`);
-      throw new Error(`Class ${actualClassName} does not exist`);
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `Class ${actualClassName} does not exist in this branch` });
     }
 
     // Determine which schema the class is in
@@ -307,6 +354,17 @@ router.put('/edit-fault/:className/:faultId', upload, async (req, res) => {
     await client.query('BEGIN');
     console.log(`Editing fault ID ${faultId} in class ${actualClassName}`);
 
+    // The faults table only exists once a fault was recorded for the class
+    const faultsTable = await client.query(`
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'class_students_fault' AND table_name = $1
+      LIMIT 1
+    `, [actualClassName]);
+    if (faultsTable.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `No fault records for class ${actualClassName}` });
+    }
+
     // Verify fault exists
     const faultExists = await client.query(`
       SELECT 1 FROM class_students_fault."${actualClassName}"
@@ -314,7 +372,8 @@ router.put('/edit-fault/:className/:faultId', upload, async (req, res) => {
     `, [faultId]);
     if (faultExists.rows.length === 0) {
       console.error(`Fault not found: ID ${faultId} in class ${actualClassName}`);
-      throw new Error(`Fault ID ${faultId} not found in class ${actualClassName}`);
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `Fault ID ${faultId} not found in class ${actualClassName}` });
     }
 
     // Get old attachment to delete if new one is uploaded
@@ -369,6 +428,17 @@ router.delete('/delete-fault/:className/:faultId', async (req, res) => {
     await client.query('BEGIN');
     console.log(`Deleting fault ID ${faultId} in class ${actualClassName}`);
 
+    // The faults table only exists once a fault was recorded for the class
+    const faultsTable = await client.query(`
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'class_students_fault' AND table_name = $1
+      LIMIT 1
+    `, [actualClassName]);
+    if (faultsTable.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `No fault records for class ${actualClassName}` });
+    }
+
     // Get attachment to delete
     const fault = await client.query(`
       SELECT attachment FROM class_students_fault."${actualClassName}"
@@ -376,7 +446,8 @@ router.delete('/delete-fault/:className/:faultId', async (req, res) => {
     `, [faultId]);
     if (fault.rows.length === 0) {
       console.error(`Fault not found: ID ${faultId} in class ${actualClassName}`);
-      throw new Error(`Fault ID ${faultId} not found in class ${actualClassName}`);
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `Fault ID ${faultId} not found in class ${actualClassName}` });
     }
 
     if (fault.rows[0].attachment) {
