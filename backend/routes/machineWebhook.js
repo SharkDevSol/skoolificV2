@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const { syncWeeklyGrid } = require('../services/weeklyAttendanceSync');
 const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 
 /**
@@ -71,6 +72,9 @@ async function processMachineData(data, headers, query) {
         UNION
         SELECT machine_id, full_name, global_staff_id, 'Supportive Staff' as staff_type
         FROM staff_supportive_staff WHERE machine_id IS NOT NULL
+        UNION
+        SELECT machine_id, full_name, global_staff_id, 'Finance' as staff_type
+        FROM staff_finance WHERE machine_id IS NOT NULL
         ORDER BY machine_id
       `);
       
@@ -165,9 +169,9 @@ async function processMachineData(data, headers, query) {
       try {
         const attendanceResult = await pool.query(
           `INSERT INTO hr_ethiopian_attendance 
-           (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, check_in, status, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, 'PRESENT', 'Auto-imported from AI06 machine')
-           ON CONFLICT (staff_id, ethiopian_year, ethiopian_month, ethiopian_day) 
+           (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, check_in, status, shift_type, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, 'PRESENT', 'shift1', 'Auto-imported from AI06 machine')
+           ON CONFLICT (staff_id, ethiopian_year, ethiopian_month, ethiopian_day, shift_type) 
            DO UPDATE SET 
              check_in = CASE 
                WHEN hr_ethiopian_attendance.check_in IS NULL OR EXCLUDED.check_in < hr_ethiopian_attendance.check_in 
@@ -303,6 +307,14 @@ async function processMachineData(data, headers, query) {
           ]
         );
         
+        // Keep the class teacher's weekly grid (staff app) in sync with this record.
+        await syncWeeklyGrid(pool, {
+          className: matchedStudent.class_name,
+          studentId: matchedStudent.student_id,
+          ethYear: ethDate.year, ethMonth: ethDate.month, ethDay: ethDate.day,
+          status,
+        });
+
         if (attendanceResult.rows.length > 0) {
           console.log(`✅ Student attendance saved to academic_student_attendance`);
           console.log(`   Student: ${matchedStudent.student_name} (${matchedStudent.student_id})`);

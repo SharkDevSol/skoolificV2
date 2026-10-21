@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { syncWeeklyGrid } = require('./weeklyAttendanceSync');
 const { getCurrentEthiopianDate, getEthiopianDayOfWeek } = require('../utils/ethiopianCalendar');
 
 // Calculate week number from day
@@ -154,11 +155,17 @@ async function markAbsentStudents() {
     let daysFound = 0;
     let daysChecked = 0;
     const maxDaysToCheck = 30; // Safety limit
-    
+
+    // Normalize school_days to day names (may be stored as names or numbers 1=Monday..7=Sunday)
+    const dayNameMap = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const schoolDays = (settings.school_days || [])
+      .map(d => typeof d === 'number' ? dayNameMap[d] : d)
+      .filter(Boolean);
+
     while (daysFound < 7 && daysChecked < maxDaysToCheck) {
       const dayOfWeek = getEthiopianDayOfWeek(currentDate.year, checkMonth, checkDay);
       
-      if (settings.school_days.includes(dayOfWeek)) {
+      if (schoolDays.includes(dayOfWeek)) {
         daysToProcess.unshift({ month: checkMonth, day: checkDay, dayOfWeek });
         daysFound++;
       }
@@ -257,6 +264,15 @@ async function markAbsentStudents() {
             'Auto-marked absent by system',
             student.shift_number
           ]);
+
+          // Keep the class teacher's weekly grid (staff app) in sync with this record.
+          await syncWeeklyGrid(pool, {
+            className: student.class_name,
+            studentId: student.student_id,
+            ethYear: currentDate.year, ethMonth: month, ethDay: day,
+            status: 'ABSENT',
+          });
+
 
           dayMarked++;
 

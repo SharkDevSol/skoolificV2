@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const { syncWeeklyGrid } = require('./weeklyAttendanceSync');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
@@ -8,6 +9,7 @@ class AI06WebSocketService {
     this.wss = null;
     this.devices = new Map(); // Store connected devices by serial number
     this.io = null; // Socket.IO instance for real-time dashboard updates
+    this.branchCode = (process.env.AI06_BRANCH_CODE || 'IQRA1').toUpperCase();
   }
 
   // Initialize WebSocket server
@@ -23,6 +25,7 @@ class AI06WebSocketService {
     
     this.wss.on('connection', (ws, req) => {
       const clientIP = req.socket.remoteAddress;
+      ws._ai06ClientIP = clientIP;
       console.log(`\n========================================`);
       console.log(`📱 NEW DEVICE CONNECTION`);
       console.log(`========================================`);
@@ -45,8 +48,8 @@ class AI06WebSocketService {
         console.log(`   IP Address: ${clientIP}`);
         console.log(`   Time: ${new Date().toLocaleString()}`);
         // Remove from devices map
-        for (const [sn, socket] of this.devices.entries()) {
-          if (socket === ws) {
+        for (const [sn, device] of this.devices.entries()) {
+          if (device.ws === ws) {
             this.devices.delete(sn);
             console.log(`   Device ${sn} removed from active devices`);
             break;
@@ -117,18 +120,29 @@ class AI06WebSocketService {
   async handleRegistration(ws, message) {
     const { sn, devinfo } = message;
     
+    // Device belongs to the branch this backend serves
+    const deviceBranch = this.branchCode;
+    
     console.log(`✅ Device registered: ${sn}`);
+    console.log(`   Branch: ${deviceBranch}`);
+    console.log(`   IP: ${ws._ai06ClientIP || 'unknown'}`);
     console.log(`Model: ${devinfo.modelname}`);
     console.log(`Users: ${devinfo.useduser}/${devinfo.usersize}`);
     console.log(`Logs: ${devinfo.usedlog}/${devinfo.logsize}`);
     
-    // Store device connection
-    this.devices.set(sn, ws);
+    // Store device connection with branch binding
+    this.devices.set(sn, {
+      ws: ws,
+      branchCode: deviceBranch,
+      ip: ws._ai06ClientIP || 'unknown',
+      connectedAt: new Date().toISOString()
+    });
     
     // Send registration response
     const response = {
       ret: 'reg',
       result: true,
+      branch: deviceBranch,
       cloudtime: new Date().toISOString()
     };
     
@@ -190,9 +204,28 @@ class AI06WebSocketService {
   async saveAttendanceToDatabase(machineId, name, scanTime, mode, inout) {
     try {
       const { Pool } = require('pg');
-      const pool = new Pool({
-        connectionString: process.env.DATABASE_URL
-      });
+      
+      // Resolve this branch's database (IQRA1 -> iqrab1, IQRA2 -> iqrab2, ...)
+      const branchMap = {
+        'IQRA1': 'iqrab1',
+        'IQRA2': 'iqrab2',
+        'IQRA3': 'iqrab3',
+        'IQRA4': 'iqrab4',
+        'IQRA5': 'iqrab5'
+      };
+      const dbName = branchMap[this.branchCode] || (process.env.DATABASE_URL ? null : 'iqrab1');
+      
+      const pool = dbName
+        ? new Pool({
+            user: process.env.DB_USER || 'iqra',
+            password: process.env.DB_PASSWORD || '',
+            host: process.env.DB_HOST || 'localhost',
+            port: parseInt(process.env.DB_PORT, 10) || 5432,
+            database: dbName
+          })
+        : new Pool({ connectionString: process.env.DATABASE_URL });
+      
+      console.log(`   Branch DB: ${dbName || process.env.DATABASE_URL}`);
 
       // Use Machine ID and name directly from device - no lookup needed!
       console.log(`\n💾 ========================================`);
@@ -285,35 +318,51 @@ class AI06WebSocketService {
       const ethDay = ethDate.day;
       
       // ========================================
-      // STEP 2: Determine staff shift assignment
+      // STEP 2: Determine staff member and shift assignment
       // ========================================
-      console.log(`\n🔍 STEP 2: Checking shift assignment...`);
+      console.log(`\n🔍 STEP 2: Checking staff details and shift assignment...`);
       
       let staffShiftAssignment = 'shift1'; // Default
       let effectiveShift = 'shift1';
-      
-      // Check staff shift assignment from all staff tables
-      const staffTables = [
-        { schema: 'staff_teachers', idColumn: 'machine_id' },
-        { schema: 'staff_administrative_staff', idColumn: 'machine_id' },
-        { schema: 'staff_supportive_staff', idColumn: 'machine_id' }
-      ];
-      
-      for (const table of staffTables) {
+      let finalStaffName = name || null;
+      let globalStaffIdFound = null;
+
+      // Check staff shift assignment and real name from all staff schemas/tables
+      const staffSchemas = ['staff_teachers', 'staff_administrative_staff', 'staff_supportive_staff', 'staff_finance'];
+      for (const s of staffSchemas) {
         try {
-          const shiftResult = await pool.query(
-            `SELECT shift_assignment FROM "${table.schema}" WHERE CAST(${table.idColumn} AS VARCHAR) = $1 LIMIT 1`,
-            [machineId.toString()]
+          const tRes = await pool.query(
+            `SELECT table_name FROM information_schema.tables WHERE table_schema = $1`,
+            [s]
           );
-          
-          if (shiftResult.rows.length > 0 && shiftResult.rows[0].shift_assignment) {
-            staffShiftAssignment = shiftResult.rows[0].shift_assignment;
-            console.log(`✅ Found staff in ${table.schema} with shift: ${staffShiftAssignment}`);
-            break;
+          for (const t of tRes.rows) {
+            try {
+              const sRes = await pool.query(
+                `SELECT global_staff_id, name, shift_assignment 
+                 FROM "${s}"."${t.table_name}" 
+                 WHERE CAST(machine_id AS VARCHAR) = $1 LIMIT 1`,
+                [machineId.toString()]
+              );
+              if (sRes.rows.length > 0) {
+                const row = sRes.rows[0];
+                if (row.name) finalStaffName = row.name;
+                if (row.shift_assignment) staffShiftAssignment = row.shift_assignment;
+                globalStaffIdFound = row.global_staff_id;
+                console.log(`✅ Found staff in ${s}.${t.table_name}: ${finalStaffName} (shift: ${staffShiftAssignment})`);
+                break;
+              }
+            } catch (err) {
+              // column might not exist in this table
+            }
           }
+          if (globalStaffIdFound) break;
         } catch (err) {
-          // Table might not exist or column missing, continue
+          // schema error
         }
+      }
+
+      if (!finalStaffName) {
+        finalStaffName = name || `Staff ${machineId}`;
       }
       
       // For "both" shift staff, determine which shift based on existing records
@@ -523,7 +572,7 @@ class AI06WebSocketService {
         
         await pool.query(query, [
           machineId.toString(),
-          name,
+          finalStaffName,
           ethYear,
           ethMonth,
           ethDay,
@@ -560,7 +609,7 @@ class AI06WebSocketService {
           
           await pool.query(insertQuery, [
             machineId.toString(),
-            name,
+            finalStaffName,
             ethYear,
             ethMonth,
             ethDay,
@@ -725,6 +774,15 @@ class AI06WebSocketService {
       }
       
       console.log(`\n✅ ========================================`);
+      // Keep the class teacher's weekly grid (staff app) in sync with this record.
+      await syncWeeklyGrid(pool, {
+        className: studentInfo.class_name,
+        studentId: studentInfo.student_id,
+        ethYear: ethDate.year, ethMonth: ethDate.month, ethDay: ethDate.day,
+        status,
+      });
+
+
       console.log(`✅ STUDENT Attendance Saved Successfully`);
       console.log(`✅ ========================================`);
       console.log(`   Student: ${studentInfo.student_name}`);
@@ -843,20 +901,25 @@ class AI06WebSocketService {
 
   // Send command to device
   sendCommand(sn, command) {
-    const ws = this.devices.get(sn);
+    const device = this.devices.get(sn);
     
-    if (!ws) {
+    if (!device) {
       console.error(`Device ${sn} not connected`);
       return false;
     }
     
-    ws.send(JSON.stringify(command));
+    device.ws.send(JSON.stringify(command));
     return true;
   }
 
-  // Get list of connected devices
+  // Get list of connected devices with branch binding
   getConnectedDevices() {
-    return Array.from(this.devices.keys());
+    return Array.from(this.devices.entries()).map(([sn, device]) => ({
+      serialNumber: sn,
+      branch: device.branchCode,
+      ip: device.ip,
+      connectedAt: device.connectedAt
+    }));
   }
 
   // Stop the server

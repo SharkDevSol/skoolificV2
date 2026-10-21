@@ -7,11 +7,11 @@ const fs = require('fs').promises;
 const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 require('dotenv').config();
 
-const { authenticateWithBranch, validateBranchCode } = require('../middleware/branchAuth');
+const { authenticateWithBranchAllowExpired, validateBranchCode } = require('../middleware/branchAuth');
 const { sanitizeInputs } = require('../middleware/inputValidation');
 
 router.use(sanitizeInputs);
-router.use(authenticateWithBranch);
+router.use(authenticateWithBranchAllowExpired);
 
 // Multer setup
 const uploadDir = path.join(__dirname, '../uploads');

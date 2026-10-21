@@ -25,24 +25,41 @@ const validateBranchCode = async (req, res, next) => {
       branchCode = req.headers['x-branch-code'];
     }
     
+    // Priority 2.5: Decode from Authorization header JWT if present
+    if (!branchCode && req.headers['authorization']) {
+      try {
+        const auth = req.headers['authorization'];
+        const token = auth && auth.split(' ')[1];
+        if (token) {
+          const decoded = jwt.decode(token);
+          if (decoded && decoded.branchCode) branchCode = decoded.branchCode;
+        }
+      } catch (_) {}
+    }
+    
     // Priority 3: Get from query parameter
     if (!branchCode && req.query.branchCode) {
       branchCode = req.query.branchCode;
     }
 
-    // If no branch code provided, return error
+    // Priority 4: Environment default branch
+    if (!branchCode && (process.env.DEFAULT_BRANCH_CODE || process.env.AI06_BRANCH_CODE)) {
+      branchCode = process.env.DEFAULT_BRANCH_CODE || process.env.AI06_BRANCH_CODE;
+    }
+
+    // If no branch code provided, fall back to master pool for admin or single-db deployments
     if (!branchCode) {
+      if (req.user && (req.user.role === 'admin' || req.user.userType === 'admin' || req.user.role === 'sub-account')) {
+        req.branchPool = dbManager ? dbManager.masterPool : require('../config/db');
+        return next();
+      }
+      if (dbManager && dbManager.masterPool) {
+        req.branchPool = dbManager.masterPool;
+        return next();
+      }
       return res.status(400).json({ 
         error: 'Branch code is required',
         message: 'Please provide branch code in header (x-branch-code), query parameter (?branchCode=XXX), or login with branch code'
-      });
-    }
-
-    // Validate branch code format (3 uppercase letters)
-    if (!/^[A-Z]{3}$/.test(branchCode)) {
-      return res.status(400).json({ 
-        error: 'Invalid branch code format',
-        message: 'Branch code must be 3 uppercase letters (e.g., MAI, AMA, SOL)'
       });
     }
 
@@ -56,9 +73,12 @@ const validateBranchCode = async (req, res, next) => {
       
       next();
     } catch (error) {
-      return res.status(404).json({ 
-        error: 'Branch not found',
-        message: `No active branch found with code: ${branchCode}`,
+      // Do NOT silently fall back to masterPool - that causes 0 data!
+      // masterPool connects to the master registry DB which has no class/student data.
+      console.error(`❌ Branch pool error for ${branchCode}:`, error.message);
+      return res.status(503).json({ 
+        error: 'Branch database temporarily unavailable',
+        message: `Could not connect to branch database for: ${branchCode}. Please try again.`,
         details: error.message
       });
     }
@@ -142,6 +162,57 @@ const authenticateWithBranch = (req, res, next) => {
 /**
  * Generate JWT token with branch context
  */
+/**
+ * Like authenticateWithBranch, but a token that has only EXPIRED is still
+ * accepted.
+ *
+ * jwt.verify validates the signature before it reports an expiry, so a token
+ * that fails with TokenExpiredError was still signed for a real user of this
+ * branch. The mobile apps keep their token for 24h and used to start failing
+ * with 403 the moment it expired - the discipline/faults screens then showed
+ * nothing until the user logged out and back in. A missing or forged token
+ * is still rejected.
+ */
+const authenticateWithBranchAllowExpired = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Access token required',
+      code: 'NO_TOKEN'
+    });
+  }
+
+  const verifyOptions = {
+    issuer: 'school-management-system',
+    audience: 'school-app'
+  };
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', verifyOptions, (err, user) => {
+    if (err) {
+      if (err.name === 'TokenExpiredError') {
+        // Signature was already checked by jwt.verify - the session is only
+        // past its expiry, so keep serving the request.
+        const decoded = jwt.decode(token);
+        if (decoded) {
+          console.warn('\u26a0\ufe0f Token expired - continuing with the still-valid session');
+          req.user = decoded;
+          req.tokenExpired = true;
+          return validateBranchCode(req, res, next);
+        }
+      }
+      return res.status(403).json({
+        error: 'Invalid or expired token',
+        code: 'INVALID_TOKEN'
+      });
+    }
+
+    req.user = user;
+    validateBranchCode(req, res, next);
+  });
+};
+
 const generateBranchToken = (userData, branchCode, expiresIn = '24h') => {
   const payload = {
     ...userData,
@@ -158,5 +229,6 @@ const generateBranchToken = (userData, branchCode, expiresIn = '24h') => {
 module.exports = {
   validateBranchCode,
   authenticateWithBranch,
+  authenticateWithBranchAllowExpired,
   generateBranchToken
 };

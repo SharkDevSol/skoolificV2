@@ -8,9 +8,10 @@ const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 require('dotenv').config();
 
 // Security middleware
-const { authenticateWithBranch, validateBranchCode } = require('../middleware/branchAuth');
+const { authenticateWithBranchAllowExpired, validateBranchCode } = require('../middleware/branchAuth');
 const { sanitizeInputs } = require('../middleware/inputValidation');
 const { multerFileFilter } = require('../middleware/fileValidation');
+const { getAllBranchClasses, resolveActualClassTable } = require('../utils/classResolver');
 
 const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
@@ -20,11 +21,13 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
 });
 
+const getDB = (req) => req.branchPool || pool;
+
 // Apply input sanitization to all routes
 router.use(sanitizeInputs);
 
 // All faults routes require authentication
-router.use(authenticateWithBranch);
+router.use(authenticateWithBranchAllowExpired);
 
 const uploadDir = path.join(__dirname, 'Uploads');
 const storage = multer.diskStorage({
@@ -73,25 +76,8 @@ initializeFaultsSchema();
 // Get all classes
 router.get('/classes', async (req, res) => {
   try {
-    const db = (typeof getPool === 'function' ? getPool(req) : null) || req.branchPool || pool;
-    let result = await db.query(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'classes_schema'
-      AND table_name NOT LIKE 'pg_%'
-      ORDER BY table_name
-    `);
-    if (result.rows.length === 0) {
-      result = await db.query(`
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-        AND table_name NOT IN ('users', 'school_student_count')
-        ORDER BY table_name
-      `);
-    }
-    const classes = result.rows.map(row => row.table_name);
-    console.log('Fetched classes:', classes);
+    const db = getDB(req);
+    const classes = await getAllBranchClasses(db);
     res.json(classes);
   } catch (error) {
     console.error('Error fetching classes:', error);
@@ -105,17 +91,20 @@ router.get('/students/:className', async (req, res) => {
   if (!/^[a-zA-Z0-9_]+$/.test(className)) {
     return res.status(400).json({ error: 'Invalid class name' });
   }
+  const db = getDB(req);
   try {
+    const actualClassName = (await resolveActualClassTable(db, className)) || className;
+
     // Check if is_active column exists
-    const colCheck = await pool.query(`
+    const colCheck = await db.query(`
       SELECT column_name FROM information_schema.columns
       WHERE table_schema = 'classes_schema' AND table_name = $1 AND column_name = 'is_active'
-    `, [className]);
+    `, [actualClassName]);
     const hasIsActive = colCheck.rows.length > 0;
 
-    const result = await pool.query(`
-      SELECT school_id, class_id, student_name
-      FROM classes_schema."${className}"
+    const result = await db.query(`
+      SELECT school_id, class_id, school_id AS student_id, school_id AS id, student_name, age, gender, image_student
+      FROM classes_schema."${actualClassName}"
       ${hasIsActive ? "WHERE is_active = TRUE OR is_active IS NULL" : ""}
       ORDER BY LOWER(student_name) ASC
     `);
@@ -133,26 +122,28 @@ router.get('/faults/:className', async (req, res) => {
     console.error('Validation failed: Invalid className', { className });
     return res.status(400).json({ error: 'Invalid class name' });
   }
+  const db = getDB(req);
   try {
-    console.log(`Fetching faults for class: ${className}`);
-    const tableExists = await pool.query(`
+    const actualClassName = (await resolveActualClassTable(db, className)) || className;
+    console.log(`Fetching faults for class: ${actualClassName}`);
+    const tableExists = await db.query(`
       SELECT 1
       FROM information_schema.tables
       WHERE table_schema = 'class_students_fault'
-      AND table_name = $1
-    `, [className]);
+      AND LOWER(table_name) = LOWER($1)
+    `, [actualClassName]);
     
     if (tableExists.rows.length === 0) {
-      console.log(`No faults table exists for ${className}`);
+      console.log(`No faults table exists for ${actualClassName}`);
       return res.json([]);
     }
 
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT id, school_id, class_id, student_name, date, type, level, description, reported_by, action_taken, attachment
-      FROM class_students_fault."${className}"
+      FROM class_students_fault."${actualClassName}"
       ORDER BY date DESC
     `);
-    console.log(`Fetched ${result.rows.length} faults for ${className}`);
+    console.log(`Fetched ${result.rows.length} faults for ${actualClassName}`);
     res.json(result.rows);
   } catch (error) {
     console.error(`Error fetching faults for ${className}:`, error);
@@ -175,45 +166,66 @@ router.post('/add-fault', upload, async (req, res) => {
     return res.status(400).json({ error: 'Invalid class name' });
   }
 
-  const client = await pool.connect();
+  const db = getDB(req);
+  const actualClassName = (await resolveActualClassTable(db, className)) || className;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
-    console.log(`Adding fault for ${student_name} in class ${className}`);
+    console.log(`Adding fault for ${student_name} in class ${actualClassName}`);
 
     // Verify class exists - check both public and classes_schema
     const classExists = await client.query(`
       SELECT 1 FROM information_schema.tables
-      WHERE (table_schema = 'public' OR table_schema = 'classes_schema') AND table_name = $1
+      WHERE (table_schema = 'public' OR table_schema = 'classes_schema') AND LOWER(table_name) = LOWER($1)
       LIMIT 1
-    `, [className]);
+    `, [actualClassName]);
     if (classExists.rows.length === 0) {
-      console.error(`Class does not exist: ${className}`);
-      throw new Error(`Class ${className} does not exist`);
+      console.error(`Class does not exist: ${actualClassName}`);
+      throw new Error(`Class ${actualClassName} does not exist`);
     }
 
     // Determine which schema the class is in
     const schemaResult = await client.query(`
-      SELECT table_schema FROM information_schema.tables
-      WHERE (table_schema = 'public' OR table_schema = 'classes_schema') AND table_name = $1
+      SELECT table_schema, table_name FROM information_schema.tables
+      WHERE (table_schema = 'public' OR table_schema = 'classes_schema') AND LOWER(table_name) = LOWER($1)
       LIMIT 1
-    `, [className]);
+    `, [actualClassName]);
     const classSchema = schemaResult.rows[0].table_schema;
+    const resolvedTable = schemaResult.rows[0].table_name;
 
     // Get student details
-    const studentResult = await client.query(`
-      SELECT school_id, class_id
-      FROM ${classSchema}."${className}"
-      WHERE student_name = $1
+    let studentResult = await client.query(`
+      SELECT *
+      FROM ${classSchema}."${resolvedTable}"
+      WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))
+      LIMIT 1
     `, [student_name]);
     if (studentResult.rows.length === 0) {
-      console.error(`Student not found: ${student_name} in class ${className}`);
-      throw new Error(`Student ${student_name} not found in class ${className}`);
+      try {
+        const allClassTables = (await client.query(
+          "SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema'"
+        )).rows;
+        for (const act of allClassTables) {
+          studentResult = await client.query(
+            `SELECT * FROM classes_schema."${act.table_name}" WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1)) LIMIT 1`,
+            [student_name]
+          );
+          if (studentResult.rows.length > 0) break;
+        }
+      } catch (_) {}
     }
-    const { school_id, class_id } = studentResult.rows[0];
+    if (studentResult.rows.length === 0) {
+      console.error(`Student not found: ${student_name} in class ${actualClassName}`);
+      throw new Error(`Student ${student_name} not found in class ${actualClassName}`);
+    }
+    const { school_id, class_id, guardian_username } = studentResult.rows[0];
+
+    // Create faults schema if not exists
+    await client.query(`CREATE SCHEMA IF NOT EXISTS class_students_fault`);
 
     // Create faults table if it doesn't exist
     await client.query(`
-      CREATE TABLE IF NOT EXISTS class_students_fault."${className}" (
+      CREATE TABLE IF NOT EXISTS class_students_fault."${actualClassName}" (
         id SERIAL PRIMARY KEY,
         school_id VARCHAR(50) NOT NULL,
         class_id VARCHAR(50) NOT NULL,
@@ -227,11 +239,11 @@ router.post('/add-fault', upload, async (req, res) => {
         attachment VARCHAR(255)
       )
     `);
-    console.log(`Faults table for ${className} created or already exists`);
+    console.log(`Faults table for ${actualClassName} created or already exists`);
 
     // Insert fault
     const result = await client.query(`
-      INSERT INTO class_students_fault."${className}" (
+      INSERT INTO class_students_fault."${actualClassName}" (
         school_id, class_id, student_name, date, type, level, description, reported_by, action_taken, attachment
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -240,6 +252,28 @@ router.post('/add-fault', upload, async (req, res) => {
 
     await client.query('COMMIT');
     console.log(`Fault added for ${student_name} in class ${className}, ID: ${result.rows[0].id}`);
+
+    // Asynchronously send push notification to guardian
+    if (guardian_username) {
+      try {
+        const { notifyGuardianPush } = require('../services/guardianPush');
+        notifyGuardianPush(
+          guardian_username,
+          'Discipline Notice',
+          `${student_name} received a discipline record (${fault_type} - ${fault_level}): ${description}`,
+          {
+            type: 'discipline',
+            studentName: student_name,
+            faultType: fault_type,
+            faultLevel: fault_level,
+            className: className,
+            date: String(date)
+          }
+        ).catch(err => console.warn('Discipline push error:', err.message));
+      } catch (pushErr) {
+        console.warn('Discipline push trigger error:', pushErr.message);
+      }
+    }
     res.status(201).json({ message: 'Fault added successfully', faultId: result.rows[0].id });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -266,25 +300,27 @@ router.put('/edit-fault/:className/:faultId', upload, async (req, res) => {
     return res.status(400).json({ error: 'All fields except attachment and action_taken are required' });
   }
 
-  const client = await pool.connect();
+  const db = getDB(req);
+  const actualClassName = (await resolveActualClassTable(db, className)) || className;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
-    console.log(`Editing fault ID ${faultId} in class ${className}`);
+    console.log(`Editing fault ID ${faultId} in class ${actualClassName}`);
 
     // Verify fault exists
     const faultExists = await client.query(`
-      SELECT 1 FROM class_students_fault."${className}"
+      SELECT 1 FROM class_students_fault."${actualClassName}"
       WHERE id = $1
     `, [faultId]);
     if (faultExists.rows.length === 0) {
-      console.error(`Fault not found: ID ${faultId} in class ${className}`);
-      throw new Error(`Fault ID ${faultId} not found in class ${className}`);
+      console.error(`Fault not found: ID ${faultId} in class ${actualClassName}`);
+      throw new Error(`Fault ID ${faultId} not found in class ${actualClassName}`);
     }
 
     // Get old attachment to delete if new one is uploaded
     if (attachment) {
       const oldAttachment = await client.query(`
-        SELECT attachment FROM class_students_fault."${className}"
+        SELECT attachment FROM class_students_fault."${actualClassName}"
         WHERE id = $1
       `, [faultId]);
       if (oldAttachment.rows[0].attachment) {
@@ -299,18 +335,18 @@ router.put('/edit-fault/:className/:faultId', upload, async (req, res) => {
 
     // Update fault
     const result = await client.query(`
-      UPDATE class_students_fault."${className}"
+      UPDATE class_students_fault."${actualClassName}"
       SET date = $1, type = $2, level = $3, description = $4, reported_by = $5, action_taken = $6, attachment = COALESCE($7, attachment)
       WHERE id = $8
       RETURNING id
     `, [date, fault_type, fault_level, description, reported_by, action_taken || null, attachment, faultId]);
 
     await client.query('COMMIT');
-    console.log(`Fault ID ${faultId} updated in class ${className}`);
+    console.log(`Fault ID ${faultId} updated in class ${actualClassName}`);
     res.status(200).json({ message: 'Fault updated successfully', faultId: result.rows[0].id });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error(`Error updating fault ID ${faultId} in class ${className}:`, error);
+    console.error(`Error updating fault ID ${faultId} in class ${actualClassName}:`, error);
     res.status(500).json({ error: 'Failed to update fault', details: error.message });
   } finally {
     client.release();
@@ -326,19 +362,21 @@ router.delete('/delete-fault/:className/:faultId', async (req, res) => {
     return res.status(400).json({ error: 'Invalid class name' });
   }
 
-  const client = await pool.connect();
+  const db = getDB(req);
+  const actualClassName = (await resolveActualClassTable(db, className)) || className;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
-    console.log(`Deleting fault ID ${faultId} in class ${className}`);
+    console.log(`Deleting fault ID ${faultId} in class ${actualClassName}`);
 
     // Get attachment to delete
     const fault = await client.query(`
-      SELECT attachment FROM class_students_fault."${className}"
+      SELECT attachment FROM class_students_fault."${actualClassName}"
       WHERE id = $1
     `, [faultId]);
     if (fault.rows.length === 0) {
-      console.error(`Fault not found: ID ${faultId} in class ${className}`);
-      throw new Error(`Fault ID ${faultId} not found in class ${className}`);
+      console.error(`Fault not found: ID ${faultId} in class ${actualClassName}`);
+      throw new Error(`Fault ID ${faultId} not found in class ${actualClassName}`);
     }
 
     if (fault.rows[0].attachment) {
@@ -352,16 +390,16 @@ router.delete('/delete-fault/:className/:faultId', async (req, res) => {
 
     // Delete fault
     await client.query(`
-      DELETE FROM class_students_fault."${className}"
+      DELETE FROM class_students_fault."${actualClassName}"
       WHERE id = $1
     `, [faultId]);
 
     await client.query('COMMIT');
-    console.log(`Fault ID ${faultId} deleted from class ${className}`);
+    console.log(`Fault ID ${faultId} deleted from class ${actualClassName}`);
     res.status(200).json({ message: 'Fault deleted successfully' });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error(`Error deleting fault ID ${faultId} in class ${className}:`, error);
+    console.error(`Error deleting fault ID ${faultId} in class ${actualClassName}:`, error);
     res.status(500).json({ error: 'Failed to delete fault', details: error.message });
   } finally {
     client.release();
@@ -372,7 +410,8 @@ router.delete('/delete-fault/:className/:faultId', async (req, res) => {
 router.get('/reports', async (req, res) => {
   try {
     console.log('Fetching reports data');
-    const client = await pool.connect();
+    const db = getDB(req);
+    const client = await db.connect();
     try {
       // Get all fault tables
       const tablesResult = await client.query(`

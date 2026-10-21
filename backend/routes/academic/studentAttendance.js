@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
 const { getEthiopianDayOfWeek, getCurrentEthiopianDate } = require('../../utils/ethiopianCalendar');
+const { syncWeeklyGrid } = require('../../services/weeklyAttendanceSync');
 const { getEndpointPath, API_ENDPOINTS } = require('../../config/api.config');
 
 let branchAuth = null;
@@ -27,6 +28,14 @@ const getDb = (req) => req.branchPool || pool;
 // Helper function to calculate week number from day
 const getWeekNumber = (day) => {
   return Math.ceil(day / 7);
+};
+
+// Attendance status -> short code used by the weekly attendance grid
+const statusToShortCode = {
+  PRESENT: 'P',
+  ABSENT: 'A',
+  LATE: 'L',
+  LEAVE: 'E',
 };
 
 // Get all students from all class tables
@@ -305,6 +314,11 @@ router.post('/check-in', async (req, res) => {
       ethYear, ethMonth, ethDay,
       dayOfWeek, weekNumber, checkInTime, calculatedStatus, notes, shiftNumber
     ]);
+
+    // Mirror the check-in into the class teacher's weekly grid (staff app).
+    await syncWeeklyGrid(getDb(req), {
+      className, studentId, ethYear, ethMonth, ethDay, status: calculatedStatus,
+    });
 
     res.json({
       success: true,
@@ -893,6 +907,12 @@ router.put('/update', async (req, res) => {
         dayOfWeek, weekNumber, checkInTime, calculatedStatus, notes, shiftNumber
       ]);
     }
+
+    // Mirror the mark into the class teacher's weekly grid so the staff app
+    // shows the same attendance as this page.
+    await syncWeeklyGrid(getDb(req), {
+      className, studentId, ethYear, ethMonth, ethDay, status: calculatedStatus,
+    });
 
     res.json({
       success: true,
