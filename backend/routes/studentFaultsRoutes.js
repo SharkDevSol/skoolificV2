@@ -202,10 +202,13 @@ router.post('/add-fault', upload, async (req, res) => {
   const { className, student_name, fault_type, fault_level, date, description, reported_by } = req.body;
   const attachment = req.file ? req.file.filename : null;
 
-  if (!className || !student_name || !fault_type || !fault_level || !date || !description || !reported_by) {
+  if (!className || !student_name || !fault_level || !date || !description || !reported_by) {
     console.error('Validation failed: Missing required fields', { className, student_name, fault_type, fault_level, date, description, reported_by });
-    return res.status(400).json({ error: 'All fields except attachment are required' });
+    return res.status(400).json({ error: 'All fields except attachment and fault type are required' });
   }
+
+  // The fault type is optional - keep a placeholder when nothing was picked.
+  const faultType = (fault_type && String(fault_type).trim()) || 'Not specified';
 
   if (!/^[a-zA-Z0-9_]+$/.test(className)) {
     console.error('Validation failed: Invalid className', { className });
@@ -295,7 +298,7 @@ router.post('/add-fault', upload, async (req, res) => {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id
-    `, [school_id, class_id, student_name, date, fault_type, fault_level, description, reported_by, null, attachment]);
+    `, [school_id, class_id, student_name, date, faultType, fault_level, description, reported_by, null, attachment]);
 
     await client.query('COMMIT');
     console.log(`Fault added for ${student_name} in class ${className}, ID: ${result.rows[0].id}`);
@@ -307,11 +310,11 @@ router.post('/add-fault', upload, async (req, res) => {
         notifyGuardianPush(
           guardian_username,
           'Discipline Notice',
-          `${student_name} received a discipline record (${fault_type} - ${fault_level}): ${description}`,
+          `${student_name} received a discipline record (${faultType} - ${fault_level}): ${description}`,
           {
             type: 'discipline',
             studentName: student_name,
-            faultType: fault_type,
+            faultType: faultType,
             faultLevel: fault_level,
             className: className,
             date: String(date)
@@ -342,10 +345,13 @@ router.put('/edit-fault/:className/:faultId', upload, async (req, res) => {
     return res.status(400).json({ error: 'Invalid class name' });
   }
 
-  if (!fault_type || !fault_level || !date || !description || !reported_by) {
+  if (!fault_level || !date || !description || !reported_by) {
     console.error('Validation failed: Missing required fields', { fault_type, fault_level, date, description, reported_by });
-    return res.status(400).json({ error: 'All fields except attachment and action_taken are required' });
+    return res.status(400).json({ error: 'All fields except attachment, action_taken and fault type are required' });
   }
+
+  // The fault type is optional - keep a placeholder when nothing was picked.
+  const faultType = (fault_type && String(fault_type).trim()) || 'Not specified';
 
   const db = getDB(req);
   const actualClassName = (await resolveActualClassTable(db, className)) || className;
@@ -398,7 +404,7 @@ router.put('/edit-fault/:className/:faultId', upload, async (req, res) => {
       SET date = $1, type = $2, level = $3, description = $4, reported_by = $5, action_taken = $6, attachment = COALESCE($7, attachment)
       WHERE id = $8
       RETURNING id
-    `, [date, fault_type, fault_level, description, reported_by, action_taken || null, attachment, faultId]);
+    `, [date, faultType, fault_level, description, reported_by, action_taken || null, attachment, faultId]);
 
     await client.query('COMMIT');
     console.log(`Fault ID ${faultId} updated in class ${actualClassName}`);

@@ -5,6 +5,7 @@ const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 
 const dbManager = require('../services/DatabaseConnectionManager');
 const jwt = require('jsonwebtoken');
+const { convertToEthiopian } = require('../utils/ethiopianCalendar');
 
 // Helper to get branch-specific database pool
 const getDbPool = async (req) => {
@@ -711,6 +712,62 @@ router.post('/create-weekly-attendance', async (req, res) => {
   }
 });
 
+// Status map: admin full words <-> teacher short codes
+const ACADEMIC_TO_SHORT_STATUS = {
+  PRESENT: 'P',
+  ABSENT: 'A',
+  LATE: 'L',
+  LEAVE: 'E',
+};
+
+// Sync weekly attendance data from academic_student_attendance for students with empty attendance data
+async function syncWeeklyAttendanceFromAcademic(db, schemaName, tableName, className, weekStart) {
+  try {
+    const dayColumns = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const weekStartDate = new Date(weekStart + 'T00:00:00');
+    if (isNaN(weekStartDate.getTime())) return;
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      const dayName = dayColumns[dayIndex];
+      const gregorianDate = new Date(weekStartDate);
+      gregorianDate.setDate(gregorianDate.getDate() + dayIndex);
+
+      const ethiopianDate = convertToEthiopian(gregorianDate);
+
+      const attResult = await db.query(
+        `SELECT student_id, status FROM public.academic_student_attendance
+         WHERE LOWER(class_name) = LOWER($1)
+           AND ethiopian_year = $2 AND ethiopian_month = $3 AND ethiopian_day = $4`,
+        [className, ethiopianDate.year, ethiopianDate.month, ethiopianDate.day]
+      );
+
+      if (attResult.rows.length === 0) continue;
+
+      const entries = [];
+      for (const row of attResult.rows) {
+        const sid = String(row.student_id ?? '').trim();
+        const code = ACADEMIC_TO_SHORT_STATUS[String(row.status ?? '').toUpperCase().trim()];
+        if (sid && code) entries.push([sid, code]);
+      }
+      if (entries.length === 0) continue;
+
+      const valuesSql = entries.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::varchar(1))`).join(', ');
+      const params = entries.flatMap(([sid, code]) => [sid, code]);
+
+      await db.query(
+        `UPDATE "${schemaName}"."${tableName}" w
+         SET "${dayName}" = v.code, updated_at = CURRENT_TIMESTAMP
+         FROM (VALUES ${valuesSql}) AS v(sid, code)
+         WHERE TRIM(w.school_id::text) = v.sid
+           AND (w."${dayName}" IS NULL OR w."${dayName}" = '')`,
+        params
+      );
+    }
+  } catch (err) {
+    console.warn(`[ClassTeacher] syncWeeklyAttendanceFromAcademic warning for ${className}/${weekStart}:`, err.message);
+  }
+}
+
 // Get weekly attendance data
 router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
   const { className, weekStart } = req.params;
@@ -724,87 +781,176 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
 
     const schemaName = `class_${className}_weekly_attendance`;
     const tableName = `week_${weekStart.replace(/-/g, '_')}`;
-    
-    // Check if table exists
+
+    // 1. Load CURRENT active class roster from classes_schema (source of truth
+    // for who is in the class, their live student_name, and their current class_id).
+    let roster = [];
+    let hasRosterTable = false;
+    try {
+      const tblCheck = await db.query(
+        `SELECT table_name FROM information_schema.tables
+         WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)
+         LIMIT 1`,
+        [className]
+      );
+      if (tblCheck.rows.length > 0) {
+        hasRosterTable = true;
+        const actualClassTable = tblCheck.rows[0].table_name;
+        const hasIsActive = (await db.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'classes_schema' AND table_name = $1 AND column_name = 'is_active'`,
+          [actualClassTable]
+        )).rows.length > 0;
+
+        const rosterRes = await db.query(`
+          SELECT DISTINCT ON (TRIM(cs.school_id::text))
+                 TRIM(cs.school_id::text) AS school_id,
+                 COALESCE(TRIM(cs.class_id::text), TRIM(cs.school_id::text)) AS class_id,
+                 TRIM(cs.student_name) AS student_name
+          FROM classes_schema."${actualClassTable}" cs
+          WHERE cs.school_id IS NOT NULL AND cs.student_name IS NOT NULL AND TRIM(cs.student_name) <> ''
+            ${hasIsActive ? 'AND (cs.is_active = TRUE OR cs.is_active IS NULL)' : ''}
+          ORDER BY TRIM(cs.school_id::text), cs.id DESC
+        `);
+        roster = rosterRes.rows || [];
+      }
+    } catch (rosterErr) {
+      console.warn(`[ClassTeacher] Roster unavailable for ${className}:`, rosterErr.message);
+    }
+
+    // 2. Ensure weekly attendance table exists
     const tableExists = await db.query(`
       SELECT 1 FROM information_schema.tables
       WHERE table_schema = $1 AND table_name = $2
     `, [schemaName, tableName]);
 
     if (tableExists.rows.length === 0) {
-      return res.json({ exists: false, data: [] });
+      if (!hasRosterTable || roster.length === 0) {
+        return res.json({ exists: false, data: [] });
+      }
+      await db.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS "${schemaName}"."${tableName}" (
+          id SERIAL PRIMARY KEY,
+          school_id VARCHAR(50) NOT NULL,
+          class_id VARCHAR(50) NOT NULL,
+          student_name VARCHAR(100) NOT NULL,
+          monday VARCHAR(1), tuesday VARCHAR(1), wednesday VARCHAR(1),
+          thursday VARCHAR(1), friday VARCHAR(1), saturday VARCHAR(1), sunday VARCHAR(1),
+          created_by VARCHAR(100),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT unique_student_${tableName} UNIQUE (school_id, class_id)
+        )
+      `);
+      for (const s of roster) {
+        try {
+          await db.query(
+            `INSERT INTO "${schemaName}"."${tableName}" (school_id, class_id, student_name, created_by)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (school_id, class_id) DO NOTHING`,
+            [s.school_id, s.class_id, s.student_name, req.user?.username || 'staff']
+          );
+        } catch (_) {}
+      }
+    } else if (hasRosterTable) {
+      // 3. Reconcile the weekly table with the live class roster:
+      //    (a) Remove duplicate school_id rows in the weekly table (keep newest id)
+      //    (b) Remove rows for students deleted or deactivated from classes_schema
+      //    (c) Update student_name and class_id to match classes_schema
+      //    (d) Insert newly added students
+      try {
+        await db.query(`
+          DELETE FROM "${schemaName}"."${tableName}" a
+          USING "${schemaName}"."${tableName}" b
+          WHERE TRIM(a.school_id::text) = TRIM(b.school_id::text)
+            AND a.id < b.id
+        `);
+        if (roster.length > 0) {
+          const activeIds = roster.map(r => r.school_id);
+          await db.query(
+            `DELETE FROM "${schemaName}"."${tableName}"
+             WHERE TRIM(school_id::text) <> ALL($1::text[])`,
+            [activeIds]
+          );
+          for (const s of roster) {
+            const upd = await db.query(
+              `UPDATE "${schemaName}"."${tableName}"
+               SET student_name = $1, class_id = $2
+               WHERE TRIM(school_id::text) = $3
+                 AND (student_name IS DISTINCT FROM $1 OR class_id::text IS DISTINCT FROM $2)`,
+              [s.student_name, s.class_id, s.school_id]
+            );
+            if (upd.rowCount === 0) {
+              const existsRow = await db.query(
+                `SELECT 1 FROM "${schemaName}"."${tableName}" WHERE TRIM(school_id::text) = $1 LIMIT 1`,
+                [s.school_id]
+              );
+              if (existsRow.rows.length === 0) {
+                await db.query(
+                  `INSERT INTO "${schemaName}"."${tableName}" (school_id, class_id, student_name, created_by)
+                   VALUES ($1, $2, $3, $4)
+                   ON CONFLICT (school_id, class_id) DO NOTHING`,
+                  [s.school_id, s.class_id, s.student_name, req.user?.username || 'staff']
+                );
+              }
+            }
+          }
+        }
+      } catch (reconcileErr) {
+        console.warn(`[ClassTeacher] Reconcile warning for ${schemaName}.${tableName}:`, reconcileErr.message);
+      }
     }
 
-    // Saved attendance rows for this week
-    const result = await db.query(`
-      SELECT * FROM "${schemaName}"."${tableName}"
-    `);
+    // 4. Sync any empty day columns from academic_student_attendance
+    await syncWeeklyAttendanceFromAcademic(db, schemaName, tableName, className, weekStart);
+
+    // 5. Fetch the reconciled weekly rows
+    const result = await db.query(`SELECT * FROM "${schemaName}"."${tableName}"`);
     const savedRows = result.rows || [];
 
-    // CURRENT class roster. The weekly table is a snapshot taken when the
-    // week was created, so students added afterwards are missing from it and
-    // renamed students keep their old name. Reading the roster here makes the
-    // response always reflect the class as it is right now.
-    let roster = [];
-    try {
-      const hasIsActive = (await db.query(`
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'classes_schema' AND table_name = $1 AND column_name = 'is_active'
-      `, [className])).rows.length > 0;
-
-      const rosterRes = await db.query(`
-        SELECT cs.school_id::text AS school_id,
-               cs.class_id::text  AS class_id,
-               cs.student_name    AS student_name
-        FROM classes_schema."${className}" cs
-        WHERE cs.school_id IS NOT NULL AND cs.student_name IS NOT NULL
-          ${hasIsActive ? 'AND (cs.is_active = TRUE OR cs.is_active IS NULL)' : ''}
-      `);
-      roster = rosterRes.rows || [];
-    } catch (rosterErr) {
-      // Class table missing/unreadable — keep the saved snapshot as-is.
-      console.warn(`[ClassTeacher] Roster unavailable for ${className}:`, rosterErr.message);
-      roster = [];
-    }
-
-    // Merge: roster (live names) + saved attendance. Students that are on the
-    // roster but have no saved row yet are new — they are returned with empty
-    // days so the app can show (and let the teacher mark) them.
+    // 6. Build response strictly from active roster (never return deleted students
+    //    or duplicate rows, and always use live student_name & class_id).
     const savedById = new Map();
     for (const row of savedRows) {
-      savedById.set(String(row.school_id).trim(), row);
+      const key = String(row.school_id).trim();
+      if (!savedById.has(key)) savedById.set(key, row);
     }
 
     const merged = [];
-    const seenIds = new Set();
-    for (const student of roster) {
-      const key = String(student.school_id).trim();
-      seenIds.add(key);
-      const saved = savedById.get(key);
-      if (saved) {
-        merged.push({ ...saved, student_name: student.student_name });
-      } else {
-        merged.push({
-          id: null,
-          school_id: student.school_id,
-          class_id: student.class_id,
-          student_name: student.student_name,
-          monday: null, tuesday: null, wednesday: null,
-          thursday: null, friday: null, saturday: null, sunday: null,
-          created_by: null, created_at: null, updated_at: null,
-        });
+    if (hasRosterTable) {
+      for (const student of roster) {
+        const key = String(student.school_id).trim();
+        const saved = savedById.get(key);
+        if (saved) {
+          merged.push({
+            ...saved,
+            school_id: student.school_id,
+            class_id: student.class_id,
+            student_name: student.student_name,
+          });
+        } else {
+          merged.push({
+            id: null,
+            school_id: student.school_id,
+            class_id: student.class_id,
+            student_name: student.student_name,
+            monday: null, tuesday: null, wednesday: null,
+            thursday: null, friday: null, saturday: null, sunday: null,
+            created_by: null, created_at: null, updated_at: null,
+          });
+        }
       }
-    }
-    // Saved rows for students who are no longer on the roster (left/deactivated)
-    // keep their history.
-    for (const row of savedRows) {
-      const key = String(row.school_id).trim();
-      if (!seenIds.has(key)) merged.push(row);
+    } else {
+      merged.push(...savedRows);
     }
 
-    merged.sort((a, b) =>
-      String(a.student_name || '').toLowerCase().localeCompare(String(b.student_name || '').toLowerCase())
-    );
+    merged.sort((a, b) => {
+      const ai = parseInt(a.class_id, 10);
+      const bi = parseInt(b.class_id, 10);
+      if (!isNaN(ai) && !isNaN(bi) && ai !== bi) return ai - bi;
+      return String(a.student_name || '').toLowerCase().localeCompare(String(b.student_name || '').toLowerCase());
+    });
 
     res.json({ exists: true, data: merged });
   } catch (error) {
@@ -942,20 +1088,71 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
       await client.query(`ALTER TABLE academic_student_attendance ADD COLUMN IF NOT EXISTS shift_number INTEGER DEFAULT 1`);
     } catch (_) {}
 
+    // Check whether classes_schema."${className}" has an is_active column so
+    // deleted/deactivated students sent from a stale APK cache are never
+    // re-inserted into the weekly table or academic_student_attendance.
+    let hasIsActiveCol = false;
+    try {
+      const colChk = await client.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'classes_schema' AND table_name = $1 AND column_name = 'is_active'`,
+        [className]
+      );
+      hasIsActiveCol = colChk.rows.length > 0;
+    } catch (_) {}
+
     // Update each record in weekly table + sync to academic_student_attendance
     for (const record of records) {
       const { school_id, class_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday } = record;
-      
-      // 1. Update weekly table
+      if (school_id === undefined || school_id === null || String(school_id).trim() === '') continue;
+
+      // 1. Verify student is currently active in classes_schema and get live name + class_id
+      let studentName = '';
+      let liveClassId = String(class_id || school_id);
+      let smachineId = null;
+      let isCurrentActiveStudent = true;
+      try {
+        const studentRes = await client.query(`
+          SELECT student_name, class_id, smachine_id FROM classes_schema."${className}"
+          WHERE TRIM(school_id::text) = TRIM($1::text)
+            ${hasIsActiveCol ? 'AND (is_active = TRUE OR is_active IS NULL)' : ''}
+          LIMIT 1
+        `, [String(school_id)]);
+        if (studentRes.rows.length === 0) {
+          isCurrentActiveStudent = false;
+        } else {
+          studentName = studentRes.rows[0].student_name || '';
+          if (studentRes.rows[0].class_id !== null && studentRes.rows[0].class_id !== undefined) {
+            liveClassId = String(studentRes.rows[0].class_id);
+          }
+          smachineId = studentRes.rows[0].smachine_id || null;
+        }
+      } catch (_) {}
+
+      if (!isCurrentActiveStudent) {
+        // Student was deleted or deactivated — purge any stale row and skip
+        try {
+          await client.query(
+            `DELETE FROM "${schemaName}"."${tableName}" WHERE TRIM(school_id::text) = TRIM($1::text)`,
+            [String(school_id)]
+          );
+        } catch (_) {}
+        continue;
+      }
+
+      // 2. Update weekly table by school_id (also refreshing class_id & student_name)
       const updateRes = await client.query(`
         UPDATE "${schemaName}"."${tableName}"
         SET monday = $1, tuesday = $2, wednesday = $3, thursday = $4, 
-            friday = $5, saturday = $6, sunday = $7, updated_at = CURRENT_TIMESTAMP
-        WHERE school_id::text = $8::text AND ($9::text IS NULL OR class_id::text = $9::text OR class_id IS NULL)
+            friday = $5, saturday = $6, sunday = $7,
+            class_id = $8, student_name = $9,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE TRIM(school_id::text) = TRIM($10::text)
       `, [
         monday || null, tuesday || null, wednesday || null, thursday || null,
         friday || null, saturday || null, sunday || null,
-        school_id, class_id
+        liveClassId, studentName || record.student_name || 'Student',
+        String(school_id)
       ]);
 
       if (updateRes.rowCount === 0) {
@@ -965,7 +1162,8 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
             (school_id, class_id, student_name, monday, tuesday, wednesday, thursday, friday, saturday, sunday, created_by)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (school_id, class_id) DO UPDATE
-            SET monday = EXCLUDED.monday,
+            SET student_name = EXCLUDED.student_name,
+                monday = EXCLUDED.monday,
                 tuesday = EXCLUDED.tuesday,
                 wednesday = EXCLUDED.wednesday,
                 thursday = EXCLUDED.thursday,
@@ -974,28 +1172,15 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
                 sunday = EXCLUDED.sunday,
                 updated_at = CURRENT_TIMESTAMP
           `, [
-            String(school_id),
-            String(class_id || school_id),
-            record.student_name || 'Student',
+            String(school_id).trim(),
+            liveClassId,
+            studentName || record.student_name || 'Student',
             monday || null, tuesday || null, wednesday || null, thursday || null,
             friday || null, saturday || null, sunday || null,
             req.user?.username || 'staff'
           ]);
         } catch (_) {}
       }
-
-      // 2. Get student name for academic table (non-fatal)
-      let studentName = '';
-      let smachineId = null;
-      try {
-        const studentRes = await client.query(`
-          SELECT student_name, smachine_id FROM classes_schema."${className}"
-          WHERE school_id = $1
-          LIMIT 1
-        `, [school_id]);
-        studentName = studentRes.rows[0]?.student_name || '';
-        smachineId = studentRes.rows[0]?.smachine_id || null;
-      } catch (_) {}
 
       // 3. Sync each day to academic_student_attendance (non-fatal per day)
       const dayValues = { monday, tuesday, wednesday, thursday, friday, saturday, sunday };

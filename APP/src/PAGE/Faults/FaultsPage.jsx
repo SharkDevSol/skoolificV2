@@ -4,11 +4,12 @@ import axios from 'axios';
 import styles from './FaultsPage.module.css';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useApp } from '../../context/AppContext';
+import { faultTypeLabel } from '../../utils/faultTypes';
 
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api'));
 
 const FaultsPage = () => {
-  const { t } = useApp();
+  const { t, language } = useApp();
   const [faults, setFaults] = useState([]);
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -385,7 +386,7 @@ const FaultsPage = () => {
             <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
               <option value="all">All Types</option>
               {uniqueTypes.map(type => (
-                <option key={type} value={type}>{t(`faultTypes.${type}`, type)}</option>
+                <option key={type} value={type}>{faultTypeLabel(type, language)}</option>
               ))}
             </select>
           </div>
@@ -465,7 +466,7 @@ const FaultsPage = () => {
 
                         <div className={styles.faultType}>
                           <FiAlertCircle />
-                          <span>{t(`faultTypes.${fault.type || fault.fault_type}`, fault.type || fault.fault_type)}</span>
+                          <span>{faultTypeLabel(fault.type || fault.fault_type, language)}</span>
                           {fault.level && (
                             <span className={`${styles.levelBadge} ${styles[`level${fault.level}`]}`}>
                               {fault.level}
@@ -536,8 +537,8 @@ const FaultsPage = () => {
                   <label style={{ display:'block', fontSize:'0.875rem', fontWeight:600, color:'#374151', marginBottom:'0.4rem' }}>Fault Type (optional)</label>
                   <select value={addForm.fault_type} onChange={e => setAddForm(f => ({ ...f, fault_type: e.target.value }))}
                     style={{ width:'100%', padding:'0.75rem', border:'2px solid #e5e7eb', borderRadius:'10px', fontSize:'0.9375rem' }}>
-                    <option value="">Not specified</option>
-                    {faultTypes.map(ft => <option key={ft} value={ft}>{t(`faultTypes.${ft}`, ft)}</option>)}
+                    <option value="">{faultTypeLabel('', language)}</option>
+                    {faultTypes.map(ft => <option key={ft} value={ft}>{faultTypeLabel(ft, language)}</option>)}
                   </select>
                 </div>
               </div>

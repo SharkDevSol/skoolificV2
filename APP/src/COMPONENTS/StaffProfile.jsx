@@ -5,6 +5,7 @@ import axios from 'axios';
 import TeacherCommunications from '../PAGE/Communication/TeacherCommunications';
 import StudentAttendanceSystem from '../PAGE/Academic/StudentAttendanceSystem';
 import { useApp } from '../context/AppContext';
+import { faultTypeLabel } from '../utils/faultTypes';
 import {
   MobileProfileLayout,
   BottomNavigation,
@@ -90,7 +91,7 @@ const StaffProfile = () => {
   const [activeTab, setActiveTab] = useState('posts');
   const navigate = useNavigate();
   const toast = useToast();
-  const { t } = useApp();
+  const { t, language } = useApp();
 
   // Ethiopian calendar state
   const [ethiopianToday, setEthiopianToday] = useState(null);
@@ -3224,7 +3225,7 @@ const StaffProfile = () => {
                 >
                   {faultTypes.map((type) => (
                     <option key={type} value={type}>
-                      {type}
+                      {faultTypeLabel(type, language)}
                     </option>
                   ))}
                 </select>
@@ -3335,7 +3336,7 @@ const StaffProfile = () => {
                               </div>
                               <div className={styles.faultType}>
                                 <FiAlertCircle />
-                                <span>{fault.type || fault.fault_type}</span>
+                                <span>{faultTypeLabel(fault.type || fault.fault_type, language)}</span>
                                 {fault.level && (
                                   <span className={`${styles.faultLevel} ${styles[`level${fault.level}`]}`}>
                                     {fault.level}

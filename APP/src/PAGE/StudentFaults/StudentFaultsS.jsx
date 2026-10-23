@@ -27,6 +27,8 @@ import {
 } from '@ant-design/icons';
 import { Bar } from '@ant-design/charts';
 import axios from 'axios';
+import { faultTypeLabel } from '../../utils/faultTypes';
+import { useApp } from '../../context/AppContext';
 import dayjs from 'dayjs';
 import styles from './StudentFaultsS.module.css';
 
@@ -37,6 +39,7 @@ const { TabPane } = Tabs;
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://v2.skoolific.com/api';
 
 const StudentFaultsS = () => {
+  const { language } = useApp();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -536,7 +539,7 @@ const StudentFaultsS = () => {
                     >
                       {faultTypes.map(type => (
                         <Option key={type} value={type}>
-                          {type}
+                          {faultTypeLabel(type, language)}
                         </Option>
                       ))}
                     </Select>
@@ -638,7 +641,7 @@ const StudentFaultsS = () => {
               >
                 {faultTypes.map(type => (
                   <Option key={type} value={type}>
-                    {type}
+                    {faultTypeLabel(type, language)}
                   </Option>
                 ))}
               </Select>
@@ -757,7 +760,7 @@ const StudentFaultsS = () => {
             <div className={styles.detailRow}>
               <span className={styles.detailLabel}>Fault Type:</span>
               <span className={styles.largeText}>
-                <Badge status="processing" text={selectedFault.type} className={styles.largeBadge} />
+                <Badge status="processing" text={faultTypeLabel(selectedFault.type, language)} className={styles.largeBadge} />
               </span>
             </div>
             <div className={styles.detailRow}>
@@ -843,7 +846,7 @@ const StudentFaultsS = () => {
             >
               {faultTypes.map(type => (
                 <Option key={type} value={type}>
-                  {type}
+                  {faultTypeLabel(type, language)}
                 </Option>
               ))}
             </Select>
@@ -930,7 +933,7 @@ const StudentFaultsS = () => {
             >
               {faultTypes.map(type => (
                 <Option key={type} value={type}>
-                  {type}
+                  {faultTypeLabel(type, language)}
                 </Option>
               ))}
             </Select>

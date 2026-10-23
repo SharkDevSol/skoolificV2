@@ -948,7 +948,7 @@
     "allBranches": "Dameewwan Hunda"
   },
   "faultTypes": {
-    "Late Arrival": "Ammassee dhaqabda",
+    "Late Arrival": "Ammassee dhufu",
     "Absence Without Notice": "Beeksa malee hafu",
     "Truancy": "Kutaa mana barnootaa",
     "Leaving Class Without Permission": "Eeyyamsee malee kutaa ba'u",
@@ -985,10 +985,10 @@
     "Fighting": "Loluu",
     "Physical Aggression": "Weerara qaamaa",
     "Pushing/Shoving": "Dhiibuu",
-    "Hiting": "Rukutuu",
+    "Hitting": "Rukutuu",
     "Kicking": "Kikii",
     "Horseplay": "Taphantiin balaaleffataa",
-    "Profinity": "Haasaa fokkataa",
+    "Profanity": "Haasaa fokkataa",
     "Inappropriate Language": "Afaan fokkataa",
     "Vulgar Gestures": "Ibsa qaamaa fokkataa",
     "Name Calling": "Maqaa fokkataa",
@@ -1032,6 +1032,7 @@
     "Public Display of Affection": "Muuqaal jaalalaa",
     "Inappropriate Behavior": "Amala fokkataa",
     "Violation of School Rules": "Qajeelfama mana diddee",
-    "Other": "Kan biraa"
+    "Other": "Kan biraa",
+    "Not specified": "Waa hin ibsamne"
   }
 }

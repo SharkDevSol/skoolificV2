@@ -686,7 +686,7 @@ const handleGetMarkList = async (req, res) => {
 
     // Get current active students from class table
     const activeStudentsResult = await client.query(
-      `SELECT student_name, age, gender FROM classes_schema."${actualClassName}" 
+      `SELECT school_id, class_id, student_name, age, gender FROM classes_schema."${actualClassName}" 
        ${whereClause}`
     );
     const activeStudents = activeStudentsResult.rows;
@@ -699,6 +699,18 @@ const handleGetMarkList = async (req, res) => {
     if (!tableExistsCheck.rows[0].exists) {
       return res.status(404).json({ error: 'Mark list not found. Please create the mark form first.' });
     }
+
+    // Deduplicate any duplicate student_name rows in the mark table (keep row with highest total / lowest id)
+    try {
+      await client.query(`
+        DELETE FROM ${schemaName}.${tableName} a
+        USING ${schemaName}.${tableName} b
+        WHERE LOWER(TRIM(a.student_name)) = LOWER(TRIM(b.student_name))
+          AND a.id <> b.id
+          AND (COALESCE(a.total, 0) < COALESCE(b.total, 0)
+            OR (COALESCE(a.total, 0) = COALESCE(b.total, 0) AND a.id > b.id))
+      `);
+    } catch (_) {}
 
     const markListResult = await client.query(
       `SELECT * FROM ${schemaName}.${tableName}`
@@ -715,12 +727,15 @@ const handleGetMarkList = async (req, res) => {
       if (!markByName.has(k)) markByName.set(k, row);
     }
     const activeByName = new Map();
+    const uniqueActiveStudents = [];
     for (const s of activeStudents) {
       const k = norm(s.student_name);
-      if (!activeByName.has(k)) activeByName.set(k, s);
+      if (!k || activeByName.has(k)) continue;
+      activeByName.set(k, s);
+      uniqueActiveStudents.push(s);
     }
 
-    const studentsToAdd = activeStudents.filter(
+    const studentsToAdd = uniqueActiveStudents.filter(
       student => !markByName.has(norm(student.student_name))
     );
     const orphanRows = markRows.filter(
@@ -805,32 +820,51 @@ const handleGetMarkList = async (req, res) => {
 
     const formConfig = configResult.rows[0] || null;
 
-    // Make sure EVERY current student is in the response, even if the row
-    // could not be written to the table (the app must still show them).
-    const responseRows = [...result.rows];
-    const responseNames = new Set(responseRows.map(r => norm(r.student_name)));
-    let syntheticId = -1;
-    for (const student of activeStudents) {
-      const k = norm(student.student_name);
-      if (responseNames.has(k)) continue;
-      const row = {
-        id: syntheticId--,
-        student_name: student.student_name,
-        age: student.age,
-        gender: student.gender,
-        total: 0,
-        pass_status: 'Fail',
-      };
-      for (const comp of (formConfig?.mark_components || [])) {
-        const key = String(comp.name || '').toLowerCase().replace(/[\s\-\.]+/g, '_');
-        if (key) row[key] = 0;
-      }
-      responseRows.push(row);
-      responseNames.add(k);
+    // Build response strictly from uniqueActiveStudents so deleted students or
+    // duplicate rows never appear, and attach class_id + school_id from the
+    // live class roster.
+    const latestMarkByName = new Map();
+    for (const r of result.rows) {
+      const k = norm(r.student_name);
+      if (!latestMarkByName.has(k)) latestMarkByName.set(k, r);
     }
-    responseRows.sort((a, b) =>
-      String(a.student_name || '').toLowerCase().localeCompare(String(b.student_name || '').toLowerCase())
-    );
+
+    const responseRows = [];
+    let syntheticId = -1;
+    for (const student of uniqueActiveStudents) {
+      const k = norm(student.student_name);
+      const existingRow = latestMarkByName.get(k);
+      if (existingRow) {
+        responseRows.push({
+          ...existingRow,
+          student_name: student.student_name,
+          class_id: student.class_id,
+          school_id: student.school_id,
+        });
+      } else {
+        const row = {
+          id: syntheticId--,
+          student_name: student.student_name,
+          class_id: student.class_id,
+          school_id: student.school_id,
+          age: student.age,
+          gender: student.gender,
+          total: 0,
+          pass_status: 'Fail',
+        };
+        for (const comp of (formConfig?.mark_components || [])) {
+          const key = String(comp.name || '').toLowerCase().replace(/[\s\-\.]+/g, '_');
+          if (key) row[key] = 0;
+        }
+        responseRows.push(row);
+      }
+    }
+    responseRows.sort((a, b) => {
+      const ai = parseInt(a.class_id, 10);
+      const bi = parseInt(b.class_id, 10);
+      if (!isNaN(ai) && !isNaN(bi) && ai !== bi) return ai - bi;
+      return String(a.student_name || '').toLowerCase().localeCompare(String(b.student_name || '').toLowerCase());
+    });
 
     res.json({
       // Staff app requires formId + components at top level — without them

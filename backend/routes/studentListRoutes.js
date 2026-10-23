@@ -416,11 +416,59 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
       // Sync global_machine_ids
       try {
         await pool.query(
-          `UPDATE school_schema_points.global_machine_ids SET student_name = $1 WHERE school_id::text = $2::text AND class_id::text = $3::text AND student_name = $4`,
-          [newName, String(schoolId), String(classId), oldStudentName]
+          `UPDATE school_schema_points.global_machine_ids SET student_name = $1 WHERE TRIM(school_id::text) = TRIM($2::text)`,
+          [newName, String(schoolId)]
         );
       } catch (e) { console.log('Note: global_machine_ids sync failed:', e.message); }
-      // Sync all mark list tables in mark_data_schema (these tables only have student_name, no school_id/class_id)
+      // Sync public.academic_student_attendance
+      try {
+        await pool.query(
+          `UPDATE public.academic_student_attendance
+           SET student_name = $1
+           WHERE TRIM(student_id::text) = TRIM($2::text)
+              OR (LOWER(class_name) = LOWER($3) AND LOWER(TRIM(student_name)) = LOWER(TRIM($4)))`,
+          [newName, String(schoolId), actualTableName, oldStudentName]
+        );
+      } catch (_) {}
+      // Sync weekly attendance tables in class_<class>_weekly_attendance
+      try {
+        const weeklySchema = `class_${actualTableName}_weekly_attendance`;
+        const wkTables = await pool.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_schema = $1`,
+          [weeklySchema]
+        );
+        for (const t of wkTables.rows) {
+          try {
+            await pool.query(
+              `UPDATE "${weeklySchema}"."${t.table_name}"
+               SET student_name = $1
+               WHERE TRIM(school_id::text) = TRIM($2::text)
+                  OR LOWER(TRIM(student_name)) = LOWER(TRIM($3))`,
+              [newName, String(schoolId), oldStudentName]
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
+      // Sync all subject_<subject>_schema mark list tables for this class
+      try {
+        const subjTables = await pool.query(
+          `SELECT table_schema, table_name FROM information_schema.tables
+           WHERE table_schema LIKE 'subject\\_%\\_schema' ESCAPE '\\'
+             AND LOWER(table_name) LIKE LOWER($1)`,
+          [`${actualTableName}_term_%`]
+        );
+        for (const t of subjTables.rows) {
+          try {
+            await pool.query(
+              `UPDATE "${t.table_schema}"."${t.table_name}"
+               SET student_name = $1
+               WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($2))`,
+              [newName, oldStudentName]
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
+      // Sync all mark list tables in mark_data_schema (legacy schema fallback)
       try {
         const mlTables = await pool.query(
           `SELECT table_name FROM information_schema.tables WHERE table_schema = 'mark_data_schema'`
@@ -428,7 +476,7 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
         for (const t of mlTables.rows) {
           try {
             await pool.query(
-              `UPDATE mark_data_schema."${t.table_name}" SET student_name = $1 WHERE student_name = $2`,
+              `UPDATE mark_data_schema."${t.table_name}" SET student_name = $1 WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($2))`,
               [newName, oldStudentName]
             );
           } catch (_) {}
@@ -442,8 +490,11 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
         for (const t of faultTables.rows) {
           try {
             await pool.query(
-              `UPDATE class_students_fault."${t.table_name}" SET student_name = $1 WHERE school_id::text = $2::text AND class_id::text = $3::text AND student_name = $4`,
-              [newName, String(schoolId), String(classId), oldStudentName]
+              `UPDATE class_students_fault."${t.table_name}"
+               SET student_name = $1
+               WHERE TRIM(school_id::text) = TRIM($2::text)
+                  OR LOWER(TRIM(student_name)) = LOWER(TRIM($3))`,
+              [newName, String(schoolId), oldStudentName]
             );
           } catch (_) {}
         }
@@ -522,6 +573,23 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
         );
 
         finalStudentRow = insertRes.rows[0];
+
+        // Remove transferred student from the old class's weekly attendance tables
+        try {
+          const oldWeeklySchema = `class_${actualTableName}_weekly_attendance`;
+          const wkTables = await pool.query(
+            `SELECT table_name FROM information_schema.tables WHERE table_schema = $1`,
+            [oldWeeklySchema]
+          );
+          for (const t of wkTables.rows) {
+            try {
+              await pool.query(
+                `DELETE FROM "${oldWeeklySchema}"."${t.table_name}" WHERE TRIM(school_id::text) = TRIM($1::text)`,
+                [String(schoolId)]
+              );
+            } catch (_) {}
+          }
+        } catch (_) {}
 
         // --- Invoice reset on transfer ---
         // Delete the student's UNPAID invoices (any fee structure) and regenerate
@@ -783,16 +851,70 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
       }
     }
 
+    const deletedStudentName = result.rows[0]?.student_name || '';
+
     try {
       await pool.query(
-        `DELETE FROM academic_student_attendance WHERE student_id::text = $1::text`,
-        [String(schoolId)]
+        `DELETE FROM academic_student_attendance
+         WHERE TRIM(student_id::text) = TRIM($1::text)
+            OR (LOWER(class_name) = LOWER($2) AND LOWER(TRIM(student_name)) = LOWER(TRIM($3)))`,
+        [String(schoolId), actualTableName, deletedStudentName]
+      );
+    } catch (_) {}
+
+    // Purge deleted student from all weekly attendance tables for this class
+    try {
+      const weeklySchema = `class_${actualTableName}_weekly_attendance`;
+      const wkTables = await pool.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = $1`,
+        [weeklySchema]
+      );
+      for (const t of wkTables.rows) {
+        try {
+          await pool.query(
+            `DELETE FROM "${weeklySchema}"."${t.table_name}"
+             WHERE TRIM(school_id::text) = TRIM($1::text)
+                OR LOWER(TRIM(student_name)) = LOWER(TRIM($2))`,
+            [String(schoolId), deletedStudentName]
+          );
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Purge deleted student from subject mark-list tables for this class
+    if (deletedStudentName) {
+      try {
+        const subjTables = await pool.query(
+          `SELECT table_schema, table_name FROM information_schema.tables
+           WHERE table_schema LIKE 'subject\\_%\\_schema' ESCAPE '\\'
+             AND LOWER(table_name) LIKE LOWER($1)`,
+          [`${actualTableName}_term_%`]
+        );
+        for (const t of subjTables.rows) {
+          try {
+            await pool.query(
+              `DELETE FROM "${t.table_schema}"."${t.table_name}"
+               WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))`,
+              [deletedStudentName]
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
+    // Purge deleted student from class_students_fault for this class
+    try {
+      await pool.query(
+        `DELETE FROM class_students_fault."${actualTableName}"
+         WHERE TRIM(school_id::text) = TRIM($1::text)
+            OR LOWER(TRIM(student_name)) = LOWER(TRIM($2))`,
+        [String(schoolId), deletedStudentName]
       );
     } catch (_) {}
 
     try {
       await pool.query(
-        `DELETE FROM school_schema_points.global_machine_ids WHERE school_id::text = $1::text`,
+        `DELETE FROM school_schema_points.global_machine_ids WHERE TRIM(school_id::text) = TRIM($1::text)`,
         [String(schoolId)]
       );
     } catch (_) {}
@@ -872,6 +994,25 @@ router.put('/toggle-active/:className/:schoolId/:classId', async (req, res) => {
     
     if (updateResult.rowCount === 0) {
       return res.status(404).json({ error: 'Student not found' });
+    }
+
+    if (!is_active) {
+      // Remove deactivated student from weekly attendance tables so they don't appear in the staff APK
+      try {
+        const weeklySchema = `class_${actualTableName}_weekly_attendance`;
+        const wkTables = await pool.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_schema = $1`,
+          [weeklySchema]
+        );
+        for (const t of wkTables.rows) {
+          try {
+            await pool.query(
+              `DELETE FROM "${weeklySchema}"."${t.table_name}" WHERE TRIM(school_id::text) = TRIM($1::text)`,
+              [String(schoolId)]
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
     }
     
     res.json({
