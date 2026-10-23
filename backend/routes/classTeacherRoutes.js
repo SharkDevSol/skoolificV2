@@ -754,12 +754,16 @@ async function syncWeeklyAttendanceFromAcademic(db, schemaName, tableName, class
       const valuesSql = entries.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::varchar(1))`).join(', ');
       const params = entries.flatMap(([sid, code]) => [sid, code]);
 
+      // The academic table is the authoritative record (it is written by the
+      // admin page, the machine and the staff app), so mirror it into the grid
+      // for EVERY day it has a value for - including edits (P -> E, L -> A).
+      // Filling only empty cells used to leave the grid stuck on an old value.
       await db.query(
         `UPDATE "${schemaName}"."${tableName}" w
          SET "${dayName}" = v.code, updated_at = CURRENT_TIMESTAMP
          FROM (VALUES ${valuesSql}) AS v(sid, code)
          WHERE TRIM(w.school_id::text) = v.sid
-           AND (w."${dayName}" IS NULL OR w."${dayName}" = '')`,
+           AND (w."${dayName}" IS DISTINCT FROM v.code)`,
         params
       );
     }
@@ -1140,45 +1144,99 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
         continue;
       }
 
-      // 2. Update weekly table by school_id (also refreshing class_id & student_name)
-      const updateRes = await client.query(`
-        UPDATE "${schemaName}"."${tableName}"
-        SET monday = $1, tuesday = $2, wednesday = $3, thursday = $4, 
-            friday = $5, saturday = $6, sunday = $7,
-            class_id = $8, student_name = $9,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE TRIM(school_id::text) = TRIM($10::text)
-      `, [
-        monday || null, tuesday || null, wednesday || null, thursday || null,
-        friday || null, saturday || null, sunday || null,
-        liveClassId, studentName || record.student_name || 'Student',
-        String(school_id)
-      ]);
+      // 2. Read the stored row so we never erase a mark that was made on the
+      //    other side (admin page / machine). The app sends its WHOLE local
+      //    state on every save, so an empty day here usually just means the
+      //    phone had not loaded that mark - not that the teacher cleared it.
+      let storedRow = null;
+      try {
+        storedRow = (await client.query(
+          `SELECT ${dayNames.map(d => `"${d}"`).join(', ')} FROM "${schemaName}"."${tableName}" WHERE TRIM(school_id::text) = TRIM($1::text)`,
+          [String(school_id)]
+        )).rows[0] || null;
+      } catch (_) {}
 
-      if (updateRes.rowCount === 0) {
+      const incomingDays = { monday, tuesday, wednesday, thursday, friday, saturday, sunday };
+
+      // Days the teacher actually set, plus days they explicitly cleared
+      // (only allowed when the stored mark was their own).
+      const setClauses = [];
+      const setValues = [];
+      const clearedDays = [];
+      for (const dayName of dayNames) {
+        const inc = incomingDays[dayName] ? String(incomingDays[dayName]).trim() : null;
+        const stored = storedRow ? (storedRow[dayName] ? String(storedRow[dayName]).trim() : null) : null;
+        if (inc) {
+          setClauses.push(`"${dayName}" = $${setValues.length + 1}`);
+          setValues.push(inc);
+        } else if (stored) {
+          // Empty incoming value + a stored mark: only clear it if the teacher
+          // owns it (their own earlier mark), never a machine/admin record.
+          let ownedByTeacher = false;
+          try {
+            const g = new Date(weekMonday); g.setDate(weekMonday.getDate() + dayNames.indexOf(dayName));
+            const e = convertToEthiopian(g);
+            const own = await client.query(
+              `SELECT notes FROM public.academic_student_attendance
+               WHERE TRIM(student_id::text) = TRIM($1::text) AND LOWER(class_name) = LOWER($2)
+                 AND ethiopian_year = $3 AND ethiopian_month = $4 AND ethiopian_day = $5 LIMIT 1`,
+              [String(school_id), className, e.year, e.month, e.day]
+            );
+            const notes = own.rows[0]?.notes || '';
+            ownedByTeacher = /class teacher/i.test(notes);
+          } catch (_) {}
+          if (ownedByTeacher) {
+            setClauses.push(`"${dayName}" = NULL`);
+            clearedDays.push(dayName);
+          }
+        }
+      }
+
+      // 3. Write the weekly grid (only the days we are allowed to touch)
+      if (setClauses.length > 0) {
+        setClauses.push(`class_id = $${setValues.length + 1}`);
+        setValues.push(liveClassId);
+        setClauses.push(`student_name = $${setValues.length + 1}`);
+        setValues.push(studentName || record.student_name || 'Student');
+        setValues.push(String(school_id));
+        const updRes = await client.query(
+          `UPDATE "${schemaName}"."${tableName}" SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP
+           WHERE TRIM(school_id::text) = TRIM($${setValues.length}::text)`,
+          setValues
+        );
+        if (updRes.rowCount === 0) {
+          try {
+            await client.query(`
+              INSERT INTO "${schemaName}"."${tableName}"
+              (school_id, class_id, student_name, monday, tuesday, wednesday, thursday, friday, saturday, sunday, created_by)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+              ON CONFLICT (school_id, class_id) DO UPDATE
+              SET student_name = EXCLUDED.student_name,
+                  monday = EXCLUDED.monday, tuesday = EXCLUDED.tuesday, wednesday = EXCLUDED.wednesday,
+                  thursday = EXCLUDED.thursday, friday = EXCLUDED.friday, saturday = EXCLUDED.saturday,
+                  sunday = EXCLUDED.sunday, updated_at = CURRENT_TIMESTAMP
+            `, [
+              String(school_id).trim(), liveClassId, studentName || record.student_name || 'Student',
+              monday || null, tuesday || null, wednesday || null, thursday || null,
+              friday || null, saturday || null, sunday || null,
+              req.user?.username || 'staff'
+            ]);
+          } catch (_) {}
+        }
+      }
+
+      // 4. A cleared day removes the teacher's own academic record too
+      for (const dayName of clearedDays) {
         try {
-          await client.query(`
-            INSERT INTO "${schemaName}"."${tableName}"
-            (school_id, class_id, student_name, monday, tuesday, wednesday, thursday, friday, saturday, sunday, created_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (school_id, class_id) DO UPDATE
-            SET student_name = EXCLUDED.student_name,
-                monday = EXCLUDED.monday,
-                tuesday = EXCLUDED.tuesday,
-                wednesday = EXCLUDED.wednesday,
-                thursday = EXCLUDED.thursday,
-                friday = EXCLUDED.friday,
-                saturday = EXCLUDED.saturday,
-                sunday = EXCLUDED.sunday,
-                updated_at = CURRENT_TIMESTAMP
-          `, [
-            String(school_id).trim(),
-            liveClassId,
-            studentName || record.student_name || 'Student',
-            monday || null, tuesday || null, wednesday || null, thursday || null,
-            friday || null, saturday || null, sunday || null,
-            req.user?.username || 'staff'
-          ]);
+          const g = new Date(weekMonday); g.setDate(weekMonday.getDate() + dayNames.indexOf(dayName));
+          const e = convertToEthiopian(g);
+          await client.query(
+            `DELETE FROM public.academic_student_attendance
+             WHERE TRIM(student_id::text) = TRIM($1::text) AND LOWER(class_name) = LOWER($2)
+               AND ethiopian_year = $3 AND ethiopian_month = $4 AND ethiopian_day = $5
+               AND notes ILIKE '%class teacher%'`,
+            [String(school_id), className, e.year, e.month, e.day]
+          );
         } catch (_) {}
       }
 
