@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "809606061706",
-    "project_id": "iqra-parent",
-    "storage_bucket": "iqra-parent.firebasestorage.app"
+    "project_number": "841627684751",
+    "project_id": "bilal-parent",
+    "storage_bucket": "bilal-parent.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:809606061706:android:24061504b258cbe2c29773",
+        "mobilesdk_app_id": "1:841627684751:android:782a72a4c1a3715a3f05fa",
         "android_client_info": {
           "package_name": "com.skoolific.bilalparent"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBIwjWVDIox-ndetKN21IzseLgZ98gv7nk"
+          "current_key": "AIzaSyDYxUcSz7ZU711uA-k1jrihbhyks0NMNd0"
         }
       ],
       "services": {
