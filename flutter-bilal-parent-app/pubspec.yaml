@@ -1,8 +1,7 @@
 name: bilal_parent
 description: "Bilal Parent - guardian mobile app (Flutter rewrite)"
 publish_to: 'none'
-version: 1.0.0+1
-
+version: 1.0.1+2
 environment:
   sdk: ^3.4.0
 
@@ -13,7 +12,7 @@ dependencies:
   http: ^1.2.0
   shared_preferences: ^2.2.2
   provider: ^6.1.1
-  intl: ^0.20.3
+  intl: ^0.20.2
   flutter_localizations:
     sdk: flutter
   cached_network_image: ^3.3.1
