@@ -106,13 +106,13 @@ const translations = {
 
   // ---- ATTENDANCE: LEAVE / GENERIC ----
   attendance_leave_title: {
-    en: 'Attendance: Leave',
+    en: 'Attendance: Permission',
     so: 'Imaanshaha: Fasax',
     am: 'የተማሪ መገኘት፡ ዕረፍት',
     ar: 'حضور الطالب: إجازة',
   },
   attendance_leave_body: {
-    en: (student, date) => student + ' was marked on LEAVE (' + date + ').',
+    en: (student, date) => student + ' was marked PERMISSION (' + date + ').',
     so: (student, date) => student + ' waxaa loo diiwaangeliyay FASAX (' + date + ').',
     am: (student, date) => student + ' በ ' + date + ' ዕረፍት ላይ ተመዝግቧል።',
     ar: (student, date) => 'تم تسجيل ' + student + ' في إجازة بتاريخ ' + date + '.',

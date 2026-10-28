@@ -1259,7 +1259,7 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
             P: { status: 'present', label: 'PRESENT' },
             A: { status: 'absent', label: 'ABSENT' },
             L: { status: 'late', label: 'LATE' },
-            E: { status: 'leave', label: 'LEAVE' },
+            E: { status: 'leave', label: 'PERMISSION' },
           };
           const meta = notifyMeta[short];
           if (meta && guardianUsername) {

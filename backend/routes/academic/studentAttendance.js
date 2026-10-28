@@ -930,8 +930,8 @@ router.put('/update', async (req, res) => {
           const statusKey = { PRESENT: 'present', ABSENT: 'absent', LATE: 'late', LEAVE: 'leave', EXCUSED: 'leave', VACATION: 'leave' }[newStatus] || newStatus.toLowerCase();
           notifyGuardianPush(
             row.guardian_username,
-            'Attendance: ' + newStatus,
-            row.student_name + ' was marked ' + newStatus + ' (' + ethYear + '-' + ethMonth + '-' + ethDay + ').',
+            'Attendance: ' + (newStatus === 'LEAVE' ? 'PERMISSION' : newStatus),
+            row.student_name + ' was marked ' + (newStatus === 'LEAVE' ? 'PERMISSION' : newStatus) + ' (' + ethYear + '-' + ethMonth + '-' + ethDay + ').',
             {
               type: 'attendance',
               status: statusKey,
