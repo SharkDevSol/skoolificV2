@@ -996,6 +996,12 @@ router.put('/update-marks', async (req, res) => {
 
     // ---- Push notification to the student's guardian (non-blocking) ----
     try {
+      // Resolve the real class table (className arrives lower-cased)
+      let actualClassTable = className;
+      try {
+        const ctc = await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1) LIMIT 1", [className]);
+        if (ctc.rows.length) actualClassTable = ctc.rows[0].table_name;
+      } catch (_) {}
       // Resolve student_name from the mark-list row (studentId)
       const studentRow = await pool.query(
         `SELECT student_name FROM ${schemaName}.${tableName} WHERE id = $1 LIMIT 1`,
@@ -1005,7 +1011,7 @@ router.put('/update-marks', async (req, res) => {
       if (studentName) {
         // Look up the guardian username from the class table for this student
         const g = await pool.query(
-          `SELECT guardian_username, guardian_name FROM classes_schema."${className}" WHERE student_name = $1 LIMIT 1`,
+          `SELECT guardian_username, guardian_name FROM classes_schema."${actualClassTable}" WHERE student_name = $1 LIMIT 1`,
           [studentName]
         );
         const guardianUsername = g.rows[0]?.guardian_username;
@@ -1785,6 +1791,7 @@ router.post('/bulk-update-marks', async (req, res) => {
     const markComponents = config.mark_components;
     
     let updatedCount = 0;
+    const notifyList = [];
     
     for (const studentMarks of marksData) {
       const { studentName, marks } = studentMarks;
@@ -1795,7 +1802,7 @@ router.post('/bulk-update-marks', async (req, res) => {
       // column, so their row ids are not stable across add/remove — trusting
       // the cached id can write the marks to the wrong student.
       let studentResult = await client.query(
-        `SELECT id FROM ${schemaName}.${tableName} 
+        `SELECT id, total FROM ${schemaName}.${tableName} 
          WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))
          LIMIT 1`,
         [studentName]
@@ -1805,7 +1812,7 @@ router.post('/bulk-update-marks', async (req, res) => {
         // Fall back to the row id (legacy clients / renamed students). The
         // row keeps its current name so a rename is never undone.
         studentResult = await client.query(
-          `SELECT id FROM ${schemaName}.${tableName} 
+          `SELECT id, total FROM ${schemaName}.${tableName} 
            WHERE id::text = $1::text
            LIMIT 1`,
           [studentMarks.studentId]
@@ -1872,9 +1879,41 @@ router.post('/bulk-update-marks', async (req, res) => {
       
       await client.query(updateQuery, updateValues);
       updatedCount++;
+
+      // remember this student only when the total really changed
+      const prevTotalNum = (studentResult.rows.length > 0 && studentResult.rows[0].total !== null && studentResult.rows[0].total !== undefined)
+        ? Number(studentResult.rows[0].total) : null;
+      if (prevTotalNum === null || prevTotalNum !== total) {
+        notifyList.push({ studentName: studentName, total: total });
+      }
     }
     
     await client.query('COMMIT');
+
+    // Notify guardians of the students whose total actually changed (non-blocking)
+    (async () => {
+      try {
+        if (!notifyList.length) return;
+        const { notifyGuardianPush } = require('../services/guardianPush');
+        let actualClassTable = className;
+        try {
+          const ctc = await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1) LIMIT 1", [className]);
+          if (ctc.rows.length) actualClassTable = ctc.rows[0].table_name;
+        } catch (_) {}
+        for (const item of notifyList) {
+          try {
+            const g = await db.query('SELECT guardian_username, student_name FROM classes_schema."' + actualClassTable + '" WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1)) LIMIT 1', [item.studentName]);
+            const row = g.rows[0];
+            if (row && row.guardian_username) {
+              notifyGuardianPush(row.guardian_username, '\ud83d\udcca New Marks Added', row.student_name + ' got ' + item.total + '% in ' + subjectName + ' (Term ' + termNumber + ').', {
+                type: 'marks', student_name: row.student_name, subject: subjectName, total: String(item.total), term: String(termNumber)
+              }).catch(() => {});
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    })();
+
     res.json({ 
       message: `Bulk update completed successfully. ${updatedCount} students updated.`,
       updatedCount 
@@ -1888,9 +1927,9 @@ router.post('/bulk-update-marks', async (req, res) => {
   }
 });
 
-// Route to assign teachers to subject-class combinations
+// Route to assign teachers to subject-class combinations (Safe Merge - never wipes unreferenced assignments)
 router.post('/assign-teachers', async (req, res) => {
-  const { assignments, managedTeachers } = req.body; // Array of { teacherName, subjectClass }
+  const { assignments, removedSubjectClasses } = req.body; // Array of { teacherName, subjectClass }
   
   if (!assignments || !Array.isArray(assignments)) {
     return res.status(400).json({ error: 'Assignments array is required' });
@@ -1911,38 +1950,41 @@ router.post('/assign-teachers', async (req, res) => {
       );
     `);
 
-    // If managedTeachers is provided, only remove old assignments for those specific teachers
-    if (managedTeachers && Array.isArray(managedTeachers) && managedTeachers.length > 0) {
-      const lowerNames = managedTeachers.map(n => (n || '').trim().toLowerCase()).filter(Boolean);
-      if (lowerNames.length > 0) {
+    // If explicit removedSubjectClasses are provided, unassign those specific combinations
+    if (removedSubjectClasses && Array.isArray(removedSubjectClasses) && removedSubjectClasses.length > 0) {
+      const lowerClasses = removedSubjectClasses.map(sc => (sc || '').trim().toLowerCase()).filter(Boolean);
+      if (lowerClasses.length > 0) {
         await client.query(
-          'DELETE FROM subjects_of_school_schema.teachers_subjects WHERE LOWER(TRIM(teacher_name)) = ANY($1)',
-          [lowerNames]
+          'DELETE FROM subjects_of_school_schema.teachers_subjects WHERE LOWER(TRIM(subject_class)) = ANY($1)',
+          [lowerClasses]
         );
       }
     }
 
-    // Validate and insert new assignments, cleanly updating subject_class assignments
+    // Validate and upsert/merge assignments without wiping out unmentioned classes
     for (const assignment of assignments) {
-      if (!assignment.teacherName || !assignment.subjectClass) {
+      const subjectClass = (assignment.subjectClass || '').trim();
+      const teacherName = (assignment.teacherName || '').trim();
+
+      if (!subjectClass) {
         continue;
       }
-      
-      const teacherName = assignment.teacherName.trim();
-      const subjectClass = assignment.subjectClass.trim();
 
-      // Cleanly remove any old assignment for this subjectClass so re-assigning replaces the teacher
+      // Always clear the previous assignment for this specific subject_class
       await client.query(
         `DELETE FROM subjects_of_school_schema.teachers_subjects 
          WHERE LOWER(TRIM(subject_class)) = LOWER(TRIM($1::varchar))`,
         [subjectClass]
       );
 
-      await client.query(
-        `INSERT INTO subjects_of_school_schema.teachers_subjects (teacher_name, subject_class) 
-         VALUES ($1::varchar, $2::varchar)`,
-        [teacherName, subjectClass]
-      );
+      // If a valid teacherName is assigned, insert the new assignment
+      if (teacherName) {
+        await client.query(
+          `INSERT INTO subjects_of_school_schema.teachers_subjects (teacher_name, subject_class) 
+           VALUES ($1::varchar, $2::varchar)`,
+          [teacherName, subjectClass]
+        );
+      }
     }
     
     await client.query('COMMIT');

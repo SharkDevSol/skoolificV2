@@ -222,7 +222,8 @@ router.post('/', authenticateWithBranch, uploadLimiter, uploadSafe, async (req, 
 
 router.put('/:id/like', async (req, res) => {
   const { id } = req.params;
-  const client = await pool.connect();
+  const db = req.branchPool || pool;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     await client.query('UPDATE posts_schema.posts SET likes = likes + 1 WHERE id = $1', [id]);
@@ -232,6 +233,136 @@ router.put('/:id/like', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('Error liking post:', error);
     res.status(500).json({ error: 'Failed to like post', details: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/posts/:id - Delete a post and its media files
+router.delete('/:id', authenticateWithBranch, async (req, res) => {
+  const { id } = req.params;
+  const db = req.branchPool || pool;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Retrieve media before deleting post record
+    const postRes = await client.query('SELECT media FROM posts_schema.posts WHERE id = $1', [id]);
+    if (postRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const media = postRes.rows[0].media;
+
+    // Delete audiences and post
+    await client.query('DELETE FROM posts_schema.post_audiences WHERE post_id = $1', [id]);
+    await client.query('DELETE FROM posts_schema.posts WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+
+    // Delete media files from disk (best-effort)
+    if (Array.isArray(media)) {
+      for (const item of media) {
+        if (item && item.filename) {
+          const filePath = path.join(uploadDir, item.filename);
+          fs.unlink(filePath).catch(() => {});
+        }
+      }
+    }
+
+    res.json({ message: 'Post deleted successfully', id: parseInt(id) });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting post:', error);
+    res.status(500).json({ error: 'Failed to delete post', details: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// PUT /api/posts/:id - Update post content, audiences, and media
+router.put('/:id', authenticateWithBranch, uploadSafe, async (req, res) => {
+  const { id } = req.params;
+  const { title, body, link, audiences, existing_media } = req.body;
+  if (!title || !body) {
+    return res.status(400).json({ error: 'Title and body are required' });
+  }
+
+  const validAudiences = ['students', 'guardians', 'supportive_staff', 'teachers', 'admin_staff', 'staff', 'all'];
+  const db = req.branchPool || pool;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const checkPost = await client.query('SELECT id, media FROM posts_schema.posts WHERE id = $1', [id]);
+    if (checkPost.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    // Determine kept existing media
+    let keptMedia = [];
+    if (existing_media !== undefined) {
+      try {
+        keptMedia = typeof existing_media === 'string' ? JSON.parse(existing_media) : existing_media;
+      } catch (e) {
+        keptMedia = [];
+      }
+    } else if (!req.files || req.files.length === 0) {
+      keptMedia = checkPost.rows[0].media || [];
+    }
+
+    // Append newly uploaded files
+    const newMedia = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(file => {
+        newMedia.push({
+          filename: file.filename,
+          originalname: file.originalname,
+          mimetype: file.mimetype
+        });
+      });
+    }
+
+    const finalMedia = [...keptMedia, ...newMedia];
+
+    await client.query(
+      `UPDATE posts_schema.posts 
+       SET title = $1, body = $2, link = $3, media = $4, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5`,
+      [title, body, link || null, JSON.stringify(finalMedia), id]
+    );
+
+    // Update audiences if provided
+    if (audiences !== undefined && audiences !== null) {
+      await client.query('DELETE FROM posts_schema.post_audiences WHERE post_id = $1', [id]);
+      let audienceArray = [];
+      try {
+        audienceArray = typeof audiences === 'string' ? JSON.parse(audiences) : audiences;
+      } catch (e) {
+        audienceArray = [];
+      }
+
+      if (Array.isArray(audienceArray) && audienceArray.length > 0) {
+        for (const audience of audienceArray) {
+          const aType = typeof audience === 'string' ? audience : audience.type;
+          if (aType && validAudiences.includes(aType)) {
+            await client.query(
+              'INSERT INTO posts_schema.post_audiences (post_id, audience_type, specific_target_id) VALUES ($1, $2, $3)',
+              [id, aType, (audience && audience.specific_id) || null]
+            );
+          }
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Post updated successfully', id: parseInt(id) });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating post:', error);
+    res.status(500).json({ error: 'Failed to update post', details: error.message });
   } finally {
     client.release();
   }

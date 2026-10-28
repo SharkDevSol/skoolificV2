@@ -623,6 +623,7 @@ const TeacherAssignment = () => {
   const [subjectClassCombinations, setSubjectClassCombinations] = useState([]);
   const [assignments, setAssignments] = useState({});
   const [existingAssignments, setExistingAssignments] = useState([]);
+  const [removedClasses, setRemovedClasses] = useState(new Set());
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [searchTeacher, setSearchTeacher] = useState('');
@@ -742,6 +743,11 @@ const TeacherAssignment = () => {
 
   const handleAssignmentChange = (teacherName, subjectClass, isChecked) => {
     const selectedKey = normKey(teacherName, subjectClass);
+    setRemovedClasses(prev => {
+      const next = new Set(prev);
+      next.delete(subjectClass.trim());
+      return next;
+    });
     setAssignments(prev => {
       const next = {};
       if (isChecked) {
@@ -758,6 +764,18 @@ const TeacherAssignment = () => {
       }
       return next;
     });
+  };
+
+  const handleClearAssignment = (subjectClass) => {
+    setAssignments(prev => {
+      const next = {};
+      for (const [key, val] of Object.entries(prev)) {
+        if (key.endsWith(`|||${subjectClass.trim().toLowerCase()}`)) continue;
+        next[key] = val;
+      }
+      return next;
+    });
+    setRemovedClasses(prev => new Set(prev).add(subjectClass.trim()));
   };
 
   const handleSubmit = async (e) => {
@@ -783,7 +801,7 @@ const TeacherAssignment = () => {
         headers: getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           assignments: assignmentsArray,
-          managedTeachers: teachers.map(t => t.name)
+          removedSubjectClasses: Array.from(removedClasses)
         }),
       });
 
@@ -791,6 +809,7 @@ const TeacherAssignment = () => {
       
       if (response.ok) {
         setMessage('Teacher assignments saved successfully!');
+        setRemovedClasses(new Set());
         await fetchData();
       } else {
         setMessage(result.error || 'Failed to save assignments');
@@ -881,9 +900,29 @@ const TeacherAssignment = () => {
                       Class {combination.class_name}
                     </span>
                   </h3>
-                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#6b7280' }}>
-                    {assignedTeachers.length} teacher{assignedTeachers.length !== 1 ? 's' : ''} assigned
-                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0.25rem 0 0' }}>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#6b7280' }}>
+                      {assignedTeachers.length} teacher{assignedTeachers.length !== 1 ? 's' : ''} assigned
+                    </p>
+                    {assignedTeachers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleClearAssignment(combination.subject_class)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#ef4444',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: '2px 6px',
+                          borderRadius: '4px'
+                        }}
+                      >
+                        ✕ Clear
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
                   {teachers

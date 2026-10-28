@@ -668,6 +668,137 @@
   color: var(--text-secondary);
 }
 
+.moreMenuContainer {
+  position: relative;
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  padding: 6px;
+  min-width: 150px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, #1f2937);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.dropdownItem:hover {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.dropdownItem.deleteItem {
+  color: #ef4444;
+}
+
+.dropdownItem.deleteItem:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Delete Confirm Modal */
+.confirmModal {
+  background: var(--bg-card, #ffffff);
+  border-radius: 20px;
+  max-width: 420px;
+  width: 90%;
+  padding: 28px;
+  text-align: center;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.confirmIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #fee2e2;
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+  margin-bottom: 16px;
+}
+
+.confirmModal h3 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+  color: var(--text-primary, #111827);
+}
+
+.confirmModal p {
+  margin: 0 0 24px;
+  color: var(--text-secondary, #4b5563);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.confirmActions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.cancelBtn {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid var(--border-color, #d1d5db);
+  background: transparent;
+  color: var(--text-primary, #374151);
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cancelBtn:hover {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.deleteConfirmBtn {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  background: #ef4444;
+  color: #ffffff;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.deleteConfirmBtn:hover {
+  background: #dc2626;
+}
+
 /* Audience Tags */
 .audienceTags {
   display: flex;

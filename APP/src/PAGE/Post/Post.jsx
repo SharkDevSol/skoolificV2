@@ -10,7 +10,8 @@ import LazyImage from '../../COMPONENTS/LazyImage';
 import { 
   FiEdit, FiImage, FiFile, FiShare2, FiMessageSquare, 
   FiHeart, FiX, FiCheck, FiPlus, FiLink, FiSend,
-  FiFilter, FiGrid, FiList, FiMoreHorizontal, FiBookmark
+  FiFilter, FiGrid, FiList, FiMoreHorizontal, FiBookmark,
+  FiTrash2, FiEdit2
 } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaChalkboardTeacher, FaUserGraduate, FaUserShield, FaHeart } from 'react-icons/fa';
@@ -38,6 +39,27 @@ const Post = () => {
   const [uploading, setUploading] = useState(false);
   const [viewMode, setViewMode] = useState('grid');
   const [likedPosts, setLikedPosts] = useState(new Set());
+
+  // Edit & Delete states
+  const [menuOpenId, setMenuOpenId] = useState(null);
+  const [postToDelete, setPostToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    body: '',
+    link: '',
+    audiences: JSON.stringify([{ type: 'all' }]),
+    existingMedia: [],
+    newMedia: []
+  });
+  const [editUploading, setEditUploading] = useState(false);
+
+  useEffect(() => {
+    const closeMenu = () => setMenuOpenId(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
 
   useEffect(() => {
     fetchPosts();
@@ -144,6 +166,99 @@ const Post = () => {
       fetchPosts();
     } catch (error) {
       console.error('Error liking post:', error);
+    }
+  };
+
+  const handleDeletePost = async () => {
+    if (!postToDelete) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/posts/${postToDelete.id}`);
+      setPosts(prev => prev.filter(p => p.id !== postToDelete.id));
+      setPostToDelete(null);
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      alert(`Failed to delete post: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const startEditPost = (post) => {
+    setEditingPost(post);
+    let postAudiences = [{ type: 'all' }];
+    if (Array.isArray(post.audiences) && post.audiences.length > 0) {
+      postAudiences = post.audiences.map(a => typeof a === 'string' ? { type: a } : a);
+    }
+    setEditFormData({
+      title: post.title || '',
+      body: post.body || '',
+      link: post.link || '',
+      audiences: JSON.stringify(postAudiences),
+      existingMedia: Array.isArray(post.media) ? [...post.media] : [],
+      newMedia: []
+    });
+  };
+
+  const handleEditAudienceToggle = (audience) => {
+    let audiences = JSON.parse(editFormData.audiences || '[]');
+    const index = audiences.findIndex((a) => a.type === audience);
+    if (index > -1) {
+      audiences.splice(index, 1);
+    } else {
+      audiences.push({ type: audience });
+    }
+    setEditFormData({ ...editFormData, audiences: JSON.stringify(audiences) });
+  };
+
+  const handleEditMediaChange = (e) => {
+    const files = Array.from(e.target.files);
+    setEditFormData({ ...editFormData, newMedia: [...editFormData.newMedia, ...files] });
+  };
+
+  const removeExistingMedia = (index) => {
+    const updated = editFormData.existingMedia.filter((_, i) => i !== index);
+    setEditFormData({ ...editFormData, existingMedia: updated });
+  };
+
+  const removeNewMedia = (index) => {
+    const updated = editFormData.newMedia.filter((_, i) => i !== index);
+    setEditFormData({ ...editFormData, newMedia: updated });
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editingPost) return;
+    const audiences = JSON.parse(editFormData.audiences || '[]');
+    if (audiences.length === 0) {
+      alert('Please select at least one audience.');
+      return;
+    }
+
+    setEditUploading(true);
+    try {
+      const data = new FormData();
+      data.append('title', editFormData.title);
+      data.append('body', editFormData.body || editFormData.title || ' ');
+      data.append('link', editFormData.link || '');
+      data.append('audiences', editFormData.audiences);
+      data.append('existing_media', JSON.stringify(editFormData.existingMedia));
+
+      editFormData.newMedia.forEach(file => {
+        data.append('media', file);
+      });
+
+      await api.put(`/posts/${editingPost.id}`, data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      setEditingPost(null);
+      fetchPosts();
+    } catch (error) {
+      console.error('Error updating post:', error);
+      alert(`Failed to update post: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setEditUploading(false);
     }
   };
 
@@ -390,6 +505,199 @@ const Post = () => {
         )}
       </AnimatePresence>
 
+      {/* Edit Post Modal */}
+      <AnimatePresence>
+        {editingPost && (
+          <motion.div 
+            className={styles.modalOverlay}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setEditingPost(null)}
+          >
+            <motion.div 
+              className={styles.createModal}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className={styles.modalHeader}>
+                <h2>Edit Post</h2>
+                <button type="button" onClick={() => setEditingPost(null)} className={styles.closeBtn}>
+                  <FiX />
+                </button>
+              </div>
+
+              <form onSubmit={handleEditSubmit} className={styles.createForm}>
+                <div className={styles.formGroup}>
+                  <input 
+                    type="text" 
+                    name="title" 
+                    value={editFormData.title} 
+                    onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })} 
+                    required 
+                    placeholder="Post title"
+                    className={styles.titleInput}
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <textarea 
+                    name="body" 
+                    value={editFormData.body} 
+                    onChange={(e) => setEditFormData({ ...editFormData, body: e.target.value })} 
+                    placeholder="Post content..."
+                    rows={4}
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <div className={styles.linkInput}>
+                    <FiLink />
+                    <input 
+                      type="url" 
+                      name="link" 
+                      value={editFormData.link} 
+                      onChange={(e) => setEditFormData({ ...editFormData, link: e.target.value })} 
+                      placeholder="Add a link (optional)"
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.sectionLabel}>Who can see this?</label>
+                  <div className={styles.audienceGrid}>
+                    {['all', 'students', 'guardians', 'teachers', 'staff'].map(aud => (
+                      <motion.label 
+                        key={aud} 
+                        className={`${styles.audienceChip} ${
+                          JSON.parse(editFormData.audiences || '[]').some(a => a.type === aud) 
+                            ? styles.selected 
+                            : ''
+                        }`}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <input 
+                          type="checkbox" 
+                          checked={JSON.parse(editFormData.audiences || '[]').some(a => a.type === aud)}
+                          onChange={() => handleEditAudienceToggle(aud)}
+                        />
+                        {aud === 'all' ? 'Everyone' : aud.charAt(0).toUpperCase() + aud.slice(1)}
+                      </motion.label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Existing media attached */}
+                {editFormData.existingMedia.length > 0 && (
+                  <div className={styles.formGroup}>
+                    <label className={styles.sectionLabel}>Current Attachments</label>
+                    <div className={styles.mediaPreview}>
+                      {editFormData.existingMedia.map((file, index) => (
+                        <div key={index} className={styles.previewItem}>
+                          <span>{file.originalname || file.filename}</span>
+                          <button type="button" onClick={() => removeExistingMedia(index)} title="Remove attachment">
+                            <FiX />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className={styles.formGroup}>
+                  <label className={styles.mediaUpload}>
+                    <FiImage /> Add More Photos/Videos
+                    <input 
+                      type="file" 
+                      multiple 
+                      onChange={handleEditMediaChange} 
+                      accept="image/*,video/*,application/pdf,.doc,.docx"
+                    />
+                  </label>
+                  {editFormData.newMedia.length > 0 && (
+                    <div className={styles.mediaPreview}>
+                      {editFormData.newMedia.map((file, index) => (
+                        <div key={index} className={styles.previewItem}>
+                          <span>{file.name}</span>
+                          <button type="button" onClick={() => removeNewMedia(index)}>
+                            <FiX />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.formActions}>
+                  <button 
+                    type="button" 
+                    className={styles.cancelBtn}
+                    onClick={() => setEditingPost(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className={styles.submitBtn}
+                    disabled={editUploading || !editFormData.title}
+                  >
+                    {editUploading ? 'Saving...' : <><FiCheck /> Save Changes</>}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {postToDelete && (
+          <motion.div 
+            className={styles.modalOverlay}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPostToDelete(null)}
+          >
+            <motion.div 
+              className={styles.confirmModal}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className={styles.confirmIcon}>
+                <FiTrash2 />
+              </div>
+              <h3>Delete Post?</h3>
+              <p>Are you sure you want to delete &ldquo;{postToDelete.title}&rdquo;? This will permanently remove the post and its media.</p>
+              <div className={styles.confirmActions}>
+                <button 
+                  type="button" 
+                  className={styles.cancelBtn} 
+                  onClick={() => setPostToDelete(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className={styles.deleteConfirmBtn} 
+                  onClick={handleDeletePost}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Filters and View Toggle */}
       <div className={styles.toolbar}>
         <div className={styles.filterSection}>
@@ -472,9 +780,42 @@ const Post = () => {
                       <span className={styles.postTime}>{formatDate(post.created_at)}</span>
                     </div>
                   </div>
-                  <button className={styles.moreBtn}>
-                    <FiMoreHorizontal />
-                  </button>
+                  <div className={styles.moreMenuContainer}>
+                    <button 
+                      className={styles.moreBtn}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpenId(menuOpenId === post.id ? null : post.id);
+                      }}
+                      title="Post options"
+                    >
+                      <FiMoreHorizontal />
+                    </button>
+                    {menuOpenId === post.id && (
+                      <div className={styles.dropdownMenu} onClick={(e) => e.stopPropagation()}>
+                        <button 
+                          type="button"
+                          className={styles.dropdownItem}
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            startEditPost(post);
+                          }}
+                        >
+                          <FiEdit2 /> <span>Edit Post</span>
+                        </button>
+                        <button 
+                          type="button"
+                          className={`${styles.dropdownItem} ${styles.deleteItem}`}
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            setPostToDelete(post);
+                          }}
+                        >
+                          <FiTrash2 /> <span>Delete Post</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Audience Tags */}
