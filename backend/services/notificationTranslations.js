@@ -104,6 +104,32 @@ const translations = {
       `تم تسجيل حضور ${student} بنجاح بتاريخ/وقت ${dateOrTime}.`,
   },
 
+  // ---- ATTENDANCE: LEAVE / GENERIC ----
+  attendance_leave_title: {
+    en: 'Attendance: Leave',
+    so: 'Imaanshaha: Fasax',
+    am: 'የተማሪ መገኘት፡ ዕረፍት',
+    ar: 'حضور الطالب: إجازة',
+  },
+  attendance_leave_body: {
+    en: (student, date) => student + ' was marked on LEAVE (' + date + ').',
+    so: (student, date) => student + ' waxaa loo diiwaangeliyay FASAX (' + date + ').',
+    am: (student, date) => student + ' በ ' + date + ' ዕረፍት ላይ ተመዝግቧል።',
+    ar: (student, date) => 'تم تسجيل ' + student + ' في إجازة بتاريخ ' + date + '.',
+  },
+  attendance_update_title: {
+    en: 'Attendance Update',
+    so: 'Cusboonaysiin Imaansho',
+    am: 'የመገኘት ማሻሻያ',
+    ar: 'تحديث الحضور',
+  },
+  attendance_update_body: {
+    en: (student, status, date) => student + ' was marked ' + status + ' (' + date + ').',
+    so: (student, status, date) => student + ' waxaa loo diiwaangeliyay ' + status + ' (' + date + ').',
+    am: (student, status, date) => student + ' በ ' + date + ' ' + status + ' ተመዝግቧል።',
+    ar: (student, status, date) => 'تم تسجيل ' + student + ' ' + status + ' بتاريخ ' + date + '.',
+  },
+
   // ---- MARKS / EXAM RESULTS ----
   marks_title: {
     en: 'Exam Marks Published',

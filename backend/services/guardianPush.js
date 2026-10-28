@@ -32,11 +32,6 @@ const notifyGuardianPush = async (guardianUsername, title, body, data = {}) => {
       const studentKey = String(data.studentId || data.school_id || data.studentName || data.student_name || '').toLowerCase().trim();
       const dateKey = String(data.date || data.time || 'today').toLowerCase().trim();
 
-      // Only absent and late trigger push notifications to guardians
-      if (statusKey !== 'absent' && statusKey !== 'late') {
-        return { sent: 0, skipped: true, reason: 'non_alert_status' };
-      }
-
       const dedupKey = `attendance:${gUser}:${studentKey}:${dateKey}:${statusKey}`;
       const lastSent = attendancePushCache.get(dedupKey);
       if (lastSent && (Date.now() - lastSent < 12 * 60 * 60 * 1000)) {
@@ -96,11 +91,21 @@ const notifyGuardianPush = async (guardianUsername, title, body, data = {}) => {
             const tBody = t(lang, 'attendance_late_body');
             if (tTitle) finalTitle = tTitle;
             if (typeof tBody === 'function') finalBody = tBody(data.studentName || 'Student', dateStr);
-          } else {
+          } else if (status === 'present') {
             const tTitle = t(lang, 'attendance_present_title');
             const tBody = t(lang, 'attendance_present_body');
             if (tTitle) finalTitle = tTitle;
             if (typeof tBody === 'function') finalBody = tBody(data.studentName || 'Student', dateStr);
+          } else if (status === 'leave' || status === 'excused' || status === 'vacation') {
+            const tTitle = t(lang, 'attendance_leave_title');
+            const tBody = t(lang, 'attendance_leave_body');
+            if (tTitle) finalTitle = tTitle;
+            if (typeof tBody === 'function') finalBody = tBody(data.studentName || 'Student', dateStr);
+          } else {
+            const tTitle = t(lang, 'attendance_update_title');
+            const tBody = t(lang, 'attendance_update_body');
+            if (tTitle) finalTitle = tTitle;
+            if (typeof tBody === 'function') finalBody = tBody(data.studentName || 'Student', (data.status || 'recorded').toUpperCase(), dateStr);
           }
         } else if (type === 'evaluation') {
           const tTitle = t(lang, 'evaluation_title');

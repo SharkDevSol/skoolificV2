@@ -1251,12 +1251,18 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
         const fullStatus = statusMap[shortStatus];
         if (!fullStatus) continue;
 
-        // Notify the guardian when a day is newly marked ABSENT or LATE
-        // (the guard once lived only in the legacy routes, so marks made from
-        // the staff app or the admin page never reached the parent app).
+        // Notify the guardian whenever a day's mark is added or changed
+        // (P/A/L/E — every save reaches the parent app).
         try {
           const short = dayValues[dayName];
-          if ((short === 'A' || short === 'L') && guardianUsername) {
+          const notifyMeta = {
+            P: { status: 'present', label: 'PRESENT' },
+            A: { status: 'absent', label: 'ABSENT' },
+            L: { status: 'late', label: 'LATE' },
+            E: { status: 'leave', label: 'LEAVE' },
+          };
+          const meta = notifyMeta[short];
+          if (meta && guardianUsername) {
             const prevShort = storedRow ? String(storedRow[dayName] || '') : '';
             if (prevShort !== short) {
               const gd = dayDateMap[dayName];
@@ -1264,13 +1270,11 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
               const { notifyGuardianPush } = require('../services/guardianPush');
               notifyGuardianPush(
                 guardianUsername,
-                short === 'A' ? 'Attendance Alert: Absent' : 'Attendance Alert: Late',
-                short === 'A'
-                  ? 'Attention: ' + studentName + ' was marked ABSENT.'
-                  : 'Notice: ' + studentName + ' arrived LATE.',
+                'Attendance: ' + meta.label,
+                studentName + ' was marked ' + meta.label + ' (' + ymd + ').',
                 {
                   type: 'attendance',
-                  status: short === 'A' ? 'absent' : 'late',
+                  status: meta.status,
                   studentName: studentName,
                   student_name: studentName,
                   studentId: String(school_id),
