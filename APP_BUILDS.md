@@ -5,23 +5,30 @@ All installable app builds live in **one place on the server**:
 ```
 /var/www/app-downloads/
 ├── versions.json                     # machine-readable manifest (all schools/apps/platforms)
-├── README.txt
+├── README.txt                        # the written rule (read this before adding a build)
 ├── iqra/
 │   ├── staff/android/staff-app.apk           # ONE staff app - serves IQRA **and** BILAL
+│   ├── staff/android/version.json            # staff in-app updater
 │   ├── staff/ios/README-ios.md
 │   ├── parent/android/iqra-parent-v5.13.apk
+│   ├── parent/android/archive/               # old iqra parent builds (5.6 - 5.12)
 │   └── parent/ios/README-ios.md
-└── bilal/
-    ├── staff/android/staff-app.apk           # same staff build (copy)
-    ├── staff/ios/README-ios.md
-    ├── parent/android/bilal-parent-v1.0.0.apk
-    ├── parent/ios/README-ios.md
-    ├── student/android/bilal-student-v1.0.0.apk
-    └── student/ios/README-ios.md
+├── bilal/
+│   ├── staff/android/staff-app.apk           # symlink -> iqra/staff/android/staff-app.apk
+│   ├── staff/ios/README-ios.md
+│   ├── parent/android/bilal-parent-v1.0.2.apk
+│   ├── parent/android/bilal-parent-v1.0.2-play.aab    # Google Play upload bundle
+│   ├── parent/android/archive/               # 1.0.0, 1.0.1
+│   ├── parent/ios/README-ios.md
+│   ├── student/android/bilal-student-v1.0.0.apk
+│   └── student/ios/README-ios.md
+└── shared/
+    └── stock/android/iki-stock-app.apk       # IKI stock app (not school-specific)
 ```
 
-Rule: **`<school>/<app>/<platform>/<file>`**, latest build only. iOS folders stay empty (with a
-README) until an iOS build actually exists.
+Rule: **`<school>/<app>/<platform>/<file>`**, latest build only; old versions go to
+`<app>/android/archive/`. iOS folders stay empty (with a README) until an iOS build exists.
+This is the **only** place builds are kept — nothing outside `/var/www/app-downloads/`.
 
 ## Public download URLs (both schools, HTTPS)
 
@@ -30,8 +37,10 @@ README) until an iOS build actually exists.
 | Manifest | `https://iqra.skoolific.com/apps/versions.json` |
 | Staff app (iqra & bilal) | `https://iqra.skoolific.com/apps/iqra/staff/android/staff-app.apk` |
 | Iqra parent app | `https://iqra.skoolific.com/apps/iqra/parent/android/iqra-parent-v5.13.apk` |
-| Bilal parent app | `https://bilal.skoolific.com/apps/bilal/parent/android/bilal-parent-v1.0.0.apk` |
+| Bilal parent app (APK) | `https://bilal.skoolific.com/apps/bilal/parent/android/bilal-parent-v1.0.2.apk` |
+| Bilal parent app (Play AAB) | `https://bilal.skoolific.com/apps/bilal/parent/android/bilal-parent-v1.0.2-play.aab` |
 | Bilal student app | `https://bilal.skoolific.com/apps/bilal/student/android/bilal-student-v1.0.0.apk` |
+| Stock app | `https://iqra.skoolific.com/apps/shared/stock/android/iki-stock-app.apk` |
 | Browse everything | `https://<school>.skoolific.com/apps/` |
 | In-app staff updater | `https://iqra.skoolific.com/downloads/staff-app/version.json` |
 
@@ -41,7 +50,7 @@ README) until an iOS build actually exists.
 |---|---|---|---|---|
 | Staff (iqra + bilal, one app) | `flutter-staff-app` | 1.1.2+5 | ✅ | ✅ Codemagic → TestFlight (`com.skoolific.iqraStaff`) |
 | Iqra Parent | `flutter-parent-app` | 5.13 | ✅ | ✅ Codemagic → TestFlight (`com.skoolific.iqraParent`) |
-| Bilal Parent | `flutter-bilal-parent-app` | 1.0.0 | ✅ | ✅ Codemagic → TestFlight (`com.skoolific.bilalParent`) |
+| Bilal Parent | `flutter-bilal-parent-app` | 1.0.2 (code 3) | ✅ APK + **Play AAB** | ✅ Codemagic → TestFlight (`com.skoolific.bilalParent`) |
 | Bilal Student | `flutter-bilal-student-app` | 1.0.0 | ✅ | ❌ no iOS workflow yet |
 
 ### Where the iOS builds live
@@ -65,13 +74,19 @@ cannot be made on this Linux server. There are three workflows:
 
 ## Publishing a new build
 
-1. Build: `flutter build apk --release` (Android) in the app's project.
-2. Copy it into the store with a versioned name, e.g.
-   `scp build/app/outputs/flutter-apk/app-release.apk iqra-vps:/var/www/app-downloads/iqra/parent/android/iqra-parent-v5.14.apk`
-3. Update `/var/www/app-downloads/versions.json` (version, bytes, sha256, built date).
-4. For the **staff** app also bump `/var/www/app-downloads/iqra/staff/android/version.json`
+**Everything goes in `/var/www/app-downloads/` — this is the only location.**
+
+1. Build:
+   - Android APK: `flutter build apk --release`
+   - Google Play: `flutter build appbundle --release` → `build/app/outputs/bundle/release/app-release.aab`
+2. Copy it into the store with a versioned name:
+   `scp <file> iqra-vps:/var/www/app-downloads/<school>/<app>/android/<app>-v<version>.apk`
+   `scp app-release.aab iqra-vps:/var/www/app-downloads/<school>/<app>/android/<app>-v<version>-play.aab`
+3. Move the **previous** version into `<school>/<app>/android/archive/` (latest stays on top).
+4. Update `/var/www/app-downloads/versions.json` (version, bytes, sha256, built, aab entry).
+5. For the **staff** app also bump `/var/www/app-downloads/iqra/staff/android/version.json`
    (`version` + `apk_url`) — that is what the in-app updater reads.
-5. Delete the previous version file in that folder (latest only).
+6. Play uploads: keep `versionCode` higher than the last one uploaded to the Console.
 
 ## iOS (Codemagic)
 
