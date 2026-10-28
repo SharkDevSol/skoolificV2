@@ -105,19 +105,19 @@ function loadProjectCreds() {
   if (FCM_CLIENT_EMAIL && FCM_PRIVATE_KEY) {
     add({ project_id: FCM_PROJECT_ID, client_email: FCM_CLIENT_EMAIL, private_key: FCM_PRIVATE_KEY });
   }
-  // Optional secondary project from env (deterministic fallback, no file lookup)
-  if (process.env.FCM_CLIENT_EMAIL_2 && process.env.FCM_PRIVATE_KEY_2) {
-    add({
-      project_id: process.env.FCM_PROJECT_ID_2 || '',
-      client_email: process.env.FCM_CLIENT_EMAIL_2,
-      private_key: process.env.FCM_PRIVATE_KEY_2.replace(/\\n/g, '\n'),
-    });
-  }
-  for (const f of PROJECT_FILES) {
-    try {
-      const p = path.join(__dirname, '..', f);
-      if (fs.existsSync(p)) add(JSON.parse(fs.readFileSync(p, 'utf8')));
-    } catch (_) {}
+
+  // Guardian notifications must go through the PARENT app's Firebase project
+  // only. The staff app registers its own tokens in the staff project, and
+  // sending guardian pushes there makes notifications appear inside "IQRA/Bilal
+  // Staff" instead of the parent app. So the file-based projects are used ONLY
+  // as a fallback when the env primary is missing.
+  if (!list.length) {
+    for (const f of PROJECT_FILES) {
+      try {
+        const p = path.join(__dirname, '..', f);
+        if (fs.existsSync(p)) add(JSON.parse(fs.readFileSync(p, 'utf8')));
+      } catch (_) {}
+    }
   }
   return list;
 }
