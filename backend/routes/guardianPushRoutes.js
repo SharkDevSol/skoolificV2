@@ -159,8 +159,22 @@ async function sendWithProject(creds, deviceToken, title, body, data) {
         message: {
           token: deviceToken,
           notification: { title, body },
-          data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
-          android: { priority: 'high' },
+          data: Object.fromEntries(Object.entries(Object.assign({ title: title, body: body }, data)).map(([k, v]) => [k, String(v)])),
+          android: {
+            priority: 'high',
+            notification: {
+              channel_id: 'skoolific_alerts',
+              sound: 'default',
+              default_sound: true,
+              default_vibrate_timings: true,
+              notification_priority: 'PRIORITY_HIGH',
+              visibility: 'PUBLIC',
+            },
+          },
+          apns: {
+            headers: { 'apns-priority': '10' },
+            payload: { aps: { sound: 'default', badge: 1 } },
+          },
         },
       },
       { headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' } }
@@ -180,7 +194,10 @@ async function pushToGuardian(guardianUsername, title, body, data = {}) {
        WHERE guardian_username = $1 AND active = true`,
       [guardianUsername]
     );
-    if (!rows.length) return { sent: 0 };
+    if (!rows.length) {
+      console.log('[push] no active device for ' + guardianUsername + ' (' + (data && data.type ? data.type : 'general') + ')');
+      return { sent: 0 };
+    }
 
     const projects = loadProjectCreds();
     if (!projects.length) {
