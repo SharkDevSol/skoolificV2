@@ -85,10 +85,10 @@ async function getAccessToken() {
 // Sending a token through the wrong project fails with "SenderId mismatch", so
 // we try every project we have credentials for, per token.
 const projectCredCache = new Map();
+// PARENT-ONLY project credentials. The staff project files are deliberately
+// excluded so guardian notifications can never land in the staff app.
 const PROJECT_FILES = [
-  'firebase-service-account.json',
   'firebase-service-account-parent.json',
-  'firebase-service-account-staff.json',
   'firebase-service-account-iqra-parent.json',
 ];
 
@@ -111,13 +111,11 @@ function loadProjectCreds() {
   // sending guardian pushes there makes notifications appear inside "IQRA/Bilal
   // Staff" instead of the parent app. So the file-based projects are used ONLY
   // as a fallback when the env primary is missing.
-  if (!list.length) {
-    for (const f of PROJECT_FILES) {
-      try {
-        const p = path.join(__dirname, '..', f);
-        if (fs.existsSync(p)) add(JSON.parse(fs.readFileSync(p, 'utf8')));
-      } catch (_) {}
-    }
+  for (const f of PROJECT_FILES) {
+    try {
+      const p = path.join(__dirname, '..', f);
+      if (fs.existsSync(p)) add(JSON.parse(fs.readFileSync(p, 'utf8')));
+    } catch (_) {}
   }
   return list;
 }
@@ -211,6 +209,7 @@ async function pushToGuardian(guardianUsername, title, body, data = {}) {
         } catch (_) {}
       }
     }
+    if (sent > 0) console.log('[push] delivered ' + sent + ' notification(s) to ' + guardianUsername + ' (' + (data && data.type ? data.type : 'general') + ')');
     return { sent };
   } catch (err) {
     console.error('pushToGuardian error:', err.message);

@@ -1114,10 +1114,11 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
       let studentName = '';
       let liveClassId = String(class_id || school_id);
       let smachineId = null;
+      let guardianUsername = '';
       let isCurrentActiveStudent = true;
       try {
         const studentRes = await client.query(`
-          SELECT student_name, class_id, smachine_id FROM classes_schema."${className}"
+          SELECT student_name, class_id, smachine_id, guardian_username FROM classes_schema."${className}"
           WHERE TRIM(school_id::text) = TRIM($1::text)
             ${hasIsActiveCol ? 'AND (is_active = TRUE OR is_active IS NULL)' : ''}
           LIMIT 1
@@ -1130,6 +1131,7 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
             liveClassId = String(studentRes.rows[0].class_id);
           }
           smachineId = studentRes.rows[0].smachine_id || null;
+          guardianUsername = studentRes.rows[0].guardian_username || '';
         }
       } catch (_) {}
 
@@ -1248,6 +1250,38 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
 
         const fullStatus = statusMap[shortStatus];
         if (!fullStatus) continue;
+
+        // Notify the guardian when a day is newly marked ABSENT or LATE
+        // (the guard once lived only in the legacy routes, so marks made from
+        // the staff app or the admin page never reached the parent app).
+        try {
+          const short = dayValues[dayName];
+          if ((short === 'A' || short === 'L') && guardianUsername) {
+            const prevShort = storedRow ? String(storedRow[dayName] || '') : '';
+            if (prevShort !== short) {
+              const gd = dayDateMap[dayName];
+              const ymd = gd.getFullYear() + '-' + String(gd.getMonth() + 1).padStart(2, '0') + '-' + String(gd.getDate()).padStart(2, '0');
+              const { notifyGuardianPush } = require('../services/guardianPush');
+              notifyGuardianPush(
+                guardianUsername,
+                short === 'A' ? 'Attendance Alert: Absent' : 'Attendance Alert: Late',
+                short === 'A'
+                  ? 'Attention: ' + studentName + ' was marked ABSENT.'
+                  : 'Notice: ' + studentName + ' arrived LATE.',
+                {
+                  type: 'attendance',
+                  status: short === 'A' ? 'absent' : 'late',
+                  studentName: studentName,
+                  student_name: studentName,
+                  studentId: String(school_id),
+                  school_id: String(school_id),
+                  className: className,
+                  date: ymd,
+                }
+              ).catch((e) => console.warn('class-teacher attendance push error:', e.message));
+            }
+          }
+        } catch (_) {}
 
         try {
           const gregDate = dayDateMap[dayName];

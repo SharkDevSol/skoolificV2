@@ -320,6 +320,40 @@ router.post('/check-in', async (req, res) => {
       className, studentId, ethYear, ethMonth, ethDay, status: calculatedStatus,
     });
 
+    // Notify the guardian when the admin marks the student ABSENT or LATE
+    // (only when the status actually changed, to avoid notification spam).
+    try {
+      const newStatus = String(calculatedStatus || '').toUpperCase();
+      const prevStatus = String(existingRecord.rows[0] && existingRecord.rows[0].status || '').toUpperCase();
+      if ((newStatus === 'ABSENT' || newStatus === 'LATE') && newStatus !== prevStatus) {
+        const st = await getDb(req).query(
+          'SELECT student_name, guardian_username FROM classes_schema."' + className + '" WHERE school_id::text = $1 LIMIT 1',
+          [String(studentId)]
+        );
+        const row = st.rows[0];
+        if (row && row.guardian_username) {
+          const { notifyGuardianPush } = require('../../services/guardianPush');
+          notifyGuardianPush(
+            row.guardian_username,
+            newStatus === 'ABSENT' ? 'Attendance Alert: Absent' : 'Attendance Alert: Late',
+            newStatus === 'ABSENT'
+              ? 'Attention: ' + row.student_name + ' was marked ABSENT.'
+              : 'Notice: ' + row.student_name + ' arrived LATE.',
+            {
+              type: 'attendance',
+              status: newStatus === 'ABSENT' ? 'absent' : 'late',
+              studentName: row.student_name,
+              student_name: row.student_name,
+              studentId: String(studentId),
+              school_id: String(studentId),
+              className: className,
+              date: ethYear + '-' + ethMonth + '-' + ethDay,
+            }
+          ).catch((e) => console.warn('admin attendance push error:', e.message));
+        }
+      }
+    } catch (_) {}
+
     res.json({
       success: true,
       message: 'Check-in recorded successfully',
