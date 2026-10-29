@@ -1119,6 +1119,15 @@ router.post('/add-staff', upload, async (req, res) => {
       }
     }
 
+    // FIX: blank unique fields must be NULL, otherwise the 2nd staff with an
+    // empty machine_id fails with "duplicate key ... machine_id_key"
+    for (const c of ['machine_id', 'smachine_id']) {
+      if (Object.prototype.hasOwnProperty.call(insertData, c)) {
+        const v = String(insertData[c] == null ? '' : insertData[c]).trim();
+        insertData[c] = v === '' ? null : v;
+      }
+    }
+
     // ---- INSERT ----
     const cols = ['global_staff_id', 'staff_id', ...Object.keys(insertData)];
     const vals = [globalStaffId, staffId, ...Object.values(insertData)];
