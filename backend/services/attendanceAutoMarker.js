@@ -404,8 +404,8 @@ class AttendanceAutoMarker {
           if (attendanceResult.rows.length === 0) {
             await pool.query(`
               INSERT INTO hr_ethiopian_attendance
-              (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in, shift_type)
-              VALUES ($1, $2, $3, $4, $5, 'ABSENT', '00:00', $6)
+              (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in, shift_type, source, created_by)
+              VALUES ($1, $2, $3, $4, $5, 'ABSENT', '00:00', $6, 'AUTO', 'AUTO-MARKER')
               ON CONFLICT (staff_id, ethiopian_year, ethiopian_month, ethiopian_day, shift_type) 
               DO NOTHING
             `, [staffId, name, checkEthDate.year, checkEthDate.month, checkEthDate.day, shift]);
@@ -468,7 +468,7 @@ class AttendanceAutoMarker {
           // Update existing record to LEAVE
           await pool.query(`
             UPDATE hr_ethiopian_attendance
-            SET status = 'LEAVE', updated_at = NOW()
+            SET status = 'LEAVE', source = 'AUTO', updated_by = 'AUTO-MARKER', updated_at = NOW()
             WHERE staff_id = $1 
               AND ethiopian_year = $2 
               AND ethiopian_month = $3 
@@ -480,8 +480,8 @@ class AttendanceAutoMarker {
           // Create new record with LEAVE status
           await pool.query(`
             INSERT INTO hr_ethiopian_attendance
-            (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in)
-            VALUES ($1, $2, $3, $4, $5, 'LEAVE', '00:00')
+            (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in, source, created_by)
+            VALUES ($1, $2, $3, $4, $5, 'LEAVE', '00:00', 'AUTO', 'AUTO-MARKER')
           `, [leave.staff_id, leave.staff_name, ethDate.year, ethDate.month, ethDate.day]);
 
           console.log(`✅ Marked ${leave.staff_name} as LEAVE (approved leave)`);

@@ -706,6 +706,9 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
   const [checkOut, setCheckOut] = useState(attendance?.check_out || '17:00');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState(hasCheckedIn && !hasCheckedOut ? 'checkout' : 'checkin');
+  const [timeMode, setTimeMode] = useState('current');
+  const [markTime, setMarkTime] = useState(attendance?.check_in ? String(attendance.check_in).slice(0, 5) : '08:00');
+  const [markLoading, setMarkLoading] = useState(false);
 
   // If this is a LEAVE day, show info and prevent editing
   if (isLeave) {
@@ -923,6 +926,43 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
     }
   };
 
+  const handleQuickMark = async (selectedMark) => {
+    setMarkLoading(true);
+    try {
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      const time = timeMode === 'current'
+        ? new Date().toTimeString().slice(0, 8)
+        : (markTime || '08:00');
+      const staffId = (attendance && attendance.staff_id) || cell.staff.machineId || cell.staff.name;
+      const response = await branchAxios.post(
+        `${API_URL}/hr/attendance/ethiopian`,
+        {
+          staffId,
+          staffName: cell.staff.name,
+          ethMonth: parseInt(ethMonth),
+          ethYear: parseInt(ethYear),
+          ethDay: parseInt(cell.day),
+          checkIn: time,
+          checkOut: (attendance && attendance.check_out) || null,
+          shiftType: cell.shiftType,
+          status: selectedMark,
+          timeMode,
+          source: 'MANUAL',
+          createdBy: localStorage.getItem('username') || localStorage.getItem('adminUsername') || 'admin'
+        },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+      if (response.data.success) {
+        onSuccess && onSuccess();
+      }
+    } catch (error) {
+      console.error('Error marking attendance:', error);
+      alert('Failed to mark attendance: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setMarkLoading(false);
+    }
+  };
+
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
@@ -950,6 +990,11 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
           <div style={{ fontSize: '14px', color: '#666' }}>
             <strong>Date:</strong> Day {cell.day}, {getEthiopianMonthName(ethMonth)} {ethYear}
           </div>
+          {attendance && (attendance.source || attendance.created_by) && (
+            <div style={{ fontSize: '13px', color: '#666', marginTop: '8px' }}>
+              <strong>Source:</strong> {attendance.source || 'MANUAL'}{attendance.created_by ? ' · ' + attendance.created_by : ''}
+            </div>
+          )}
           
           {hasCheckedIn && (
             <div style={{ marginTop: '12px', padding: '12px', background: '#e8f5e9', borderRadius: '6px' }}>
@@ -966,6 +1011,48 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Quick mark */}
+        <div style={{ marginBottom: '20px', padding: '16px', background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px' }}>
+          <div style={{ fontWeight: 700, marginBottom: '10px' }}>Mark attendance</div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+            {[['P', 'Present'], ['A', 'Absent'], ['L', 'Late'], ['H', 'Half Day'], ['*', 'No Check-out'], ['V', 'Permission']].map(([code, label]) => (
+              <button
+                key={code}
+                type="button"
+                disabled={markLoading}
+                onClick={() => handleQuickMark(code)}
+                style={{
+                  padding: '8px 14px', borderRadius: '8px', border: '1px solid #2196F3',
+                  background: '#fff', color: '#1565c0', cursor: 'pointer', fontWeight: 700
+                }}
+              >
+                {code} · {label}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input type="radio" checked={timeMode === 'current'} onChange={() => setTimeMode('current')} />
+              Current time
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input type="radio" checked={timeMode === 'set'} onChange={() => setTimeMode('set')} />
+              Set time
+            </label>
+            {timeMode === 'set' && (
+              <input
+                type="time"
+                value={markTime}
+                onChange={(e) => setMarkTime(e.target.value)}
+                style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #ddd' }}
+              />
+            )}
+          </div>
+          <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+            P is auto-changed to L when the time is after the allowed check-in (any-time staff are never late).
+          </div>
         </div>
 
         {/* Check-In Form */}

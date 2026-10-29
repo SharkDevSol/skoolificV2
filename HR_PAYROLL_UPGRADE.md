@@ -66,8 +66,15 @@ PGPASSWORD=... psql -h localhost -U <user> -d <db> -v ON_ERROR_STOP=1 --single-t
 - `/api/hr/attendance/calculate-deductions` uses the hook, supports the global `ALL` amounts, and a staff-specific row overrides the global switch/any-time behaviour.
 - Tested: global ON → 30 absences × 100 = 3000; staff-specific switch OFF → 0; any-time + absence-not-deduct → 0; any-time + deduct → 3000.
 
-## Next (requirements 3–7)
-AUTO/MANUAL marking + source/creator + P→L, leave review Done/A→V + audit, Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
+## Requirement 3 — Staff attendance records (implemented, IQRA deployed)
+- Manual marks: **P / A / L / H / \* / V** from the attendance cell modal, with **Current time / Set time**.
+- Backend maps marks to stored statuses (P→PRESENT, A→ABSENT, L→LATE, H→HALF_DAY, V→LEAVE, \*→`PRESENT + without check out`).
+- **P→L auto-correction**: if P is chosen after the allowed check-in it is stored as LATE (staff-specific late threshold wins; any-time staff are never late).
+- **Source/creator**: `source` (AUTO/MANUAL) + `created_by`/`updated_by` stored; AI06 + auto-marker now write `source='AUTO'`; the modal shows Source/creator.
+- Verification: deploy completed (API 200, web 200); end-to-end mark test pending because the local internet dropped right after deploy.
+
+## Next (requirements 4–7)
+Leave review Done/A→V + audit, Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
 
 ## Behaviour changes to be aware of
 - `/api/staff` and `/api/staff/data/...` no longer return password fields (any UI relying on them will get `undefined`).

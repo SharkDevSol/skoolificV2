@@ -561,12 +561,13 @@ class AI06WebSocketService {
         // CHECK-IN: Insert new record
         const query = `
           INSERT INTO hr_ethiopian_attendance 
-          (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in, shift_type)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in, shift_type, source, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'AUTO', 'AI06')
           ON CONFLICT (staff_id, ethiopian_year, ethiopian_month, ethiopian_day, shift_type)
           DO UPDATE SET 
             check_in = EXCLUDED.check_in,
             status = EXCLUDED.status,
+            source = 'AUTO',
             updated_at = NOW()
         `;
         
@@ -598,12 +599,13 @@ class AI06WebSocketService {
           console.log(`⚠️  CHECK-OUT attempted but no check-in record found - converting to CHECK-IN`);
           const insertQuery = `
             INSERT INTO hr_ethiopian_attendance 
-            (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in, shift_type)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, status, check_in, shift_type, source, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'AUTO', 'AI06')
             ON CONFLICT (staff_id, ethiopian_year, ethiopian_month, ethiopian_day, shift_type)
             DO UPDATE SET 
               check_in = EXCLUDED.check_in,
               status = EXCLUDED.status,
+              source = 'AUTO',
               updated_at = NOW()
           `;
           

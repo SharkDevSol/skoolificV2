@@ -414,7 +414,14 @@ router.post('/attendance/ethiopian', authenticateWithBranch, async (req, res) =>
     console.log('📥 POST /api/hr/attendance/ethiopian - Recording attendance...');
     console.log('Request body:', JSON.stringify(req.body, null, 2));
     
-    const { staffId, staffName, ethMonth, ethYear, ethDay, checkIn, checkOut, notes, shiftType } = req.body;
+    let { staffId, staffName, ethMonth, ethYear, ethDay, checkIn, checkOut, notes, shiftType } = req.body;
+    const { status: markStatus, timeMode, source, createdBy } = req.body;
+
+    // "Current time" mode uses the server clock; A/V marks may have no time
+    if (String(timeMode || '').toLowerCase() === 'current' && !checkIn) {
+      checkIn = new Date().toTimeString().slice(0, 8);
+    }
+    if (!checkIn) checkIn = '00:00';
 
     console.log('🔍 DEBUG - Staff identification:');
     console.log('   staffId from request:', staffId);
@@ -711,6 +718,21 @@ router.post('/attendance/ethiopian', authenticateWithBranch, async (req, res) =>
       }
       console.log(`📊 Status determined: ${status} (Late: ${isLate}, Half Day: ${isHalfDay})`);
     }
+    // ---- Manual mark (P/A/L/H/*/V) overrides the time calculation ----
+    const markMap = { P: 'PRESENT', A: 'ABSENT', L: 'LATE', H: 'HALF_DAY', V: 'LEAVE', '*': 'PRESENT + without check out' };
+    const rawMark = String(markStatus || '').trim().toUpperCase();
+    if (rawMark && markMap[rawMark]) status = markMap[rawMark];
+
+    // P chosen but after the allowed check-in -> LATE (specific time wins; any-time never late)
+    if (status === 'PRESENT' && !hasAnytimeCheck) {
+      const [ih, im] = String(checkIn).split(':').map(Number);
+      const [th, tm] = String(settings.late_threshold).split(':').map(Number);
+      if (ih * 60 + im > th * 60 + tm) status = 'LATE';
+    }
+
+    const sourceValue = String(source || 'MANUAL').toUpperCase() === 'AUTO' ? 'AUTO' : 'MANUAL';
+    const actor = createdBy || (req.user && (req.user.username || req.user.name)) || null;
+
     // For "both" shift staff, include shift_type in the unique constraint
     console.log(`🔍 Looking for existing record...`);
     
@@ -739,10 +761,12 @@ router.post('/attendance/ethiopian', authenticateWithBranch, async (req, res) =>
              status = $4,
              shift_type = $5,
              notes = COALESCE($6, notes),
+             source = $8,
+             updated_by = $9,
              updated_at = NOW()
          WHERE id = $7
          RETURNING *`,
-        [checkIn, checkOut, workingHours, status, effectiveShift, notes, existingRecord.rows[0].id]
+        [checkIn, checkOut, workingHours, status, effectiveShift, notes, existingRecord.rows[0].id, sourceValue, actor]
       );
       console.log(`✅ Updated record successfully`);
     } else {
@@ -750,10 +774,10 @@ router.post('/attendance/ethiopian', authenticateWithBranch, async (req, res) =>
       console.log(`➕ Inserting new record`);
       result = await pool.query(
         `INSERT INTO hr_ethiopian_attendance 
-         (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, check_in, check_out, working_hours, status, shift_type, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         (staff_id, staff_name, ethiopian_year, ethiopian_month, ethiopian_day, check_in, check_out, working_hours, status, shift_type, notes, source, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING *`,
-        [staffId, staffName, parseInt(ethYear), parseInt(ethMonth), parseInt(ethDay), checkIn, checkOut, workingHours, status, effectiveShift, notes]
+        [staffId, staffName, parseInt(ethYear), parseInt(ethMonth), parseInt(ethDay), checkIn, checkOut, workingHours, status, effectiveShift, notes, sourceValue, actor]
       );
       console.log(`✅ Inserted record successfully`);
     }
