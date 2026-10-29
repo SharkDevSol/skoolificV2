@@ -49,8 +49,16 @@ PGPASSWORD=... psql -h localhost -U <user> -d <db> -v ON_ERROR_STOP=1 --single-t
 3. `Done` locks a payroll month; an **admin unlock** (reason + audit) will allow backfilling past months.
 4. Tips can have **no staff** (general school expense); types are admin-editable.
 
-## Next (requirements 1–7)
-Salary setup (bank/tax/paid months/stop), connect-to-salary + staff-specific/any-time tabs, AUTO/MANUAL + P→L + source/creator, leave review Done/A→V + audit, Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
+## Requirement 1 — Salary setup (done, IQRA)
+- `POST /api/hr/salary/add-complete` / `PUT /api/hr/salary/update-complete/:id` now store **bank name, bank account, tax on/off + type (PERCENT/FIXED) + value, paid months (1–13)** and compute tax/net **server-side**.
+- `POST /api/hr/salary/:id/stop` and `/:id/reactivate` — history kept, payroll skips stopped staff.
+- `GET /api/hr/salary/all-salaries` returns the new fields.
+- Payroll `/api/hr/payroll/generate` now: excludes stopped staff, honours paid months, applies tax, ignores manual "Tax" rows while salary tax is on, applies the `max_deduction_percent` cap, and fixes the allowances/deductions month filter (it compared a month **name** to an integer month, so they never matched).
+- UI: Add/Edit Salary modal has bank fields, optional tax, a 13-month paid-months picker and a live net preview; the salary table shows bank/tax/months + **Stop/Reactivate**.
+- Tested: 10% tax on 10,000 → net 9,000; stopped → excluded; month not in paid months → excluded.
+
+## Next (requirements 2–7)
+Connect-to-salary + staff-specific/any-time tabs, AUTO/MANUAL + P→L + source/creator, leave review Done/A→V + audit, Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
 
 ## Behaviour changes to be aware of
 - `/api/staff` and `/api/staff/data/...` no longer return password fields (any UI relying on them will get `undefined`).

@@ -775,6 +775,14 @@ router.get('/all-salaries', authenticateToken, async (req, res) => {
       netSalary: row.net_salary,
       effectiveFrom: row.effective_from,
       isActive: row.is_active,
+      bankName: row.bank_name || '',
+      bankAccountNumber: row.bank_account_number || '',
+      taxEnabled: row.tax_enabled === true,
+      taxType: row.tax_type || 'FIXED',
+      taxValue: row.tax_value != null ? Number(row.tax_value) : Number(row.tax_amount || 0),
+      paidMonths: row.paid_months || null,
+      isStopped: row.is_stopped === true,
+      stoppedAt: row.stopped_at || null,
       createdAt: row.created_at
     }));
     
@@ -788,7 +796,21 @@ router.get('/all-salaries', authenticateToken, async (req, res) => {
 // Add complete salary (simplified)
 router.post('/add-complete', authenticateToken, async (req, res) => {
   try {
-    const { staffId, staffName, staffType, accountName, baseSalary, taxAmount, netSalary, effectiveFrom } = req.body;
+    const {
+      staffId, staffName, staffType, accountName, baseSalary, effectiveFrom,
+      bankName, bankAccountNumber, taxEnabled, taxType, taxValue,
+    } = req.body;
+
+    // Server-side money math (never trust the client)
+    const baseNum = parseFloat(baseSalary) || 0;
+    const taxOn = taxEnabled === true || taxEnabled === 'true';
+    const tType = String(taxType || 'FIXED').toUpperCase() === 'PERCENT' ? 'PERCENT' : 'FIXED';
+    const tVal = Math.max(0, parseFloat(taxValue) || 0);
+    const taxCalc = taxOn ? (tType === 'PERCENT' ? (baseNum * tVal) / 100 : tVal) : 0;
+    const taxAmount = Math.min(Math.max(0, taxCalc), baseNum);
+    const netSalary = baseNum - taxAmount;
+    let paidMonths = Array.isArray(req.body.paidMonths) ? req.body.paidMonths.map(Number).filter(m => Number.isInteger(m) && m >= 1 && m <= 13) : null;
+    if (!paidMonths || paidMonths.length === 0 || paidMonths.length >= 13) paidMonths = null;
     
     console.log('💰 Received salary data:', {
       staffId,
@@ -820,11 +842,14 @@ router.post('/add-complete', authenticateToken, async (req, res) => {
     `);
     
     const result = await pool.query(
-      `INSERT INTO hr_complete_salaries 
-       (staff_id, staff_name, staff_type, account_name, base_salary, tax_amount, net_salary, effective_from)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO hr_complete_salaries
+       (staff_id, staff_name, staff_type, account_name, base_salary, tax_amount, net_salary, effective_from,
+        bank_name, bank_account_number, tax_enabled, tax_type, tax_value, paid_months)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
-      [staffId, staffName, staffType, accountName, baseSalary, taxAmount, netSalary, effectiveFrom]
+      [staffId, staffName, staffType, accountName, baseNum, taxAmount, netSalary, effectiveFrom,
+       bankName || null, bankAccountNumber || null, taxOn, tType, tVal,
+       paidMonths ? JSON.stringify(paidMonths) : null]
     );
     
     console.log('✅ Salary saved successfully:', result.rows[0]);
@@ -840,7 +865,21 @@ router.post('/add-complete', authenticateToken, async (req, res) => {
 router.put('/update-complete/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { staffId, staffName, staffType, accountName, baseSalary, taxAmount, netSalary, effectiveFrom } = req.body;
+    const {
+      staffId, staffName, staffType, accountName, baseSalary, effectiveFrom,
+      bankName, bankAccountNumber, taxEnabled, taxType, taxValue,
+    } = req.body;
+
+    // Server-side money math (never trust the client)
+    const baseNum = parseFloat(baseSalary) || 0;
+    const taxOn = taxEnabled === true || taxEnabled === 'true';
+    const tType = String(taxType || 'FIXED').toUpperCase() === 'PERCENT' ? 'PERCENT' : 'FIXED';
+    const tVal = Math.max(0, parseFloat(taxValue) || 0);
+    const taxCalc = taxOn ? (tType === 'PERCENT' ? (baseNum * tVal) / 100 : tVal) : 0;
+    const taxAmount = Math.min(Math.max(0, taxCalc), baseNum);
+    const netSalary = baseNum - taxAmount;
+    let paidMonths = Array.isArray(req.body.paidMonths) ? req.body.paidMonths.map(Number).filter(m => Number.isInteger(m) && m >= 1 && m <= 13) : null;
+    if (!paidMonths || paidMonths.length === 0 || paidMonths.length >= 13) paidMonths = null;
     
     console.log('✏️ Updating salary ID:', id);
     console.log('💰 New salary data:', {
@@ -855,7 +894,7 @@ router.put('/update-complete/:id', authenticateToken, async (req, res) => {
     });
     
     const result = await pool.query(
-      `UPDATE hr_complete_salaries 
+      `UPDATE hr_complete_salaries
        SET staff_name = $1,
            staff_type = $2,
            account_name = $3,
@@ -863,10 +902,18 @@ router.put('/update-complete/:id', authenticateToken, async (req, res) => {
            tax_amount = $5,
            net_salary = $6,
            effective_from = $7,
+           bank_name = $8,
+           bank_account_number = $9,
+           tax_enabled = $10,
+           tax_type = $11,
+           tax_value = $12,
+           paid_months = $13,
            updated_at = NOW()
-       WHERE id = $8
+       WHERE id = $14
        RETURNING *`,
-      [staffName, staffType, accountName, baseSalary, taxAmount, netSalary, effectiveFrom, id]
+      [staffName, staffType, accountName, baseNum, taxAmount, netSalary, effectiveFrom,
+       bankName || null, bankAccountNumber || null, taxOn, tType, tVal,
+       paidMonths ? JSON.stringify(paidMonths) : null, id]
     );
     
     if (result.rows.length === 0) {
@@ -879,6 +926,39 @@ router.put('/update-complete/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('❌ Error updating salary:', error);
     res.status(500).json({ success: false, error: { message: 'Failed to update salary' } });
+  }
+});
+
+// Stop / reactivate a staff salary (history is kept; payroll skips stopped staff)
+router.post('/:id/stop', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE hr_complete_salaries
+          SET is_stopped = TRUE, stopped_at = NOW(), updated_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ success: false, error: { message: 'Salary record not found' } });
+    res.json({ success: true, data: result.rows[0], message: 'Staff stopped (will not appear in future payroll)' });
+  } catch (e) {
+    console.error('Error stopping salary:', e);
+    res.status(500).json({ success: false, error: { message: 'Failed to stop staff' } });
+  }
+});
+
+router.post('/:id/reactivate', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE hr_complete_salaries
+          SET is_stopped = FALSE, stopped_at = NULL, reactivated_at = NOW(), updated_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ success: false, error: { message: 'Salary record not found' } });
+    res.json({ success: true, data: result.rows[0], message: 'Staff reactivated' });
+  } catch (e) {
+    console.error('Error reactivating salary:', e);
+    res.status(500).json({ success: false, error: { message: 'Failed to reactivate staff' } });
   }
 });
 

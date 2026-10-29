@@ -38,20 +38,26 @@ router.post('/generate', authenticateWithBranch, async (req, res) => {
 
     // Get all active salaries from hr_complete_salaries table
     const salariesQuery = `
-      SELECT 
+      SELECT
         staff_id,
         staff_name,
         staff_type,
         account_name,
         base_salary,
         tax_amount,
-        net_salary
+        COALESCE(tax_enabled, FALSE) AS tax_enabled,
+        tax_type,
+        tax_value,
+        paid_months,
+        COALESCE(is_stopped, FALSE) AS is_stopped
       FROM hr_complete_salaries
-      WHERE is_active = true
+      WHERE COALESCE(is_active, TRUE) = TRUE
+        AND COALESCE(is_stopped, FALSE) = FALSE
+        AND (paid_months IS NULL OR paid_months = '[]'::jsonb OR paid_months @> to_jsonb($1::int))
       ORDER BY staff_name
     `;
 
-    const salariesResult = await pool.query(salariesQuery);
+    const salariesResult = await pool.query(salariesQuery, [parseInt(ethMonth)]);
 
     if (salariesResult.rows.length === 0) {
       return res.status(404).json({ 
@@ -60,57 +66,70 @@ router.post('/generate', authenticateWithBranch, async (req, res) => {
       });
     }
 
+    // Deduction cap (% of gross) — configurable in hr_payroll_settings
+    let maxDeductionPercent = 100;
+    try {
+      const capRow = await pool.query('SELECT max_deduction_percent FROM hr_payroll_settings ORDER BY id LIMIT 1');
+      if (capRow.rows[0]) maxDeductionPercent = Number(capRow.rows[0].max_deduction_percent) || 100;
+    } catch (_) {}
+
     const payrollData = [];
 
     // For each staff, calculate their net salary
     for (const salary of salariesResult.rows) {
       const staffId = salary.staff_id;
-      const baseSalary = parseFloat(salary.base_salary);
-
-      // Use account number from salary record (not from staff table)
+      const baseSalary = parseFloat(salary.base_salary) || 0;
       const accountNumber = salary.account_name || 'N/A';
-      
-      console.log(`👤 ${salary.staff_name} (ID: ${staffId}) - Account: ${accountNumber}`);
 
-      // Get allowances for this staff and month
+      // Allowances (monthly rows use the numeric Ethiopian month)
       const allowancesQuery = `
-        SELECT 
-          allowance_type,
+        SELECT
+          COALESCE(allowance_type, allowance_name) AS allowance_type,
           SUM(amount) as total_amount
         FROM hr_allowances
-        WHERE staff_id = $1 
+        WHERE staff_id = $1
           AND (ethiopian_month = $2 OR ethiopian_month IS NULL)
           AND (ethiopian_year = $3 OR ethiopian_year IS NULL)
-        GROUP BY allowance_type
+        GROUP BY COALESCE(allowance_type, allowance_name)
       `;
-      const allowancesResult = await pool.query(allowancesQuery, [staffId, ethiopianMonthName, parseInt(ethYear)]).catch(err => {
-        console.log(`⚠️ Error fetching allowances for ${salary.staff_name}:`, err.message);
+      const allowancesResult = await pool.query(allowancesQuery, [staffId, parseInt(ethMonth), parseInt(ethYear)]).catch(err => {
+        console.log('Error fetching allowances for ' + salary.staff_name + ':', err.message);
         return { rows: [] };
       });
-      
       const totalAllowances = allowancesResult.rows.reduce((sum, row) => sum + parseFloat(row.total_amount), 0);
 
-      // Get deductions for this staff and month
+      // Salary tax is a setting now: percent or fixed (server-side only)
+      const taxEnabled = salary.tax_enabled === true;
+      const tType = String(salary.tax_type || 'FIXED').toUpperCase();
+      const tVal = parseFloat(salary.tax_value) || 0;
+      const taxAmount = taxEnabled ? Math.min(baseSalary, tType === 'PERCENT' ? (baseSalary * tVal) / 100 : tVal) : 0;
+
+      // Deductions for this staff and month (manual "Tax" ignored when the salary tax is on)
       const deductionsQuery = `
-        SELECT 
+        SELECT
           deduction_type,
           SUM(amount) as total_amount
         FROM hr_deductions
-        WHERE staff_id = $1 
+        WHERE staff_id = $1
           AND (ethiopian_month = $2 OR ethiopian_month IS NULL)
           AND (ethiopian_year = $3 OR ethiopian_year IS NULL)
+          ${taxEnabled ? "AND LOWER(deduction_type) <> 'tax'" : ''}
         GROUP BY deduction_type
       `;
-      const deductionsResult = await pool.query(deductionsQuery, [staffId, ethiopianMonthName, parseInt(ethYear)]).catch(err => {
-        console.log(`⚠️ Error fetching deductions for ${salary.staff_name}:`, err.message);
+      const deductionsResult = await pool.query(deductionsQuery, [staffId, parseInt(ethMonth), parseInt(ethYear)]).catch(err => {
+        console.log('Error fetching deductions for ' + salary.staff_name + ':', err.message);
         return { rows: [] };
       });
-      
-      const totalDeductions = deductionsResult.rows.reduce((sum, row) => sum + parseFloat(row.total_amount), 0);
 
-      // Calculate net salary
+      const deductionsRows = deductionsResult.rows.map(r => ({ ...r, total_amount: parseFloat(r.total_amount) || 0 }));
+      if (taxAmount > 0) deductionsRows.unshift({ deduction_type: 'Tax', total_amount: taxAmount });
+
+      const computedDeductions = deductionsRows.reduce((sum, row) => sum + (parseFloat(row.total_amount) || 0), 0);
       const grossSalary = baseSalary + totalAllowances;
+      const capAmount = grossSalary * (maxDeductionPercent / 100);
+      const totalDeductions = Math.min(computedDeductions, Math.max(capAmount, 0));
       const netSalary = grossSalary - totalDeductions;
+      const capApplied = computedDeductions > totalDeductions;
 
       payrollData.push({
         staff_id: staffId,
@@ -122,8 +141,11 @@ router.post('/generate', authenticateWithBranch, async (req, res) => {
         total_deductions: totalDeductions,
         gross_salary: grossSalary,
         net_salary: netSalary,
+        tax_amount: taxAmount,
         allowances_breakdown: allowancesResult.rows,
-        deductions_breakdown: deductionsResult.rows
+        deductions_breakdown: deductionsRows,
+        over_cap: capApplied,
+        flags: capApplied ? 'DEDUCTION_CAP_APPLIED' : null
       });
     }
 

@@ -147,6 +147,25 @@ const SalaryManagement = () => {
     }
   };
 
+  const handleToggleStop = async (salary) => {
+    if (!salary) return;
+    const action = salary.isStopped ? 'reactivate' : 'stop';
+    const msg = action === 'stop'
+      ? 'Stop this staff? They will not appear in future payroll (history is kept).'
+      : 'Reactivate this staff? They will appear in payroll again.';
+    if (!window.confirm(msg)) return;
+    try {
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      await branchAxios.post(`${API_URL}/hr/salary/${salary.id}/${action}`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      await fetchSalaries();
+    } catch (err) {
+      console.error('Error toggling staff status:', err);
+      alert('Failed to update staff status');
+    }
+  };
+
   // Check if staff has salary
   const staffHasSalary = (staffId) => {
     // Convert both to strings for comparison
@@ -338,6 +357,10 @@ const SalaryManagement = () => {
                                 <div className={styles.salaryDetails}>
                                   <small>Base: {parseFloat(salary.baseSalary).toFixed(2)} Birr</small>
                                   <small>Net: {parseFloat(salary.netSalary).toFixed(2)} Birr</small>
+                                  {salary.bankName ? <small>Bank: {salary.bankName}{salary.bankAccountNumber ? ' - ' + salary.bankAccountNumber : ''}</small> : null}
+                                  {salary.taxEnabled ? <small>Tax: {salary.taxType === 'PERCENT' ? salary.taxValue + '%' : parseFloat(salary.taxValue || 0).toFixed(2) + ' Birr'}</small> : null}
+                                  <small>Months: {Array.isArray(salary.paidMonths) && salary.paidMonths.length ? salary.paidMonths.join(', ') : 'All'}</small>
+                                  {salary.isStopped ? <small style={{ color: '#c0392b', fontWeight: 700 }}>STOPPED</small> : null}
                                 </div>
                               </div>
                             ) : (
@@ -353,6 +376,13 @@ const SalaryManagement = () => {
                               <div className={styles.actionButtonsGroup}>
                                 <Button size="sm" variant="secondary" onClick={() => handleEditSalaryForStaff(staff)}>
                                   {t('common.edit', 'Edit')}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={salary?.isStopped ? 'success' : 'danger'}
+                                  onClick={() => handleToggleStop(salary)}
+                                >
+                                  {salary?.isStopped ? 'Reactivate' : 'Stop'}
                                 </Button>
                               </div>
                             )}

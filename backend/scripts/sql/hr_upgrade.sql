@@ -320,3 +320,7 @@ CREATE INDEX IF NOT EXISTS idx_expenses_reference ON public.expenses (reference_
 -- ---------- 9) defaults ----------
 INSERT INTO hr_payroll_settings (max_deduction_percent)
 SELECT 100 WHERE NOT EXISTS (SELECT 1 FROM hr_payroll_settings);
+
+-- ---------- 10) v2: allowance type parity ----------
+ALTER TABLE IF EXISTS hr_allowances ADD COLUMN IF NOT EXISTS allowance_type VARCHAR(150);
+UPDATE hr_allowances SET allowance_type = allowance_name WHERE allowance_type IS NULL AND allowance_name IS NOT NULL;

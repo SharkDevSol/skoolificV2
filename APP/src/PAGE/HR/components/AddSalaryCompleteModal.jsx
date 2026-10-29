@@ -3,18 +3,13 @@ import axios from 'axios';
 
 const API_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || 'https://iqrab3.skoolific.com/api'));
 
-// Edit Salary Modal Component - Updated
+const ETH_MONTHS = ['Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit', 'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'];
+
+// Add Salary Modal Component - Updated with bank / optional tax / paid months
 const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
-  // Debug logging
-  console.log('🔍 Modal opened with preSelectedStaff:', preSelectedStaff);
-  console.log('🔍 existingSalary:', preSelectedStaff?.existingSalary);
-  
   const isEditMode = preSelectedStaff?.existingSalary ? true : false;
   const existingSalary = preSelectedStaff?.existingSalary;
-  
-  console.log('🔍 isEditMode:', isEditMode);
-  console.log('🔍 existingSalary data:', existingSalary);
-  
+
   const [staffTypes, setStaffTypes] = useState([]);
   const [staffType, setStaffType] = useState(preSelectedStaff?.staffType || '');
   const [staffList, setStaffList] = useState(preSelectedStaff ? [preSelectedStaff] : []);
@@ -24,12 +19,16 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
     staffName: preSelectedStaff?.fullName || '',
     accountId: existingSalary?.accountId || '',
     accountName: existingSalary?.accountName || '',
-    baseSalary: existingSalary?.baseSalary || ''
+    baseSalary: existingSalary?.baseSalary || '',
+    bankName: existingSalary?.bankName || '',
+    bankAccountNumber: existingSalary?.bankAccountNumber || '',
+    taxEnabled: existingSalary?.taxEnabled === true,
+    taxType: existingSalary?.taxType || 'FIXED',
+    taxValue: existingSalary?.taxValue != null ? existingSalary.taxValue : '',
+    paidMonths: Array.isArray(existingSalary?.paidMonths) ? existingSalary.paidMonths : []
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
-  console.log('🔍 Initial formData:', formData);
 
   useEffect(() => {
     fetchAccounts();
@@ -41,7 +40,7 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
       fetchStaffByType(staffType);
     } else {
       setStaffList([]);
-      setFormData({ ...formData, staffId: '', staffName: '', accountId: '', accountName: '' });
+      setFormData((prev) => ({ ...prev, staffId: '', staffName: '', accountId: '', accountName: '' }));
     }
   }, [staffType]);
 
@@ -51,12 +50,9 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
       const response = await axios.get(`${API_URL}/hr/salary/staff-types`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (response.data.success) {
-        setStaffTypes(response.data.data);
-      }
+      if (response.data.success) setStaffTypes(response.data.data);
     } catch (err) {
       console.error('Error fetching staff types:', err);
-      // Fallback to default types if API fails
       setStaffTypes([
         { type: 'TEACHER', label: 'Teacher' },
         { type: 'SUPPORTIVE', label: 'Supportive' },
@@ -71,9 +67,7 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
       const response = await axios.get(`${API_URL}/finance/accounts`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (response.data.success) {
-        setAccounts(response.data.data);
-      }
+      if (response.data.success) setAccounts(response.data.data);
     } catch (err) {
       console.error('Error fetching accounts:', err);
     }
@@ -85,9 +79,7 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
       const response = await axios.get(`${API_URL}/hr/salary/staff?staffType=${type}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (response.data.success) {
-        setStaffList(response.data.data);
-      }
+      if (response.data.success) setStaffList(response.data.data);
     } catch (err) {
       console.error('Error fetching staff:', err);
       setError('Failed to fetch staff list');
@@ -96,27 +88,30 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
 
   const handleStaffChange = (e) => {
     const selectedStaffId = e.target.value;
-    const selectedStaff = staffList.find(s => s.id === selectedStaffId);
-    
-    // Get the full name from the staff object
+    const selectedStaff = staffList.find(s => String(s.id) === String(selectedStaffId));
     let fullName = '';
     if (selectedStaff) {
       const firstName = selectedStaff.firstName || '';
       const lastName = selectedStaff.lastName || '';
       fullName = `${firstName} ${lastName}`.trim();
-      
-      // If name is still empty, try to get it from other fields
-      if (!fullName && selectedStaff.email) {
-        fullName = selectedStaff.email.split('@')[0];
-      }
+      if (!fullName && selectedStaff.email) fullName = selectedStaff.email.split('@')[0];
     }
-    
-    setFormData({
-      ...formData,
-      staffId: selectedStaffId,
-      staffName: fullName
+    setFormData({ ...formData, staffId: selectedStaffId, staffName: fullName });
+  };
+
+  const toggleMonth = (month) => {
+    setFormData((prev) => {
+      const has = prev.paidMonths.includes(month);
+      return { ...prev, paidMonths: has ? prev.paidMonths.filter(m => m !== month) : [...prev.paidMonths, month].sort((a, b) => a - b) };
     });
   };
+
+  const baseNum = parseFloat(formData.baseSalary) || 0;
+  const taxVal = parseFloat(formData.taxValue) || 0;
+  const taxCalc = !formData.taxEnabled ? 0 : (formData.taxType === 'PERCENT' ? (baseNum * taxVal) / 100 : taxVal);
+  const taxShown = Math.min(Math.max(0, taxCalc), baseNum);
+  const netShown = baseNum - taxShown;
+  const allMonths = formData.paidMonths.length === 0 || formData.paidMonths.length >= 13;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -125,56 +120,45 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
 
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      
-      // Just use whatever the user typed in the account field
       const accountInput = formData.accountName.trim();
-      
       if (!accountInput) {
         setError('Please enter an account number');
         setLoading(false);
         return;
       }
-      
+
       const payload = {
         staffId: formData.staffId,
         staffName: formData.staffName,
-        staffType: staffType,
+        staffType: isEditMode ? (existingSalary?.staffType || staffType) : staffType,
         accountName: accountInput,
-        baseSalary: parseFloat(formData.baseSalary),
-        taxAmount: 0,  // Tax is now added as a deduction
-        netSalary: parseFloat(formData.baseSalary),  // Net = Base (no tax here)
-        effectiveFrom: new Date().toISOString().split('T')[0]
+        baseSalary: baseNum,
+        effectiveFrom: new Date().toISOString().split('T')[0],
+        bankName: formData.bankName.trim(),
+        bankAccountNumber: formData.bankAccountNumber.trim(),
+        taxEnabled: formData.taxEnabled,
+        taxType: formData.taxType,
+        taxValue: taxVal,
+        paidMonths: allMonths ? null : formData.paidMonths
       };
-
-      console.log('💰 Submitting salary data:', payload);
 
       let response;
       if (isEditMode && existingSalary?.id) {
-        // Update existing salary
-        console.log('✏️ Updating salary ID:', existingSalary.id);
-        response = await axios.put(
-          `${API_URL}/hr/salary/update-complete/${existingSalary.id}`,
-          payload,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        response = await axios.put(`${API_URL}/hr/salary/update-complete/${existingSalary.id}`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       } else {
-        // Create new salary
-        console.log('➕ Creating new salary');
-        response = await axios.post(
-          `${API_URL}/hr/salary/add-complete`,
-          payload,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        response = await axios.post(`${API_URL}/hr/salary/add-complete`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       }
 
-      console.log('✅ Salary save response:', response.data);
-
       if (response.data.success) {
-        alert(isEditMode ? 'Salary updated successfully!' : 'Salary added successfully! Add tax as a deduction if needed.');
+        alert(isEditMode ? 'Salary updated successfully!' : 'Salary added successfully!');
         onClose();
       }
     } catch (err) {
-      console.error('❌ Error saving salary:', err);
+      console.error('Error saving salary:', err);
       setError(err.response?.data?.error?.message || 'Failed to add salary');
     } finally {
       setLoading(false);
@@ -190,21 +174,14 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
         </div>
 
         <form onSubmit={handleSubmit}>
-          {/* Only show staff selection if NOT pre-selected */}
           {!preSelectedStaff && (
             <>
               <div className="form-group">
                 <label>Staff Type *</label>
-                <select
-                  value={staffType}
-                  onChange={(e) => setStaffType(e.target.value)}
-                  required
-                >
+                <select value={staffType} onChange={(e) => setStaffType(e.target.value)} required>
                   <option value="">Select Staff Type</option>
                   {staffTypes.map(type => (
-                    <option key={type.type} value={type.type}>
-                      {type.label}
-                    </option>
+                    <option key={type.type} value={type.type}>{type.label}</option>
                   ))}
                 </select>
               </div>
@@ -212,11 +189,7 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
               {staffType && (
                 <div className="form-group">
                   <label>Staff Name *</label>
-                  <select
-                    value={formData.staffId}
-                    onChange={handleStaffChange}
-                    required
-                  >
+                  <select value={formData.staffId} onChange={handleStaffChange} required>
                     <option value="">Select Staff Member</option>
                     {staffList.map(staff => (
                       <option key={staff.id} value={staff.id}>
@@ -249,9 +222,7 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
           <div className="form-group">
             <label>Base Salary Amount *</label>
             <input
-              type="number"
-              step="0.01"
-              min="0"
+              type="number" step="0.01" min="0"
               value={formData.baseSalary}
               onChange={(e) => setFormData({ ...formData, baseSalary: e.target.value })}
               placeholder="Enter base salary"
@@ -259,12 +230,102 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
             />
           </div>
 
+          <div className="form-group">
+            <label>Bank Name</label>
+            <input
+              type="text"
+              value={formData.bankName}
+              onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+              placeholder="e.g., Commercial Bank of Ethiopia"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Bank Account Number</label>
+            <input
+              type="text"
+              value={formData.bankAccountNumber}
+              onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
+              placeholder="Staff bank account number"
+            />
+          </div>
+
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={formData.taxEnabled}
+                onChange={(e) => setFormData({ ...formData, taxEnabled: e.target.checked })}
+              />
+              Apply tax (optional)
+            </label>
+          </div>
+
+          {formData.taxEnabled && (
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Tax Type</label>
+                <select
+                  value={formData.taxType}
+                  onChange={(e) => setFormData({ ...formData, taxType: e.target.value })}
+                >
+                  <option value="PERCENT">Percent (%)</option>
+                  <option value="FIXED">Fixed amount</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>{formData.taxType === 'PERCENT' ? 'Tax Percent (%)' : 'Tax Amount (Birr)'}</label>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={formData.taxValue}
+                  onChange={(e) => setFormData({ ...formData, taxValue: e.target.value })}
+                  placeholder={formData.taxType === 'PERCENT' ? 'e.g., 15' : 'e.g., 500'}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="form-group">
+            <label>Paid Months (leave empty = every month)</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {ETH_MONTHS.map((name, idx) => {
+                const month = idx + 1;
+                const active = allMonths || formData.paidMonths.includes(month);
+                return (
+                  <button
+                    key={month}
+                    type="button"
+                    onClick={() => toggleMonth(month)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      border: '1px solid ' + (active ? '#1976d2' : '#ccc'),
+                      background: active ? '#1976d2' : '#fff',
+                      color: active ? '#fff' : '#333',
+                      fontSize: 12
+                    }}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+            <small style={{ color: '#666' }}>
+              {allMonths ? 'All 13 months' : `Selected: ${formData.paidMonths.map(m => ETH_MONTHS[m - 1]).join(', ')}`}
+            </small>
+          </div>
+
+          <div style={{ background: '#f5f7fa', padding: 10, borderRadius: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Base</span><strong>{baseNum.toFixed(2)} Birr</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Tax</span><strong>-{taxShown.toFixed(2)} Birr</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Net (before allowances/deductions)</span><strong>{netShown.toFixed(2)} Birr</strong></div>
+          </div>
+
           {error && <div className="error-message">{error}</div>}
 
           <div className="modal-actions">
-            <button type="button" onClick={onClose} className="btn-cancel">
-              Cancel
-            </button>
+            <button type="button" onClick={onClose} className="btn-cancel">Cancel</button>
             <button type="submit" disabled={loading} className="btn-submit">
               {loading ? (isEditMode ? 'Updating...' : 'Adding...') : (isEditMode ? 'Update Salary' : 'Add Salary')}
             </button>
