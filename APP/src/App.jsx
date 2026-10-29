@@ -496,6 +496,7 @@ function App() {
             
             {/* Finance App - standalone app for finance staff */}
             <Route path="/app/finance/*" element={<FinanceApp />} />
+            <Route path="/app/finance" element={<FinanceApp />} />
 
             {/* Super Finance App - standalone app for super finance staff (all branches) */}
             <Route path="/app/super-finance/*" element={<SuperFinanceApp />} />

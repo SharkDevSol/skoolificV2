@@ -102,6 +102,7 @@ const FinanceApp = () => {
           <Routes>
             {/* Login */}
             <Route path="login" element={<FinanceLogin onLogin={setUser} />} />
+            <Route path="/login" element={<FinanceLogin onLogin={setUser} />} />
 
             {/* Finance */}
             <Route index element={<Navigate to="/app/finance/monthly-payments" replace />} />

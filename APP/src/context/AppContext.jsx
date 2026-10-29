@@ -29,6 +29,7 @@ applyThemeEarly();
 
 // Utility function to convert hex color to RGB
 const hexToRgb = (hex) => {
+  if (!hex || typeof hex !== 'string') return null;
   // Remove # if present
   hex = hex.replace(/^#/, '');
   
@@ -2128,8 +2129,21 @@ export const AppProvider = ({ children }) => {
 
   const applyTheme = (themeData) => {
     if (!themeData) return;
+    if (typeof themeData === 'string') {
+      const isDark = themeData === 'dark';
+      if (isDark) {
+        document.body.classList.add('dark-mode');
+        document.body.classList.add('dark');
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.body.classList.remove('dark-mode');
+        document.body.classList.remove('dark');
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+      return;
+    }
     // Set primary and secondary colors if available
-    if (themeData.primaryColor) {
+    if (themeData.primaryColor && typeof themeData.primaryColor === 'string') {
       document.documentElement.style.setProperty('--primary-color', themeData.primaryColor);
       const primaryRgb = hexToRgb(themeData.primaryColor);
       if (primaryRgb) {
@@ -2140,7 +2154,7 @@ export const AppProvider = ({ children }) => {
         document.documentElement.style.setProperty('--primary-shadow-lg', `rgba(${r}, ${g}, ${b}, 0.35)`);
       }
     }
-    if (themeData.secondaryColor) {
+    if (themeData.secondaryColor && typeof themeData.secondaryColor === 'string') {
       document.documentElement.style.setProperty('--secondary-color', themeData.secondaryColor);
     }
     
