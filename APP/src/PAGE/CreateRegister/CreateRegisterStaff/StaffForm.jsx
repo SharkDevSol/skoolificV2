@@ -345,12 +345,29 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
     reader.readAsBinaryString(file);
   };
 
-  const handleInputChange = (fieldName, value) => {
+  const handleInputChange = (fieldName, valueOrEvent) => {
+    const value = (valueOrEvent && typeof valueOrEvent === 'object' && 'target' in valueOrEvent)
+      ? valueOrEvent.target.value
+      : (valueOrEvent ?? '');
     setFormData(prev => ({ ...prev, [fieldName]: value }));
+    if (validationErrors[fieldName]) {
+      setValidationErrors(prev => {
+        const next = { ...prev };
+        delete next[fieldName];
+        return next;
+      });
+    }
   };
 
   const handleSelectChange = (fieldName, value) => {
     setFormData(prev => ({ ...prev, [fieldName]: value }));
+    if (validationErrors[fieldName]) {
+      setValidationErrors(prev => {
+        const next = { ...prev };
+        delete next[fieldName];
+        return next;
+      });
+    }
   };
 
   const handleCheckboxChange = (fieldName, checked) => {
@@ -529,8 +546,10 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
 
   const renderField = (col) => {
     const fieldName = col.column_name;
-    const value = formData[fieldName] || '';
-    const isObject = typeof formData[fieldName] === 'object' && formData[fieldName] !== null;
+    const rawValue = formData[fieldName];
+    const value = (rawValue && typeof rawValue === 'object' && 'target' in rawValue)
+      ? (rawValue.target.value ?? '')
+      : (rawValue ?? '');
     const isRequired = true;
     const label = fieldLabel(fieldName);
     const isStandardDropdown = standardOptions[fieldName]?.length > 0;
@@ -698,7 +717,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
             type="tel"
             label={label}
             value={value}
-            onChange={(v) => handleInputChange(fieldName, v)}
+            onChange={(e) => handleInputChange(fieldName, e)}
             required={isRequired}
             error={validationErrors[fieldName]}
             placeholder="e.g. +251911234567 or 0911234567"
@@ -714,8 +733,8 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
           <Input
             type="number"
             label={label}
-            value={isObject ? '' : value}
-            onChange={(v) => handleInputChange(fieldName, v)}
+            value={value}
+            onChange={(e) => handleInputChange(fieldName, e)}
             required={isRequired}
             error={validationErrors[fieldName]}
           />
@@ -727,8 +746,8 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
       <div key={fieldName} className={styles.fieldGroup}>
         <Input
           label={label}
-          value={isObject ? '' : value}
-          onChange={(v) => handleInputChange(fieldName, v)}
+          value={value}
+          onChange={(e) => handleInputChange(fieldName, e)}
           required={isRequired}
           error={validationErrors[fieldName]}
         />
