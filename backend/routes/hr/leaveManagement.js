@@ -4,6 +4,7 @@ const pool = require('../../config/db');
 const { authenticateWithBranch } = require('../../middleware/branchAuth');
 const axios = require('axios');
 const { getEndpointPath, API_ENDPOINTS } = require('../../config/api.config');
+const { attendanceMarkKey } = require('../../services/attendanceDeduction');
 
 // Get attendance issues (LATE, ABSENT, HALF_DAY) with permission status
 router.get('/attendance-issues', authenticateWithBranch, async (req, res) => {
@@ -88,10 +89,24 @@ router.get('/attendance-issues', authenticateWithBranch, async (req, res) => {
         p.permission_reason,
         p.approved_by,
         p.approved_at,
-        s.deduction_amount
+        COALESCE(s.deduction_amount, 0) AS deduction_amount
       FROM hr_ethiopian_attendance a
       LEFT JOIN hr_attendance_permissions p ON a.id = p.attendance_id
-      LEFT JOIN hr_attendance_deduction_settings s ON s.staff_type = a.department_name AND s.deduction_type = a.status
+      LEFT JOIN LATERAL (
+        SELECT d.deduction_amount
+          FROM hr_attendance_deduction_settings d
+         WHERE d.is_active = true
+           AND d.staff_type IN (a.department_name, 'ALL')
+           AND d.deduction_type = CASE
+                 WHEN UPPER(a.status) LIKE '%WITHOUT CHECK OUT%' OR UPPER(a.status) LIKE '%NO_CHECKOUT%' THEN 'NO_CHECKOUT'
+                 WHEN UPPER(a.status) LIKE '%HALF%' THEN 'HALF_DAY'
+                 WHEN UPPER(a.status) LIKE '%ABSENT%' THEN 'ABSENT'
+                 WHEN UPPER(a.status) LIKE '%LATE%' THEN 'LATE'
+                 ELSE UPPER(a.status)
+               END
+         ORDER BY (d.staff_type = a.department_name) DESC
+         LIMIT 1
+      ) s ON true
       WHERE a.ethiopian_month = $1 
         AND a.ethiopian_year = $2
         AND a.status IN ('LATE', 'ABSENT', 'HALF_DAY', 'LATE_HALF_DAY', 'NO_CHECKOUT', 'L+NCO', 'L+H', 'H', 'NCO', 'LATE + HALF_DAY', 'LATE + without check out')
@@ -146,107 +161,209 @@ router.get('/attendance-issues', authenticateWithBranch, async (req, res) => {
   }
 });
 
-// Approve permission (no deduction will be applied)
+// ---------- Leave review: "Does this staff have a reason?" ----------
+async function ensurePermissionsTable(db) {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hr_attendance_permissions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      attendance_id UUID NOT NULL REFERENCES hr_ethiopian_attendance(id) ON DELETE CASCADE,
+      permission_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+      permission_reason TEXT,
+      approved_by VARCHAR(255),
+      approved_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(attendance_id)
+    )
+  `);
+  for (const col of [
+    "review_status VARCHAR(20) DEFAULT 'PENDING'",
+    "has_reason BOOLEAN DEFAULT FALSE",
+    "deduction_amount NUMERIC(12,2) DEFAULT 0",
+    "deduction_applied BOOLEAN DEFAULT FALSE",
+    "applied_deduction_id INTEGER",
+    "reviewed_by VARCHAR(255)",
+    "reviewed_at TIMESTAMPTZ",
+  ]) {
+    await db.query(`ALTER TABLE hr_attendance_permissions ADD COLUMN IF NOT EXISTS ${col}`);
+  }
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hr_attendance_audit_log (
+      id SERIAL PRIMARY KEY,
+      entity VARCHAR(50) NOT NULL,
+      entity_id VARCHAR(60),
+      action VARCHAR(50) NOT NULL,
+      performed_by VARCHAR(100),
+      details JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+}
+
+// YES — the staff has a reason: no deduction; ABSENT becomes LEAVE (never L/H/*)
 router.post('/approve-permission', authenticateWithBranch, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { attendanceId, reason } = req.body;
+    if (!attendanceId) return res.status(400).json({ error: 'attendanceId is required' });
 
-    if (!attendanceId) {
-      return res.status(400).json({ error: 'attendanceId is required' });
+    await client.query('BEGIN');
+    await ensurePermissionsTable(client);
+
+    const a = await client.query('SELECT * FROM hr_ethiopian_attendance WHERE id = $1 LIMIT 1', [attendanceId]);
+    if (a.rows.length === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Attendance record not found' }); }
+    const att = a.rows[0];
+
+    const existing = await client.query('SELECT * FROM hr_attendance_permissions WHERE attendance_id = $1 LIMIT 1', [attendanceId]);
+    const prev = existing.rows[0] || null;
+    const actor = (req.user && (req.user.username || String(req.user.id))) || 'admin';
+
+    const result = await client.query(
+      `INSERT INTO hr_attendance_permissions
+        (attendance_id, permission_status, permission_reason, approved_by, approved_at,
+         review_status, has_reason, deduction_amount, deduction_applied, reviewed_by, reviewed_at)
+       VALUES ($1, 'APPROVED', $2, $3, NOW(), 'DONE', TRUE, 0, FALSE, $3, NOW())
+       ON CONFLICT (attendance_id) DO UPDATE SET
+         permission_status = 'APPROVED',
+         permission_reason = $2,
+         approved_by = $3,
+         approved_at = NOW(),
+         review_status = 'DONE',
+         has_reason = TRUE,
+         deduction_amount = 0,
+         deduction_applied = FALSE,
+         reviewed_by = $3,
+         reviewed_at = NOW(),
+         updated_at = NOW()
+       RETURNING *`,
+      [attendanceId, reason || 'Approved by HR', actor]
+    );
+
+    // re-review: remove a previously applied deduction
+    if (prev && prev.applied_deduction_id) {
+      await client.query('DELETE FROM hr_deductions WHERE id = $1', [prev.applied_deduction_id]);
+      await client.query('UPDATE hr_attendance_permissions SET applied_deduction_id = NULL WHERE attendance_id = $1', [attendanceId]);
     }
 
-    // Create permissions table if not exists
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS hr_attendance_permissions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        attendance_id UUID NOT NULL REFERENCES hr_ethiopian_attendance(id) ON DELETE CASCADE,
-        permission_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-        permission_reason TEXT,
-        approved_by VARCHAR(255),
-        approved_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(attendance_id)
-      )
-    `);
+    // A -> V only
+    let converted = false;
+    if (String(att.status || '').toUpperCase().startsWith('ABSENT')) {
+      await client.query("UPDATE hr_ethiopian_attendance SET status = 'LEAVE', updated_at = NOW() WHERE id = $1", [attendanceId]);
+      converted = true;
+    }
 
-    const approvedBy = req.user.username || req.user.id;
+    await client.query(
+      `INSERT INTO hr_attendance_audit_log (entity, entity_id, action, performed_by, details)
+       VALUES ('attendance', $1, 'leave_approved', $2, $3)`,
+      [attendanceId, actor, JSON.stringify({ reason: reason || null, convertedToLeave: converted })]
+    );
 
-    // Upsert permission record
-    const result = await pool.query(`
-      INSERT INTO hr_attendance_permissions 
-      (attendance_id, permission_status, permission_reason, approved_by, approved_at)
-      VALUES ($1, 'APPROVED', $2, $3, NOW())
-      ON CONFLICT (attendance_id)
-      DO UPDATE SET
-        permission_status = 'APPROVED',
-        permission_reason = $2,
-        approved_by = $3,
-        approved_at = NOW(),
-        updated_at = NOW()
-      RETURNING *
-    `, [attendanceId, reason || 'Approved by HR', approvedBy]);
-
+    await client.query('COMMIT');
     res.json({
       success: true,
-      data: result.rows[0],
-      message: 'Permission approved successfully. No deduction will be applied.'
+      data: { ...result.rows[0], convertedToLeave: converted },
+      message: converted ? 'Approved: no deduction, and the absence is now Permission (V).' : 'Approved: no deduction will be applied.'
     });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error approving permission:', error);
     res.status(500).json({ error: 'Failed to approve permission', details: error.message });
+  } finally {
+    client.release();
   }
 });
 
-// Reject permission (deduction will be applied)
+// NO — no reason: apply the configured deduction to that staff's payroll month
 router.post('/reject-permission', authenticateWithBranch, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { attendanceId, reason } = req.body;
+    if (!attendanceId) return res.status(400).json({ error: 'attendanceId is required' });
 
-    if (!attendanceId || !reason) {
-      return res.status(400).json({ error: 'attendanceId and reason are required' });
+    await client.query('BEGIN');
+    await ensurePermissionsTable(client);
+
+    const a = await client.query('SELECT * FROM hr_ethiopian_attendance WHERE id = $1 LIMIT 1', [attendanceId]);
+    if (a.rows.length === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Attendance record not found' }); }
+    const att = a.rows[0];
+    const actor = (req.user && (req.user.username || String(req.user.id))) || 'admin';
+
+    const mark = attendanceMarkKey(att.status);
+    let amount = 0;
+    if (mark) {
+      const sres = await client.query(
+        `SELECT deduction_amount FROM hr_attendance_deduction_settings
+          WHERE is_active = true AND deduction_type = $1 AND staff_type IN ($2, 'ALL')
+          ORDER BY (staff_type = $2) DESC LIMIT 1`,
+        [mark, att.department_name]
+      );
+      amount = sres.rows[0] ? (parseFloat(sres.rows[0].deduction_amount) || 0) : 0;
     }
 
-    // Create permissions table if not exists
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS hr_attendance_permissions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        attendance_id UUID NOT NULL REFERENCES hr_ethiopian_attendance(id) ON DELETE CASCADE,
-        permission_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-        permission_reason TEXT,
-        approved_by VARCHAR(255),
-        approved_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(attendance_id)
-      )
-    `);
+    const existing = await client.query('SELECT * FROM hr_attendance_permissions WHERE attendance_id = $1 LIMIT 1', [attendanceId]);
+    const prev = existing.rows[0] || null;
 
-    const approvedBy = req.user.username || req.user.id;
+    const result = await client.query(
+      `INSERT INTO hr_attendance_permissions
+        (attendance_id, permission_status, permission_reason, approved_by, approved_at,
+         review_status, has_reason, deduction_amount, deduction_applied, reviewed_by, reviewed_at)
+       VALUES ($1, 'REJECTED', $2, $3, NOW(), 'DONE', FALSE, $4, $5, $3, NOW())
+       ON CONFLICT (attendance_id) DO UPDATE SET
+         permission_status = 'REJECTED',
+         permission_reason = $2,
+         approved_by = $3,
+         approved_at = NOW(),
+         review_status = 'DONE',
+         has_reason = FALSE,
+         deduction_amount = $4,
+         deduction_applied = $5,
+         reviewed_by = $3,
+         reviewed_at = NOW(),
+         updated_at = NOW()
+       RETURNING *`,
+      [attendanceId, reason || 'No valid reason provided', actor, amount, amount > 0]
+    );
 
-    // Upsert permission record
-    const result = await pool.query(`
-      INSERT INTO hr_attendance_permissions 
-      (attendance_id, permission_status, permission_reason, approved_by, approved_at)
-      VALUES ($1, 'REJECTED', $2, $3, NOW())
-      ON CONFLICT (attendance_id)
-      DO UPDATE SET
-        permission_status = 'REJECTED',
-        permission_reason = $2,
-        approved_by = $3,
-        approved_at = NOW(),
-        updated_at = NOW()
-      RETURNING *
-    `, [attendanceId, reason, approvedBy]);
+    let deductionId = (prev && prev.applied_deduction_id) || null;
+    if (amount > 0) {
+      if (deductionId) {
+        await client.query('UPDATE hr_deductions SET amount = $1 WHERE id = $2', [amount, deductionId]);
+      } else {
+        const ins = await client.query(
+          `INSERT INTO hr_deductions (staff_id, staff_name, deduction_type, amount, ethiopian_month, ethiopian_year)
+           VALUES ($1, $2, 'Attendance', $3, $4, $5) RETURNING id`,
+          [att.staff_id, att.staff_name, amount, att.ethiopian_month, att.ethiopian_year]
+        );
+        deductionId = ins.rows[0].id;
+      }
+    } else if (deductionId) {
+      await client.query('DELETE FROM hr_deductions WHERE id = $1', [deductionId]);
+      deductionId = null;
+    }
 
+    await client.query(
+      'UPDATE hr_attendance_permissions SET applied_deduction_id = $1, deduction_applied = $2 WHERE attendance_id = $3',
+      [deductionId, !!deductionId, attendanceId]
+    );
+
+    await client.query(
+      `INSERT INTO hr_attendance_audit_log (entity, entity_id, action, performed_by, details)
+       VALUES ('attendance', $1, 'leave_rejected', $2, $3)`,
+      [attendanceId, actor, JSON.stringify({ reason: reason || null, deductionAmount: amount, deductionId })]
+    );
+
+    await client.query('COMMIT');
     res.json({
       success: true,
-      data: result.rows[0],
-      message: 'Permission rejected. Deduction will be applied.'
+      data: { ...result.rows[0], deductionId },
+      message: amount > 0 ? ('Deduction of ' + amount + ' Birr will be applied in this payroll month.') : 'Reviewed: no deduction amount is configured for this mark.'
     });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error rejecting permission:', error);
     res.status(500).json({ error: 'Failed to reject permission', details: error.message });
+  } finally {
+    client.release();
   }
 });
 

@@ -225,8 +225,8 @@ const LeaveManagement = () => {
   };
 
   const submitPermission = async (type, reason) => {
-    if (!reason || reason.trim() === '') {
-      setMessage({ type: 'error', text: 'Please provide a reason' });
+    if (type === 'approve' && (!reason || reason.trim() === '')) {
+      setMessage({ type: 'error', text: 'Please write the reason' });
       return;
     }
 
@@ -244,11 +244,10 @@ const LeaveManagement = () => {
       );
 
       if (response.data.success) {
-        if (type === 'approve') {
-          setMessage({ type: 'success', text: 'Permission approved! No deduction will be applied.' });
-        } else {
-          setMessage({ type: 'success', text: 'Permission rejected. Deduction will be applied.' });
-        }
+        setMessage({
+          type: 'success',
+          text: response.data.message || (type === 'approve' ? 'Approved: no deduction.' : 'Deduction applied.')
+        });
         setShowPermissionModal(false);
         setSelectedIssue(null);
         fetchAttendanceIssues();
@@ -748,6 +747,7 @@ const LeaveManagement = () => {
 const PermissionModal = ({ type, issue, onClose, onSubmit }) => {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
+  const isYes = type === 'approve';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -760,9 +760,7 @@ const PermissionModal = ({ type, issue, onClose, onSubmit }) => {
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
         <div className={styles.modalHeader}>
-          <h2>
-            {type === 'approve' ? '✅ Approve Permission' : '❌ Reject Permission'}
-          </h2>
+          <h2>{isYes ? 'Does this staff have a reason?' : 'No reason — apply deduction'}</h2>
           <button className={styles.closeButton} onClick={onClose}>×</button>
         </div>
 
@@ -777,11 +775,11 @@ const PermissionModal = ({ type, issue, onClose, onSubmit }) => {
             <strong>Date:</strong> Day {issue.ethiopian_day}, {getEthiopianMonthName(issue.ethiopian_month)} {issue.ethiopian_year}
           </div>
           <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
-            <strong>Issue:</strong>{' '}
+            <strong>Mark:</strong>{' '}
             <span style={{
               padding: '4px 8px',
-              background: type === 'approve' ? '#4CAF5020' : '#F4433620',
-              color: type === 'approve' ? '#4CAF50' : '#F44336',
+              background: isYes ? '#4CAF5020' : '#F4433620',
+              color: isYes ? '#4CAF50' : '#F44336',
               borderRadius: '4px',
               fontWeight: 600
             }}>
@@ -789,63 +787,45 @@ const PermissionModal = ({ type, issue, onClose, onSubmit }) => {
             </span>
           </div>
           <div style={{ fontSize: '14px', color: '#666' }}>
-            <strong>Deduction Amount:</strong> {issue.deduction_amount ? `${issue.deduction_amount} Birr` : 'N/A'}
+            <strong>Deduction amount:</strong> {issue.deduction_amount ? issue.deduction_amount + ' Birr' : '0 Birr'}
           </div>
         </div>
 
-        {type === 'approve' && (
-          <div style={{ 
-            padding: '16px', 
-            background: '#e8f5e9', 
-            borderRadius: '8px', 
-            marginBottom: '20px',
-            border: '1px solid #4CAF50'
-          }}>
-            <div style={{ fontSize: '14px', color: '#2e7d32', fontWeight: 600, marginBottom: '8px' }}>
-              ✅ Approving this permission will:
-            </div>
-            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#2e7d32' }}>
-              <li>Prevent salary deduction for this attendance issue</li>
-              <li>Mark this as an excused absence/lateness</li>
-              <li>Record your approval reason for future reference</li>
-            </ul>
-          </div>
-        )}
-
-        {type === 'reject' && (
-          <div style={{ 
-            padding: '16px', 
-            background: '#ffebee', 
-            borderRadius: '8px', 
-            marginBottom: '20px',
-            border: '1px solid #F44336'
-          }}>
-            <div style={{ fontSize: '14px', color: '#c62828', fontWeight: 600, marginBottom: '8px' }}>
-              ❌ Rejecting this permission will:
-            </div>
-            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#c62828' }}>
-              <li>Apply the configured salary deduction ({issue.deduction_amount} Birr)</li>
-              <li>Mark this as an unexcused absence/lateness</li>
-              <li>Record your rejection reason for the staff member</li>
-            </ul>
-          </div>
-        )}
+        <div style={{
+          padding: '16px',
+          background: isYes ? '#e8f5e9' : '#ffebee',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          border: '1px solid ' + (isYes ? '#4CAF50' : '#F44336')
+        }}>
+          <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: isYes ? '#2e7d32' : '#c62828' }}>
+            {isYes ? (
+              <>
+                <li>No salary deduction for this mark</li>
+                <li>If the mark is A (absent) it becomes V (Permission) — L/H/* never change</li>
+                <li>Your reason is saved in the audit log</li>
+              </>
+            ) : (
+              <>
+                <li>The configured deduction is added to this staff&apos;s payroll month</li>
+                <li>It appears under &quot;Attendance&quot; in payroll</li>
+                <li>Your note is saved in the audit log</li>
+              </>
+            )}
+          </ul>
+        </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600 }}>
-              Reason * {type === 'approve' ? '(Why are you approving?)' : '(Why are you rejecting?)'}
+              Reason {isYes ? '(required — why is it excused?)' : '(optional)'}
             </label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              required
+              required={isYes}
               rows="4"
-              placeholder={
-                type === 'approve' 
-                  ? 'e.g., Medical emergency verified, Family emergency, Valid excuse provided...'
-                  : 'e.g., No valid reason provided, Unexcused absence, Repeated offense...'
-              }
+              placeholder={isYes ? 'e.g., Medical emergency verified, family emergency...' : 'e.g., No valid reason provided'}
               style={{
                 width: '100%',
                 padding: '12px',
@@ -856,21 +836,18 @@ const PermissionModal = ({ type, issue, onClose, onSubmit }) => {
                 fontFamily: 'inherit'
               }}
             />
-            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-              This reason will be recorded and visible to the staff member
-            </div>
           </div>
 
           <div className={styles.modalActions}>
             <button type="button" onClick={onClose} className={styles.cancelButton}>
               Cancel
             </button>
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
               style={{
                 padding: '12px 24px',
-                background: type === 'approve' ? '#4CAF50' : '#F44336',
+                background: isYes ? '#4CAF50' : '#F44336',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
@@ -880,7 +857,7 @@ const PermissionModal = ({ type, issue, onClose, onSubmit }) => {
                 opacity: loading ? 0.6 : 1
               }}
             >
-              {loading ? 'Processing...' : (type === 'approve' ? '✅ Approve Permission' : '❌ Reject Permission')}
+              {loading ? 'Saving...' : (isYes ? 'Yes — Done (no deduction)' : 'No — Apply deduction')}
             </button>
           </div>
         </form>

@@ -73,8 +73,16 @@ PGPASSWORD=... psql -h localhost -U <user> -d <db> -v ON_ERROR_STOP=1 --single-t
 - **Source/creator**: `source` (AUTO/MANUAL) + `created_by`/`updated_by` stored; AI06 + auto-marker now write `source='AUTO'`; the modal shows Source/creator.
 - Verification: deploy completed (API 200, web 200); end-to-end mark test pending because the local internet dropped right after deploy.
 
-## Next (requirements 4–7)
-Leave review Done/A→V + audit, Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
+## Requirement 4 — Leave review (implemented, deploy pending)
+- Every A/H/L/\* stays in the review queue until the admin answers.
+- **YES (has a reason)** → `approve-permission`: no deduction; if the mark was **A** it becomes **V (LEAVE)** — L/H/\* never change; reason saved; audit log row.
+- **NO (no reason)** → `reject-permission`: the configured deduction (staff-type row, else `ALL`) is added to **that staff's payroll month** as an `hr_deductions` row (`deduction_type='Attendance'`); re-review updates/removes it; audit log row.
+- Review is transactional and idempotent; re-review corrects the deduction instead of duplicating it.
+- Issues list now shows the deduction amount using the same mark mapping + `ALL` fallback.
+- UI: modal reworded to “Does this staff have a reason?” with **Yes — Done (no deduction)** / **No — Apply deduction**.
+
+## Next (requirements 5–7)
+Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
 
 ## Behaviour changes to be aware of
 - `/api/staff` and `/api/staff/data/...` no longer return password fields (any UI relying on them will get `undefined`).
