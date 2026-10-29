@@ -317,8 +317,8 @@ router.get('/attendance/summary', authenticateWithBranch, async (req, res) => {
         COUNT(CASE WHEN status = 'HALF_DAY' THEN 1 END) as half_days,
         COUNT(CASE WHEN status = 'LEAVE' THEN 1 END) as leave_days,
         SUM(working_hours) as total_hours,
-        SUM(overtime) as total_overtime
-      FROM hr_attendance
+        0::numeric as total_overtime
+      FROM hr_ethiopian_attendance
       WHERE 1=1
     `;
     
@@ -326,13 +326,13 @@ router.get('/attendance/summary', authenticateWithBranch, async (req, res) => {
     let paramCount = 1;
 
     if (startDate) {
-      query += ` AND date >= $${paramCount}`;
+      query += ` AND created_at::date >= $${paramCount}`;
       params.push(startDate);
       paramCount++;
     }
 
     if (endDate) {
-      query += ` AND date <= $${paramCount}`;
+      query += ` AND created_at::date <= $${paramCount}`;
       params.push(endDate);
       paramCount++;
     }

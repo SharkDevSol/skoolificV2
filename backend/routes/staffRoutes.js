@@ -1469,27 +1469,27 @@ router.get('/data/:staffType/:className', async (req, res) => {
     if (columnCheck.rowCount > 0) {
       if (includeInactive === 'true') {
         // Include all staff (active and inactive)
-        query = `SELECT s.*, u.username, u.password_plain as password
+        query = `SELECT s.*, u.username
                  FROM "${schema}"."${className}" s
                  LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                  ORDER BY LOWER(s.name) ASC`;
       } else if (includeInactive === 'only') {
         // Only inactive staff
-        query = `SELECT s.*, u.username, u.password_plain as password
+        query = `SELECT s.*, u.username
                  FROM "${schema}"."${className}" s
                  LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                  WHERE s.is_active = FALSE
                  ORDER BY LOWER(s.name) ASC`;
       } else {
         // Only active staff (default)
-        query = `SELECT s.*, u.username, u.password_plain as password
+        query = `SELECT s.*, u.username
                  FROM "${schema}"."${className}" s
                  LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                  WHERE s.is_active = TRUE OR s.is_active IS NULL
                  ORDER BY LOWER(s.name) ASC`;
       }
     } else {
-      query = `SELECT s.*, u.username, u.password_plain as password
+      query = `SELECT s.*, u.username
                FROM "${schema}"."${className}" s
                LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                ORDER BY LOWER(s.name) ASC`;
@@ -2076,7 +2076,7 @@ router.get('/', authenticateWithBranch, async (req, res) => {
   try {
     // Fetch all staff from staff_users table
     const usersResult = await pool.query(
-      `SELECT global_staff_id, username, password, staff_type, class_name
+      `SELECT global_staff_id, username, staff_type, class_name
        FROM staff_users
        WHERE global_staff_id IS NOT NULL
        ORDER BY username`
@@ -2114,7 +2114,6 @@ router.get('/', authenticateWithBranch, async (req, res) => {
             id: user.global_staff_id,
             global_staff_id: user.global_staff_id,
             username: user.username,
-            password: user.password,
             name: details.name,
             firstName: details.name.split(' ')[0],
             lastName: details.name.split(' ').slice(1).join(' ') || '',
@@ -2131,7 +2130,6 @@ router.get('/', authenticateWithBranch, async (req, res) => {
             id: user.global_staff_id,
             global_staff_id: user.global_staff_id,
             username: user.username,
-            password: user.password,
             name: user.username,
             firstName: user.username,
             lastName: '',
@@ -2147,7 +2145,6 @@ router.get('/', authenticateWithBranch, async (req, res) => {
           id: user.global_staff_id,
           global_staff_id: user.global_staff_id,
           username: user.username,
-          password: user.password,
           name: user.username,
           firstName: user.username,
           lastName: '',

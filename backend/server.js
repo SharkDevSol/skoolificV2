@@ -431,12 +431,21 @@ app.use('/api/reports/finance', financeReportsRoutes);
 app.use('/api/reports/inventory', inventoryReportsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/reports/hr', hrReportsRoutes);
+app.use('/api/hr/stats', hrReportsRoutes); // GET /api/hr/stats (HR dashboard)
+app.use('/api/hr/reports', require('./routes/hr/hrReportPages')); // HR Reports page (/api/hr/reports/:report)
 app.use('/api/hr/shift-settings', shiftSettingsRoutes); // Must be before /api/hr
 app.use('/api/hr', hrRoutes);
 app.use('/api/reports/assets', assetReportsRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/finance/accounts', financeAccountRoutes);
 app.use('/api/finance/expenses', financeExpenseRoutes);
+// Prisma payroll API (was never mounted). Guarded so a missing model can never break boot.
+try {
+  app.use('/api/finance/payroll', require('./routes/finance/payroll'));
+  console.log('finance/payroll mounted at /api/finance/payroll');
+} catch (e) {
+  console.log('finance/payroll not mounted:', e.message);
+}
 app.use('/api/finance/budgets', financeBudgetRoutes);
 app.use('/api/simple-fees', simpleFeeManagementRoutes); // Simple fee management without Prisma
 app.use('/api/fee-payments', simpleFeePaymentsRoutes); // Simple fee payment tracking

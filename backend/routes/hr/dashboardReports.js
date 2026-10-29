@@ -2,117 +2,70 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
 const { authenticateToken } = require('../../middleware/auth');
-const { getEndpointPath, API_ENDPOINTS } = require('../../config/api.config');
+const { convertToEthiopian } = require('../../utils/ethiopianCalendar');
 
-// GET /api/reports/hr/summary - HR summary for dashboard
-router.get('/summary', authenticateToken, async (req, res) => {
+const count = async (sql, params = [], fallback = 0) => {
   try {
-    // Get total staff count
-    const staffTypes = ['staff_teachers', 'staff_administrative_staff', 'staff_supportive_staff'];
-    let totalStaff = 0;
+    const r = await pool.query(sql, params);
+    return parseInt(r.rows[0] && r.rows[0].n) || fallback;
+  } catch (_) {
+    return fallback;
+  }
+};
 
-    for (const schema of staffTypes) {
-      try {
-        const tables = await pool.query(`
-          SELECT table_name 
-          FROM information_schema.tables 
-          WHERE table_schema = $1
-        `, [schema]);
+// GET /api/hr/stats  |  /api/hr/dashboard/summary  |  /api/reports/hr/summary
+const getSummary = async (req, res) => {
+  try {
+    const [totalStaff, activeStaff, pendingLeaves] = await Promise.all([
+      count(`SELECT COUNT(DISTINCT global_staff_id)::int AS n FROM staff_users WHERE global_staff_id IS NOT NULL`),
+      count(`SELECT COUNT(*)::int AS n FROM hr_complete_salaries WHERE COALESCE(is_active, TRUE) = TRUE AND COALESCE(is_stopped, FALSE) = FALSE`),
+      count(`SELECT COUNT(*)::int AS n FROM hr_attendance_permissions WHERE COALESCE(permission_status, 'PENDING') = 'PENDING'`),
+    ]);
 
-        for (const t of tables.rows) {
-          const result = await pool.query(`
-            SELECT COUNT(*) as count 
-            FROM "${schema}"."${t.table_name}"
-          `);
-          totalStaff += parseInt(result.rows[0]?.count) || 0;
-        }
-      } catch (e) {
-        console.log(`Error counting staff in ${schema}:`, e.message);
-      }
-    }
-
-    // Get today's attendance
-    const today = new Date();
-    const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][today.getDay()];
-    
-    let present = 0;
-    let absent = 0;
-    let onLeave = 0;
-
+    const eth = convertToEthiopian(new Date());
+    let present = 0, absent = 0, late = 0, halfDay = 0, onLeave = 0;
     try {
-      // Check if staff attendance schema exists
-      const schemaCheck = await pool.query(`
-        SELECT EXISTS (
-          SELECT 1 FROM information_schema.schemata 
-          WHERE schema_name = 'staff_attendance_schema'
-        )
-      `);
-
-      if (schemaCheck.rows[0]?.exists) {
-        const tables = await pool.query(`
-          SELECT table_name 
-          FROM information_schema.tables 
-          WHERE table_schema = 'staff_attendance_schema'
-        `);
-
-        for (const t of tables.rows) {
-          try {
-            const result = await pool.query(`
-              SELECT ${dayOfWeek}, COUNT(*) as count 
-              FROM staff_attendance_schema."${t.table_name}" 
-              WHERE ${dayOfWeek} IS NOT NULL 
-              GROUP BY ${dayOfWeek}
-            `);
-
-            result.rows.forEach(row => {
-              const status = row[dayOfWeek]?.toLowerCase();
-              const count = parseInt(row.count) || 0;
-              
-              if (status === 'p' || status === 'present') {
-                present += count;
-              } else if (status === 'a' || status === 'absent') {
-                absent += count;
-              } else if (status === 'l' || status === 'leave') {
-                onLeave += count;
-              }
-            });
-          } catch (e) {
-            console.log(`Error reading attendance from ${t.table_name}:`, e.message);
-          }
-        }
+      const r = await pool.query(
+        `SELECT UPPER(status) AS status, COUNT(*)::int AS n
+           FROM hr_ethiopian_attendance
+          WHERE ethiopian_year = $1 AND ethiopian_month = $2 AND ethiopian_day = $3
+          GROUP BY UPPER(status)`,
+        [eth.year, eth.month, eth.day]
+      );
+      for (const row of r.rows) {
+        const n = parseInt(row.n) || 0;
+        if (row.status === 'PRESENT') present += n;
+        else if (row.status === 'ABSENT') absent += n;
+        else if (row.status === 'LATE') late += n;
+        else if (row.status === 'HALF_DAY') halfDay += n;
+        else if (row.status === 'LEAVE') onLeave += n;
       }
-    } catch (e) {
-      console.log('Error fetching staff attendance:', e.message);
-    }
-
-    // If no attendance data, use estimates
-    if (present === 0 && absent === 0 && totalStaff > 0) {
-      present = Math.floor(totalStaff * 0.92);
-      absent = Math.floor(totalStaff * 0.05);
-      onLeave = totalStaff - present - absent;
-    }
+    } catch (_) {}
 
     res.json({
       success: true,
       data: {
         totalStaff,
+        activeStaff,
+        openPositions: 0,
+        pendingLeaves,
         present,
         absent,
-        onLeave
-      }
+        late,
+        halfDay,
+        onLeave,
+        ethiopianDate: eth.year + '-' + eth.month + '-' + eth.day,
+      },
     });
   } catch (error) {
     console.error('Error fetching HR summary:', error);
-    res.json({
-      success: true,
-      data: {
-        totalStaff: 42,
-        present: 39,
-        absent: 2,
-        onLeave: 1
-      }
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch HR summary' });
   }
-});
+};
+
+router.get('/', authenticateToken, getSummary);
+router.get('/summary', authenticateToken, getSummary);
+router.get('/stats', authenticateToken, getSummary);
 
 module.exports = router;
+module.exports.getSummary = getSummary;
