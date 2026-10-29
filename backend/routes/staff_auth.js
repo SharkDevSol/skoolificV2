@@ -62,10 +62,11 @@ const hashPassword = async (password) => {
 };
 
 // Create staff user account
-const createStaffUser = async (globalStaffId, name, staffType, className) => {
+const createStaffUser = async (globalStaffId, name, staffType, className, clientOrPool = pool) => {
+  const db = clientOrPool || pool;
   try {
     // Check if user already exists
-    const existingUser = await pool.query(
+    const existingUser = await db.query(
       'SELECT id FROM staff_users WHERE global_staff_id = $1',
       [globalStaffId]
     );
@@ -81,7 +82,7 @@ const createStaffUser = async (globalStaffId, name, staffType, className) => {
     let attempts = 0;
     
     while (usernameExists && attempts < 10) {
-      const result = await pool.query('SELECT id FROM staff_users WHERE username = $1', [username]);
+      const result = await db.query('SELECT id FROM staff_users WHERE username = $1', [username]);
       if (result.rows.length === 0) {
         usernameExists = false;
       } else {
@@ -99,7 +100,7 @@ const createStaffUser = async (globalStaffId, name, staffType, className) => {
     const passwordHash = await hashPassword(password);
 
     // Insert user (also store plain password for admin viewing)
-    await pool.query(
+    await db.query(
       `INSERT INTO staff_users (global_staff_id, username, password_hash, password_plain, staff_type, class_name) 
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [globalStaffId, username, passwordHash, password, staffType, className]
@@ -151,12 +152,13 @@ const verifyCredentials = async (username, password) => {
 };
 
 // Get staff profile data
-const getStaffProfile = async (globalStaffId, staffType, className) => {
+const getStaffProfile = async (globalStaffId, staffType, className, clientOrPool = pool) => {
+  const db = clientOrPool || pool;
   try {
     const schemaName = `staff_${staffType.replace(/\s+/g, '_').toLowerCase()}`;
     
     // First check if the schema and table exist
-    const tableCheck = await pool.query(`
+    const tableCheck = await db.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = $1 
@@ -167,7 +169,7 @@ const getStaffProfile = async (globalStaffId, staffType, className) => {
     if (!tableCheck.rows[0].exists) {
       console.log(`Table ${schemaName}.${className} does not exist, returning basic profile`);
       // Return basic profile from staff_users table
-      const basicProfile = await pool.query(
+      const basicProfile = await db.query(
         `SELECT global_staff_id, username, staff_type, class_name 
          FROM staff_users 
          WHERE global_staff_id = $1`,
@@ -177,7 +179,7 @@ const getStaffProfile = async (globalStaffId, staffType, className) => {
     }
     
     // Check if is_active column exists
-    const columnCheck = await pool.query(`
+    const columnCheck = await db.query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_schema = $1 
@@ -188,7 +190,7 @@ const getStaffProfile = async (globalStaffId, staffType, className) => {
     const hasIsActive = columnCheck.rows.length > 0;
     const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
     
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT * FROM "${schemaName}"."${className}" WHERE global_staff_id = $1 ${whereClause}`,
       [globalStaffId]
     );
@@ -202,7 +204,7 @@ const getStaffProfile = async (globalStaffId, staffType, className) => {
     console.error('Error getting staff profile:', error);
     // Return basic profile as fallback
     try {
-      const basicProfile = await pool.query(
+      const basicProfile = await db.query(
         `SELECT global_staff_id, username, staff_type, class_name 
          FROM staff_users 
          WHERE global_staff_id = $1`,

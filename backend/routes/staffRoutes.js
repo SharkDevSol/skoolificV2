@@ -2,7 +2,43 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const DatabaseConnectionManager = require('../services/DatabaseConnectionManager');
 const router = express.Router();
+
+// Helper function to resolve database pool based on branch code
+const getPool = async (req) => {
+  if (req && req.branchPool) return req.branchPool;
+  let branchCode = req?.headers?.['x-branch-code'] || req?.headers?.['X-Branch-Code'] || req?.headers?.['branchcode'] || req?.query?.branchCode;
+  if (!branchCode && req?.headers?.authorization) {
+    try {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      const decoded = jwt.decode(token);
+      if (decoded && (decoded.branchCode || decoded.branch_code)) {
+        branchCode = decoded.branchCode || decoded.branch_code;
+      }
+    } catch (e) {}
+  }
+  if (!branchCode && req?.headers?.host) {
+    const host = req.headers.host.toLowerCase();
+    if (host.includes('bilal')) {
+      branchCode = 'BILAL';
+    }
+  }
+  if (branchCode) {
+    try {
+      const dbManager = DatabaseConnectionManager.getInstance ? DatabaseConnectionManager.getInstance() : DatabaseConnectionManager;
+      if (dbManager && typeof dbManager.getPool === 'function') {
+        const branchPool = await dbManager.getPool(branchCode.toUpperCase());
+        if (branchPool) {
+          return branchPool;
+        }
+      }
+    } catch (e) {
+      console.warn(`[Staff getPool] Could not get pool for branch "${branchCode}":`, e.message);
+    }
+  }
+  return pool;
+};
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs').promises;
@@ -81,19 +117,20 @@ const upload = multer({
 // ---------------------------------------------------------------------
 // 2. Global staff-counter (global_staff_id)
 // ---------------------------------------------------------------------
-const initializeStaffCounter = async () => {
+const initializeStaffCounter = async (targetDb = pool) => {
+  const db = targetDb || pool;
   try {
-    await pool.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS staff_counter (
         id SERIAL PRIMARY KEY,
         count INTEGER NOT NULL DEFAULT 0
       );
     `);
-    const { rows } = await pool.query(
+    const { rows } = await db.query(
       'SELECT count FROM staff_counter WHERE id = 1'
     );
     if (rows.length === 0) {
-      await pool.query('INSERT INTO staff_counter (id, count) VALUES (1, 0)');
+      await db.query('INSERT INTO staff_counter (id, count) VALUES (1, 0)');
     }
     console.log('Staff counter initialized');
   } catch (e) {
@@ -101,8 +138,10 @@ const initializeStaffCounter = async () => {
   }
 };
 
-const getNextGlobalStaffId = async () => {
-  const { rows } = await pool.query(
+const getNextGlobalStaffId = async (targetDb = pool) => {
+  const db = targetDb || pool;
+  await initializeStaffCounter(db);
+  const { rows } = await db.query(
     'UPDATE staff_counter SET count = count + 1 WHERE id = 1 RETURNING count'
   );
   return rows[0].count;
@@ -629,7 +668,8 @@ router.get('/classes', async (req, res) => {
 
   const schema = sanitizeStaffTypeToSchema(staffType);
   try {
-    const { rows } = await pool.query(
+    const branchPool = await getPool(req);
+    const { rows } = await branchPool.query(
       `SELECT table_name
        FROM information_schema.tables
        WHERE table_schema = $1 AND table_name <> 'staff_counter'`,
@@ -650,8 +690,9 @@ router.get('/columns/:staffType/:className', async (req, res) => {
   const schema = sanitizeStaffTypeToSchema(staffType);
 
   try {
+    const branchPool = await getPool(req);
     // Get database column info
-    const { rows } = await pool.query(
+    const { rows } = await branchPool.query(
       `SELECT column_name, data_type, is_nullable
        FROM information_schema.columns
        WHERE table_schema = $1 AND table_name = $2`,
@@ -659,7 +700,7 @@ router.get('/columns/:staffType/:className', async (req, res) => {
     );
 
     // Get field type metadata
-    const { rows: metadataRows } = await pool.query(
+    const { rows: metadataRows } = await branchPool.query(
       `SELECT column_name, field_type, required, options
        FROM form_metadata.field_types
        WHERE schema_name = $1 AND table_name = $2`,
@@ -979,7 +1020,8 @@ router.delete('/delete-form', async (req, res) => {
 
 // 7.7 ADD SINGLE STAFF (with files, user account, schedule) - FIXED MULTER
 router.post('/add-staff', upload, async (req, res) => {
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
   try {
     await client.query('BEGIN');
 
@@ -1055,7 +1097,7 @@ router.post('/add-staff', upload, async (req, res) => {
     }
 
     // ---- IDs ----
-    const globalStaffId = await getNextGlobalStaffId();
+    const globalStaffId = await getNextGlobalStaffId(client);
     const max = await client.query(
       `SELECT COALESCE(MAX(staff_id),0) AS m FROM "${schema}"."${className}"`
     );
@@ -1100,7 +1142,8 @@ router.post('/add-staff', upload, async (req, res) => {
           globalStaffId,
           formData.name,
           staffType,
-          className
+          className,
+          client
         );
       } catch (e) {
         console.error('User creation error:', e);
@@ -1251,7 +1294,7 @@ router.post('/upload-excel', async (req, res) => {
 
     for (const row of data) {
       curStaffId++;
-      const globalStaffId = await getNextGlobalStaffId();
+      const globalStaffId = await getNextGlobalStaffId(client);
 
       const insertObj = {};
       for (const c of allCols) {
@@ -1666,7 +1709,8 @@ router.delete('/delete-staff', async (req, res) => {
 
 // 7.14 UPDATE staff member
 router.put('/update-staff', upload, async (req, res) => {
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
   
   try {
     await client.query('BEGIN');
@@ -2375,7 +2419,7 @@ router.post('/bulk-import', async (req, res) => {
         }
         
         // Get next global_staff_id
-        const globalStaffId = await getNextGlobalStaffId();
+        const globalStaffId = await getNextGlobalStaffId(client);
         currentStaffId++;
         
         // Build insert data
