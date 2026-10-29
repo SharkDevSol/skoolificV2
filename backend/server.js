@@ -431,6 +431,7 @@ app.use('/api/reports/finance', financeReportsRoutes);
 app.use('/api/reports/inventory', inventoryReportsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/reports/hr', hrReportsRoutes);
+app.use('/api/hr', require('./routes/hr/tipsCredits')); // tips / credits / debt plans
 app.use('/api/hr/stats', hrReportsRoutes); // GET /api/hr/stats (HR dashboard)
 app.use('/api/hr/reports', require('./routes/hr/hrReportPages')); // HR Reports page (/api/hr/reports/:report)
 app.use('/api/hr/shift-settings', shiftSettingsRoutes); // Must be before /api/hr

@@ -46,6 +46,8 @@ import AddSalaryCompleteModal from './components/AddSalaryCompleteModal';
 import Card from '../../COMPONENTS/Card/Card';
 import Button from '../../COMPONENTS/Button/Button';
 import EditSalaryModal from './components/EditSalaryModal';
+import TipsTab from './components/TipsTab';
+import CreditTab from './components/CreditTab';
 import { getCurrentEthiopianMonth } from '../../utils/ethiopianCalendar';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -236,7 +238,9 @@ const SalaryManagement = () => {
 
 
   const tabs = [
-    { id: 'staff', label: t('hr.salary.tabs.staff', 'All Staff') }
+    { id: 'staff', label: t('hr.salary.tabs.staff', 'All Staff') },
+    { id: 'tips', label: 'Tips' },
+    { id: 'credit', label: 'Credit' }
   ];
 
   return (
@@ -395,6 +399,14 @@ const SalaryManagement = () => {
               </table>
             </div>
             </Card>
+          )}
+
+          {activeTab === 'tips' && (
+            <TipsTab staff={allStaff} ethDate={currentEthiopianDate} API_URL={API_URL} http={branchAxios} />
+          )}
+
+          {activeTab === 'credit' && (
+            <CreditTab staff={allStaff} ethDate={currentEthiopianDate} API_URL={API_URL} http={branchAxios} />
           )}
 
           {/* Deductions Tab */}

@@ -122,6 +122,21 @@ router.post('/generate', authenticateWithBranch, async (req, res) => {
       });
 
       const deductionsRows = deductionsResult.rows.map(r => ({ ...r, total_amount: parseFloat(r.total_amount) || 0 }));
+
+      // Debt repayment plan amounts for this payroll month
+      let debtAmount = 0;
+      try {
+        const debtResult = await pool.query(
+          `SELECT COALESCE(SUM(i.amount), 0) AS total
+             FROM hr_debt_plan_items i
+             JOIN hr_debt_plans p ON p.id = i.plan_id
+            WHERE p.staff_id = $1 AND p.status = 'ACTIVE'
+              AND i.ethiopian_year = $2 AND i.ethiopian_month = $3 AND i.status = 'PENDING'`,
+          [String(staffId), parseInt(ethYear), parseInt(ethMonth)]
+        );
+        debtAmount = parseFloat(debtResult.rows[0].total) || 0;
+      } catch (_) {}
+      if (debtAmount > 0) deductionsRows.push({ deduction_type: 'Debt', total_amount: debtAmount });
       if (taxAmount > 0) deductionsRows.unshift({ deduction_type: 'Tax', total_amount: taxAmount });
 
       const computedDeductions = deductionsRows.reduce((sum, row) => sum + (parseFloat(row.total_amount) || 0), 0);
