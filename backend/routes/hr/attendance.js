@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/db');
 const { authenticateWithBranch } = require('../../middleware/branchAuth');
+const { calculateAttendanceDeduction, attendanceMarkKey } = require('../../services/attendanceDeduction');
 const { getEndpointPath, API_ENDPOINTS } = require('../../config/api.config');
 
 // Get attendance records for a specific date
@@ -463,6 +464,7 @@ router.post('/attendance/ethiopian', authenticateWithBranch, async (req, res) =>
         max_checkout_hours DECIMAL(4, 2) DEFAULT 3.0,
         absent_threshold_time TIME DEFAULT '15:00',
         weekend_days INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+        connect_to_salary BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
@@ -939,6 +941,7 @@ router.get('/attendance/time-settings', authenticateWithBranch, async (req, res)
         max_checkout_hours DECIMAL(4, 2) DEFAULT 3.0,
         absent_threshold_time TIME DEFAULT '15:00',
         weekend_days INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+        connect_to_salary BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
@@ -993,7 +996,8 @@ router.post('/attendance/time-settings', authenticateWithBranch, async (req, res
       gracePeriodMinutes,
       maxCheckoutHours,
       absentThresholdTime,
-      weekendDays
+      weekendDays,
+      connectToSalary
     } = req.body;
 
     // Create table if not exists
@@ -1009,6 +1013,7 @@ router.post('/attendance/time-settings', authenticateWithBranch, async (req, res
         max_checkout_hours DECIMAL(4, 2) DEFAULT 3.0,
         absent_threshold_time TIME DEFAULT '15:00',
         weekend_days INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+        connect_to_salary BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
@@ -1024,10 +1029,10 @@ router.post('/attendance/time-settings', authenticateWithBranch, async (req, res
       // Insert new settings
       result = await pool.query(`
         INSERT INTO hr_attendance_time_settings 
-        (standard_check_in, late_threshold, standard_check_out, minimum_work_hours, half_day_threshold, grace_period_minutes, max_checkout_hours, absent_threshold_time, weekend_days)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        (standard_check_in, late_threshold, standard_check_out, minimum_work_hours, half_day_threshold, grace_period_minutes, max_checkout_hours, absent_threshold_time, weekend_days, connect_to_salary)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
-      `, [standardCheckIn, lateThreshold, standardCheckOut, minimumWorkHours, halfDayThreshold, gracePeriodMinutes, maxCheckoutHours, absentThresholdTime, weekendDays || []]);
+      `, [standardCheckIn, lateThreshold, standardCheckOut, minimumWorkHours, halfDayThreshold, gracePeriodMinutes, maxCheckoutHours, absentThresholdTime, weekendDays || [], connectToSalary === true || connectToSalary === 'true']);
     } else {
       console.log('✏️ Updating existing settings...');
       // Update existing settings
@@ -1042,10 +1047,11 @@ router.post('/attendance/time-settings', authenticateWithBranch, async (req, res
             max_checkout_hours = $7,
             absent_threshold_time = $8,
             weekend_days = $9,
+            connect_to_salary = $10,
             updated_at = NOW()
-        WHERE id = $10
+        WHERE id = $11
         RETURNING *
-      `, [standardCheckIn, lateThreshold, standardCheckOut, minimumWorkHours, halfDayThreshold, gracePeriodMinutes, maxCheckoutHours, absentThresholdTime, weekendDays || [], existing.rows[0].id]);
+      `, [standardCheckIn, lateThreshold, standardCheckOut, minimumWorkHours, halfDayThreshold, gracePeriodMinutes, maxCheckoutHours, absentThresholdTime, weekendDays || [], connectToSalary === true || connectToSalary === 'true', existing.rows[0].id]);
     }
 
     console.log('✅ Settings saved successfully');
@@ -1219,46 +1225,57 @@ router.get('/attendance/calculate-deductions', authenticateWithBranch, async (re
       [staffId, parseInt(ethMonth), parseInt(ethYear)]
     );
 
-    // Get active deduction settings for the staff type
+    // Settings: a staff-type row overrides the global 'ALL' row
     const settingsResult = await pool.query(
       `SELECT * FROM hr_attendance_deduction_settings
-       WHERE staff_type = $1 AND is_active = true`,
+       WHERE staff_type IN ($1, 'ALL') AND is_active = true`,
       [staffType]
     );
+    const amounts = {};
+    for (const row of settingsResult.rows) {
+      const key = String(row.deduction_type).toUpperCase();
+      if (row.staff_type === staffType) amounts[key] = parseFloat(row.deduction_amount) || 0;
+      else if (amounts[key] === undefined) amounts[key] = parseFloat(row.deduction_amount) || 0;
+    }
 
-    const settings = settingsResult.rows;
-    const attendance = attendanceResult.rows;
+    // Connect-to-salary switch (global) + per-staff override
+    let connectToSalary = false;
+    try {
+      const ts = await pool.query('SELECT connect_to_salary FROM hr_attendance_time_settings LIMIT 1');
+      connectToSalary = !!(ts.rows[0] && ts.rows[0].connect_to_salary);
+    } catch (_) {}
 
-    // Calculate deductions (exclude APPROVED permissions)
-    const deductions = {
-      ABSENT: 0,
-      LATE: 0,
-      HALF_DAY: 0,
-      total: 0,
-      breakdown: []
-    };
-
-    settings.forEach(setting => {
-      // Only count attendance records that are NOT approved
-      const count = attendance.filter(a => 
-        a.status === setting.deduction_type && 
-        (!a.permission_status || a.permission_status !== 'APPROVED')
-      ).length;
-      
-      const amount = count * parseFloat(setting.deduction_amount);
-
-      deductions[setting.deduction_type] = amount;
-      deductions.total += amount;
-
-      if (count > 0) {
-        deductions.breakdown.push({
-          type: setting.deduction_type,
-          count,
-          amountPerOccurrence: parseFloat(setting.deduction_amount),
-          totalAmount: amount
-        });
+    // Staff-specific settings override the global switch + any-time behaviour
+    let anytime = false;
+    let absentDeducts = true;
+    try {
+      const sp = await pool.query(
+        'SELECT connect_to_salary, anytime_check, absent_deducts FROM hr_staff_specific_times WHERE staff_id = $1 LIMIT 1',
+        [staffId]
+      );
+      if (sp.rows[0]) {
+        connectToSalary = sp.rows[0].connect_to_salary === true;
+        anytime = sp.rows[0].anytime_check === true;
+        absentDeducts = sp.rows[0].absent_deducts !== false;
       }
-    });
+    } catch (_) {}
+
+    const attendance = attendanceResult.rows;
+    const deductions = { ABSENT: 0, LATE: 0, HALF_DAY: 0, NO_CHECKOUT: 0, total: 0, breakdown: [] };
+
+    // HOOK: every attendance->salary rule lives in services/attendanceDeduction.js
+    for (const a of attendance) {
+      if (a.permission_status === 'APPROVED') continue;
+      const mark = attendanceMarkKey(a.status);
+      if (!mark) continue;
+      const per = calculateAttendanceDeduction({ mark, amounts, connectToSalary, anytime, absentDeducts });
+      if (per <= 0) continue;
+      deductions[mark] = (deductions[mark] || 0) + per;
+      deductions.total += per;
+      const entry = deductions.breakdown.find(b => b.type === mark);
+      if (entry) { entry.count += 1; entry.totalAmount += per; }
+      else deductions.breakdown.push({ type: mark, count: 1, amountPerOccurrence: per, totalAmount: per });
+    }
 
     res.json({
       success: true,
@@ -1295,6 +1312,9 @@ router.get('/attendance/staff-specific-times', authenticateWithBranch, async (re
         minimum_work_hours DECIMAL(4, 2) NOT NULL DEFAULT 8.0,
         half_day_threshold DECIMAL(4, 2) NOT NULL DEFAULT 4.0,
         grace_period_minutes INTEGER NOT NULL DEFAULT 15,
+        anytime_check BOOLEAN DEFAULT FALSE,
+        connect_to_salary BOOLEAN DEFAULT FALSE,
+        absent_deducts BOOLEAN DEFAULT TRUE,
         notes TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -1328,7 +1348,10 @@ router.post('/attendance/staff-specific-times', authenticateWithBranch, async (r
       minimumWorkHours,
       halfDayThreshold,
       gracePeriodMinutes,
-      notes 
+      notes,
+      anytimeCheck,
+      connectToSalary,
+      absentDeducts
     } = req.body;
 
     if (!staffId || !staffName || !checkInTime || !checkOutTime || !lateThreshold) {
@@ -1350,6 +1373,9 @@ router.post('/attendance/staff-specific-times', authenticateWithBranch, async (r
         minimum_work_hours DECIMAL(4, 2) NOT NULL DEFAULT 8.0,
         half_day_threshold DECIMAL(4, 2) NOT NULL DEFAULT 4.0,
         grace_period_minutes INTEGER NOT NULL DEFAULT 15,
+        anytime_check BOOLEAN DEFAULT FALSE,
+        connect_to_salary BOOLEAN DEFAULT FALSE,
+        absent_deducts BOOLEAN DEFAULT TRUE,
         notes TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -1358,9 +1384,10 @@ router.post('/attendance/staff-specific-times', authenticateWithBranch, async (r
 
     const result = await pool.query(
       `INSERT INTO hr_staff_specific_times 
-       (staff_id, staff_name, staff_type, check_in_time, check_out_time, late_threshold, 
-        minimum_work_hours, half_day_threshold, grace_period_minutes, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       (staff_id, staff_name, staff_type, check_in_time, check_out_time, late_threshold,
+        minimum_work_hours, half_day_threshold, grace_period_minutes, notes,
+        anytime_check, connect_to_salary, absent_deducts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (staff_id)
        DO UPDATE SET
          staff_name = EXCLUDED.staff_name,
@@ -1372,6 +1399,9 @@ router.post('/attendance/staff-specific-times', authenticateWithBranch, async (r
          half_day_threshold = EXCLUDED.half_day_threshold,
          grace_period_minutes = EXCLUDED.grace_period_minutes,
          notes = EXCLUDED.notes,
+         anytime_check = EXCLUDED.anytime_check,
+         connect_to_salary = EXCLUDED.connect_to_salary,
+         absent_deducts = EXCLUDED.absent_deducts,
          updated_at = NOW()
        RETURNING *`,
       [
@@ -1384,7 +1414,10 @@ router.post('/attendance/staff-specific-times', authenticateWithBranch, async (r
         minimumWorkHours || 8.0,
         halfDayThreshold || 4.0,
         gracePeriodMinutes || 15,
-        notes || null
+        notes || null,
+        anytimeCheck === true || anytimeCheck === 'true',
+        connectToSalary === true || connectToSalary === 'true',
+        absentDeducts !== false && absentDeducts !== 'false'
       ]
     );
 

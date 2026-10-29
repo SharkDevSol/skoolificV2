@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from '../Finance/PaymentManagement.module.css';
+import StaffSpecificTimeTab from './components/StaffSpecificTimeTab';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -12,6 +13,8 @@ const AttendanceTimeSettingsCombined = () => {
 
   // Global settings state
   const [settings, setSettings] = useState(null);
+  const [connectToSalary, setConnectToSalary] = useState(false);
+  const [deductionAmounts, setDeductionAmounts] = useState({ ABSENT: 0, LATE: 0, HALF_DAY: 0, NO_CHECKOUT: 0 });
   const [formData, setFormData] = useState({
     standardCheckIn: '08:00',
     lateThreshold: '08:15',
@@ -75,12 +78,45 @@ const AttendanceTimeSettingsCombined = () => {
           absentThresholdTime: response.data.data.absent_threshold_time || '15:00',
           weekendDays: response.data.data.weekend_days || []
         });
+        setConnectToSalary(response.data.data.connect_to_salary === true);
+        fetchDeductionAmounts();
       }
     } catch (error) {
       console.error('Error fetching settings:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchDeductionAmounts = async () => {
+    try {
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/hr/attendance/deduction-settings`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const rows = (res.data && res.data.data) || [];
+      const next = { ABSENT: 0, LATE: 0, HALF_DAY: 0, NO_CHECKOUT: 0 };
+      rows.filter(r => String(r.staff_type).toUpperCase() === 'ALL').forEach(r => {
+        next[String(r.deduction_type).toUpperCase()] = parseFloat(r.deduction_amount) || 0;
+      });
+      setDeductionAmounts(next);
+    } catch (error) {
+      console.error('Error fetching deduction amounts:', error);
+    }
+  };
+
+  const saveDeductionAmounts = async () => {
+    const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+    const entries = Object.entries(deductionAmounts);
+    await Promise.all(entries.map(([type, amount]) =>
+      axios.post(`${API_URL}/hr/attendance/deduction-settings`, {
+        staffType: 'ALL',
+        deductionType: type,
+        deductionAmount: parseFloat(amount) || 0,
+        description: 'Global attendance deduction',
+        isActive: true
+      }, { headers: { 'Authorization': `Bearer ${token}` } })
+    ));
   };
 
   const handleGlobalSubmit = async (e) => {
@@ -102,12 +138,14 @@ const AttendanceTimeSettingsCombined = () => {
           gracePeriodMinutes: parseInt(formData.gracePeriodMinutes),
           maxCheckoutHours: parseFloat(formData.maxCheckoutHours),
           absentThresholdTime: formData.absentThresholdTime,
-          weekendDays: formData.weekendDays
+          weekendDays: formData.weekendDays,
+          connectToSalary: connectToSalary
         },
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
       if (response.data.success) {
+        await saveDeductionAmounts();
         setMessage('✅ Global settings saved successfully!');
         setTimeout(() => setMessage(''), 3000);
         fetchSettings();
@@ -482,6 +520,22 @@ const AttendanceTimeSettingsCombined = () => {
         >
           👥 Staff Shift Assignment
         </button>
+        <button
+          onClick={() => setActiveTab('staff-specific')}
+          style={{
+            padding: '12px 24px',
+            background: activeTab === 'staff-specific' ? '#2196F3' : 'transparent',
+            color: activeTab === 'staff-specific' ? 'white' : '#666',
+            border: 'none',
+            borderBottom: activeTab === 'staff-specific' ? '3px solid #2196F3' : 'none',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 600,
+            transition: 'all 0.3s'
+          }}
+        >
+          Staff Specific Time
+        </button>
       </div>
 
       {/* Global Settings Tab */}
@@ -637,6 +691,45 @@ const AttendanceTimeSettingsCombined = () => {
                     .join(', ')}
                 </div>
               )}
+            </div>
+
+            {/* Connect to salary */}
+            <div style={{ marginTop: '32px', padding: '20px', background: '#f8f9fa', borderRadius: '8px' }}>
+              <h3 style={{ marginBottom: '12px', fontSize: '16px', color: '#333' }}>Connect to Salary</h3>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 600, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={connectToSalary}
+                  onChange={(e) => setConnectToSalary(e.target.checked)}
+                />
+                When ON, attendance marks can create salary deductions
+              </label>
+              {connectToSalary && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginTop: '16px' }}>
+                  {[
+                    { key: 'ABSENT', label: 'A - Absent' },
+                    { key: 'LATE', label: 'L - Late' },
+                    { key: 'HALF_DAY', label: 'H - Half Day' },
+                    { key: 'NO_CHECKOUT', label: '* - No Check-out' }
+                  ].map(item => (
+                    <div key={item.key}>
+                      <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>{item.label}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={deductionAmounts[item.key]}
+                        onChange={(e) => setDeductionAmounts(prev => ({ ...prev, [item.key]: e.target.value }))}
+                        className={styles.input}
+                      />
+                      <small>Birr per mark</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontSize: '12px', color: '#666', marginTop: '12px' }}>
+                P (present) and V (permission) never deduct. The calculation rule is a hook — detailed rules will be added later.
+              </p>
             </div>
 
             <button
@@ -863,6 +956,18 @@ const AttendanceTimeSettingsCombined = () => {
             </table>
           </div>
         </>
+      )}
+
+      {activeTab === 'staff-specific' && (
+        <StaffSpecificTimeTab
+          staff={staff}
+          API_URL={API_URL}
+          defaults={{
+            standardCheckIn: formData.standardCheckIn,
+            standardCheckOut: formData.standardCheckOut,
+            lateThreshold: formData.lateThreshold
+          }}
+        />
       )}
 
     </div>

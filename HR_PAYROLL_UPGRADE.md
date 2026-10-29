@@ -57,8 +57,17 @@ PGPASSWORD=... psql -h localhost -U <user> -d <db> -v ON_ERROR_STOP=1 --single-t
 - UI: Add/Edit Salary modal has bank fields, optional tax, a 13-month paid-months picker and a live net preview; the salary table shows bank/tax/months + **Stop/Reactivate**.
 - Tested: 10% tax on 10,000 → net 9,000; stopped → excluded; month not in paid months → excluded.
 
-## Next (requirements 2–7)
-Connect-to-salary + staff-specific/any-time tabs, AUTO/MANUAL + P→L + source/creator, leave review Done/A→V + audit, Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
+## Requirement 2 — Time & shift settings (done, IQRA)
+- Global time settings now save/return `connect_to_salary` (was missing on IQRA; fixed earlier).
+- When ON, the page shows 4 amount inputs: **A Absent, L Late, H Half-day, \* No check-out** (P/V never deduct), stored as `hr_attendance_deduction_settings` rows with `staff_type='ALL'`.
+- **Staff Specific Time** tab: per-staff check-in/out + late threshold, **Any time** toggle, its own **Connect to salary** switch, and **Absence deducts** toggle. Stored in `hr_staff_specific_times`.
+- **Calculation hook** added: `backend/services/attendanceDeduction.js`
+  (`calculateAttendanceDeduction`, `attendanceMarkKey`) — the only place attendance→salary rules live; rules are placeholder until you define them.
+- `/api/hr/attendance/calculate-deductions` uses the hook, supports the global `ALL` amounts, and a staff-specific row overrides the global switch/any-time behaviour.
+- Tested: global ON → 30 absences × 100 = 3000; staff-specific switch OFF → 0; any-time + absence-not-deduct → 0; any-time + deduct → 3000.
+
+## Next (requirements 3–7)
+AUTO/MANUAL marking + source/creator + P→L, leave review Done/A→V + audit, Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
 
 ## Behaviour changes to be aware of
 - `/api/staff` and `/api/staff/data/...` no longer return password fields (any UI relying on them will get `undefined`).
