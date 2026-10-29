@@ -51,26 +51,31 @@ This is the **only** place builds are kept — nothing outside `/var/www/app-dow
 | Staff (iqra + bilal, one app) | `flutter-staff-app` | 1.1.2+5 | ✅ | ✅ Codemagic → TestFlight (`com.skoolific.iqraStaff`) |
 | Iqra Parent | `flutter-parent-app` | 5.13 | ✅ | ✅ Codemagic → TestFlight (`com.skoolific.iqraParent`) |
 | Bilal Parent | `flutter-bilal-parent-app` | 1.0.2 (code 3) | ✅ APK + **Play AAB** | ✅ Codemagic → TestFlight (`com.skoolific.bilalParent`) |
-| Bilal Student | `flutter-bilal-student-app` | 1.0.0 | ✅ | ❌ no iOS workflow yet |
+| Bilal Student | `flutter-bilal-student-app` | 1.0.0 | ✅ | ✅ Codemagic → TestFlight (`com.skoolific.bilalStudent`) |
 
 ### Where the iOS builds live
 
 iOS is built by **Codemagic** (cloud macOS) — root `codemagic.yaml` — because Apple builds
-cannot be made on this Linux server. There are three workflows:
+cannot be made on this Linux server. There are four workflows:
 
 | Workflow | App directory | Bundle ID | Publishing |
 |---|---|---|---|
 | `iqra-staff-ios` | `flutter-staff-app` | `com.skoolific.iqraStaff` | `flutter build ipa` → App Store Connect → **TestFlight** |
 | `iqra-parent-ios` | `flutter-parent-app` | `com.skoolific.iqraParent` | TestFlight |
 | `bilal-parent-ios` | `flutter-bilal-parent-app` | `com.skoolific.bilalParent` | TestFlight |
+| `bilal-student-ios` | `flutter-bilal-student-app` | `com.skoolific.bilalStudent` | TestFlight |
 
 - Trigger: push/tag on `main`; uses env group `ios_credentials` + the
   **"OneCo Solutions"** App Store Connect integration.
 - The `.ipa` is a Codemagic build artifact (`build/ios/ipa/*.ipa`) — download it from the
-  Codemagic build page; it is **not** stored on this server and not in the public App Store
-  listing (it is distributed through TestFlight).
-- `flutter-bilal-student-app` has **no** iOS workflow (Android only) and there is no IQRA
-  student app at all.
+  Codemagic build page or let it go to TestFlight; copy it into
+  `/var/www/app-downloads/<school>/<app>/ios/` to keep it in the single app store.
+- Each iOS project now has a `Podfile` and `ios/Runner/GoogleService-Info.plist`
+  (Firebase iOS apps registered: iqra-parent → `com.skoolific.iqraParent` +
+  `com.skoolific.bilalStudent`, bilal-parent → `com.skoolific.bilalParent`,
+  iqra-staff1 → `com.skoolific.iqraStaff`). The workflow adds the plist to the Xcode
+  project automatically. Push on iOS still needs an **APNs auth key** uploaded to Firebase.
+- There is **no separate Bilal Staff app**: `flutter-staff-app` is one app used by both schools.
 
 ## Publishing a new build
 
