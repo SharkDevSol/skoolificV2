@@ -11,7 +11,10 @@ import {
   Printer,
   BarChart3,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Check,
+  X,
+  Trophy
 } from 'lucide-react';
 import styles from './StudentAttendanceSystem.module.css';
 import { classIdLabel } from '../../utils/classId';
@@ -558,10 +561,10 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
     const checkInTime = record.check_in_time;
 
     const statusConfig = {
-      PRESENT: { className: styles.present, label: '✓' },
-      ABSENT: { className: styles.absent, label: '✗' },
-      LEAVE: { className: styles.leave, label: 'E' },
-      LATE: { className: styles.late, label: '⏰' }
+      PRESENT: { className: styles.present, icon: <Check size={16} strokeWidth={2.5} /> },
+      ABSENT: { className: styles.absent, icon: <X size={16} strokeWidth={2.5} /> },
+      LEAVE: { className: styles.leave, icon: <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>E</span> },
+      LATE: { className: styles.late, icon: <Clock size={16} strokeWidth={2.2} /> }
     };
     const config = statusConfig[status] || statusConfig.ABSENT;
 
@@ -581,7 +584,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
     return (
       <div className={styles.statusContainer}>
         <span className={`${styles.statusBadge} ${config.className}`}>
-          {config.label}
+          {config.icon}
         </span>
         {timeDisplay && (
           <span className={styles.checkInTime}>{timeDisplay}</span>
@@ -836,7 +839,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
       </div>
 
       {/* Filters */}
-      <Card title={`ðŸ” ${t('common.filter', 'Filters')}`} className={styles.filtersCard} padding="lg">
+      <Card title={t('common.filter', 'Filters')} className={styles.filtersCard} padding="lg">
         <div className={styles.filtersGrid}>
           {preSelectedClass ? (
             <div className={styles.filterField}>
@@ -996,7 +999,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                 {/* Report Summary */}
                 <div className={styles.reportSummary}>
                   <h3 className={styles.reportSummaryTitle}>
-                    {reportClass} — {reportType === 'week'
+                    {reportClass} - {reportType === 'week'
                       ? `Week ${(schoolWeeks.find(w => w.id === (reportWeek || selectedWeekId)) || {}).week_number || '?'} (${ethiopianMonths[reportDate.month - 1]} ${reportDate.year})`
                       : `${ethiopianMonths[reportDate.month - 1]} ${reportDate.year}`}
                   </h3>
@@ -1011,7 +1014,9 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
 
                 {/* Ranking */}
                 <div className={styles.reportSummary}>
-                  <h3 className={styles.reportSummaryTitle}>ðŸ† Student Ranking ({reportType === 'week' ? 'This Week' : 'This Month'})</h3>
+                  <h3 className={styles.reportSummaryTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Trophy size={20} color="#f59e0b" /> Student Ranking ({reportType === 'week' ? 'This Week' : 'This Month'})
+                  </h3>
                   <div className={styles.summaryCards}>
                     {[
                       { label: 'Most Absent', field: 'absent' },
@@ -1025,7 +1030,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                         <div key={label} className={styles.rankCard}>
                           <span className={styles.rankLabel}>{label}</span>
                           <span className={styles.rankName}>{top?.name || '-'}</span>
-                          <span className={styles.rankCount}>{top?.classId ? `Class ${top.classId}` : ''} — {top?.[field] || 0} {field}</span>
+                          <span className={styles.rankCount}>{top?.classId ? `Class ${top.classId}` : ''} - {top?.[field] || 0} {field}</span>
                         </div>
                       );
                     })}
@@ -1108,8 +1113,8 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                   <div className={styles.studentMeta}>
                     <span className={styles.studentName}>{student.student_name}</span>
                     <span className={styles.studentMetaSub}>
-                      {t('students.attendance.classId', 'Class ID')}: {classIdLabel(student.class_id) || 'N/A'} ·{' '}
-                      {t('students.attendance.machineId', 'Machine ID')}: {student.smachine_id || '—'}
+                      {t('students.attendance.classId', 'Class ID')}: {classIdLabel(student.class_id) || 'N/A'} {' | '}{' '}
+                      {t('students.attendance.machineId', 'Machine ID')}: {student.smachine_id || '-'}
                     </span>
                   </div>
                   <div className={styles.statusToggles} role="group" aria-label={student.student_name}>
@@ -1186,11 +1191,11 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
       <Card className={styles.infoSection} padding="md">
         <h3 className={styles.infoTitle}>{t('students.attendance.howItWorks', 'How it works')}</h3>
         <ul className={styles.infoList}>
-          <li>{t('students.attendance.legendPresent', 'Present — student checked in on time')}</li>
-          <li>{t('students.attendance.legendLate', 'Late — student checked in late')}</li>
-          <li>{t('students.attendance.legendAbsent', 'Absent — student did not check in')}</li>
+          <li>{t('students.attendance.legendPresent', 'Present - student checked in on time')}</li>
+          <li>{t('students.attendance.legendLate', 'Late - student checked in late')}</li>
+          <li>{t('students.attendance.legendAbsent', 'Absent - student did not check in')}</li>
           <li>{t('students.attendance.legendLeave', 'Permission - student has approved permission')}</li>
-          <li>{t('students.attendance.legendNoData', 'No data — no record for this day')}</li>
+          <li>{t('students.attendance.legendNoData', 'No data - no record for this day')}</li>
         </ul>
         <p className={styles.note}>{t('students.attendance.weeklyNote', 'School weeks start from Monday.')}</p>
         <p className={styles.note}>{t('students.attendance.editHint', 'Click any cell in the weekly table to edit attendance details.')}</p>
@@ -1321,7 +1326,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                             {day.year === weekInfo.today.year &&
                               day.month === weekInfo.today.month &&
                               day.day === weekInfo.today.day &&
-                              ` — ${t('students.attendance.todayInWeek', 'Today')}`}
+                              ` - ${t('students.attendance.todayInWeek', 'Today')}`}
                           </li>
                         ))}
                       </ul>

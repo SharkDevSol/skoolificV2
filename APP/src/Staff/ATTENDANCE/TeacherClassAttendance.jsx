@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { FiCalendar, FiUsers, FiCheckCircle, FiXCircle, FiClock, FiEdit2, FiX, FiSave, FiAlertCircle } from 'react-icons/fi';
+import { FiCalendar, FiUsers, FiCheckCircle, FiXCircle, FiClock, FiEdit2, FiX, FiSave, FiAlertCircle, FiCheck } from 'react-icons/fi';
 import styles from './TeacherClassAttendance.module.css';
 import { classIdLabel } from '../../utils/classId';
 
@@ -423,10 +423,10 @@ const TeacherClassAttendance = () => {
     const checkInTime = record.check_in_time;
 
     const statusConfig = {
-      PRESENT: { className: styles.present, label: '✓' },
-      ABSENT: { className: styles.absent, label: '✗' },
-      LEAVE: { className: styles.leave, label: 'L' },
-      LATE: { className: styles.late, label: '⏰' }
+      PRESENT: { className: styles.present, icon: <FiCheck size={16} /> },
+      ABSENT: { className: styles.absent, icon: <FiX size={16} /> },
+      LEAVE: { className: styles.leave, icon: <span>L</span> },
+      LATE: { className: styles.late, icon: <FiClock size={16} /> }
     };
 
     const config = statusConfig[status] || statusConfig.ABSENT;
@@ -445,7 +445,7 @@ const TeacherClassAttendance = () => {
     return (
       <div className={styles.statusContainer}>
         <span className={`${styles.statusBadge} ${config.className}`}>
-          {config.label}
+          {config.icon}
         </span>
         {timeDisplay && (
           <span className={styles.checkInTime}>{timeDisplay}</span>
@@ -625,9 +625,9 @@ const TeacherClassAttendance = () => {
       <div className={styles.infoSection}>
         <h3>How it works:</h3>
         <ul>
-          <li>✓ = Present (Green) - Student checked in on time</li>
-          <li>⏰ = Late (Orange) - Student checked in late</li>
-          <li>✗ = Absent (Red) - Student did not check in</li>
+          <li>Present (Green) - Student checked in on time</li>
+          <li>Late (Orange) - Student checked in late</li>
+          <li>Absent (Red) - Student did not check in</li>
           <li>L = Leave (Purple) - Student on approved leave</li>
           <li>- = No data - No record for this day</li>
         </ul>
@@ -662,10 +662,10 @@ const TeacherClassAttendance = () => {
                   onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
                   className={styles.select}
                 >
-                  <option value="PRESENT">✓ Present</option>
-                  <option value="ABSENT">✗ Absent</option>
-                  <option value="LEAVE">L Leave</option>
-                  <option value="LATE">⏰ Late</option>
+                  <option value="PRESENT">Present</option>
+                  <option value="ABSENT">Absent</option>
+                  <option value="LEAVE">Leave</option>
+                  <option value="LATE">Late</option>
                 </select>
               </div>
 
