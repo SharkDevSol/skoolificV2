@@ -8,6 +8,7 @@ import {
   FiPhone, FiMail, FiUser, FiGrid, FiList, FiChevronLeft, FiChevronRight
 } from 'react-icons/fi';
 import { useApp } from '../../../context/AppContext';
+import { getBranchCode } from '../../../utils/branchCode';
 import styles from './ListGuardian.module.css';
 
 const ListGuardian = () => {
@@ -35,13 +36,13 @@ const ListGuardian = () => {
     try {
       // FIX: send the branch header (raw axios missed it -> always showed
       // IQRA1's guardians). Use the same branch source as the app.
-      let branch = sessionStorage.getItem('branchCode')
-        || localStorage.getItem('rememberedBranchCode') || '';
-      if (branch.includes(',')) branch = branch.split(',')[0].trim();
-      branch = branch.toUpperCase();
-      const response = await axios.get('/api/guardian-list/guardians', {
-        headers: { 'x-branch-code': branch },
-      });
+      const branch = getBranchCode();
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const headers = {
+        ...(branch ? { 'X-Branch-Code': branch } : {}),
+        ...(token ? { 'Authorization': 'Bearer ' + token } : {})
+      };
+      const response = await axios.get('/api/guardian-list/guardians', { headers });
       setGuardians(response.data);
       setFilteredGuardians(response.data);
     } catch (error) {

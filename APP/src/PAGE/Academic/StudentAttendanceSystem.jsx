@@ -449,7 +449,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
     const leave = records.filter(a => a.status === 'LEAVE').length;
     const late = records.filter(a => a.status === 'LATE').length;
     
-    console.log('ðŸ“Š Summary Calculation:', {
+    console.log('📊 Summary Calculation:', {
       totalRecords: records.length,
       present,
       late,
@@ -558,12 +558,11 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
     const checkInTime = record.check_in_time;
 
     const statusConfig = {
-      PRESENT: { className: styles.present, label: 'âœ“' },
-      ABSENT: { className: styles.absent, label: 'âœ—' },
+      PRESENT: { className: styles.present, label: '✓' },
+      ABSENT: { className: styles.absent, label: '✗' },
       LEAVE: { className: styles.leave, label: 'E' },
-      LATE: { className: styles.late, label: 'â°' }
+      LATE: { className: styles.late, label: '⏰' }
     };
-
     const config = statusConfig[status] || statusConfig.ABSENT;
 
     // Show time for PRESENT and LATE statuses
@@ -811,10 +810,10 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
           <div className={styles.todayBadge}>
             <Calendar size={18} aria-hidden="true" />
             <span>
-              ðŸ“… {ethiopianMonths[currentEthiopianDate.month - 1]} {currentEthiopianDate.day}, {currentEthiopianDate.year}
+              📅 {ethiopianMonths[currentEthiopianDate.month - 1]} {currentEthiopianDate.day}, {currentEthiopianDate.year}
               {(() => {
                 const cw = schoolWeeks.find(w => w.isCurrent);
-                return cw ? ` â€¢ Week ${cw.week_number || ''}` : '';
+                return cw ? ` • Week ${cw.week_number || ''}` : '';
               })()}
             </span>
           </div>
@@ -892,7 +891,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                 onClick={goToCurrentWeek}
                 disabled={schoolWeeks.length === 0}
               >
-                ðŸ“… {t('students.attendance.currentWeek', 'Current Week')}
+                📅 {t('students.attendance.currentWeek', 'Current Week')}
               </Button>
               <Button
                 type="button"
@@ -912,7 +911,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
       {/* Report Section */}
       <Card
         className={styles.reportSection}
-        title={`ðŸ“Š ${t('students.attendance.reportTitle', 'Attendance Report')}`}
+        title={`📊 ${t('students.attendance.reportTitle', 'Attendance Report')}`}
         actions={
           <Button
             type="button"
@@ -934,10 +933,10 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                 <label>Report Type</label>
                 <div className={styles.buttonGroup}>
                   <Button type="button" variant={reportType === 'week' ? 'primary' : 'secondary'} onClick={() => { setReportType('week'); setReportData([]); }}>
-                    ðŸ“… Week
+                    📅 Week
                   </Button>
                   <Button type="button" variant={reportType === 'month' ? 'primary' : 'secondary'} onClick={() => { setReportType('month'); setReportData([]); }}>
-                    ðŸ“† Month
+                    📆 Month
                   </Button>
                 </div>
               </div>
@@ -997,7 +996,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                 {/* Report Summary */}
                 <div className={styles.reportSummary}>
                   <h3 className={styles.reportSummaryTitle}>
-                    {reportClass} â€” {reportType === 'week'
+                    {reportClass} — {reportType === 'week'
                       ? `Week ${(schoolWeeks.find(w => w.id === (reportWeek || selectedWeekId)) || {}).week_number || '?'} (${ethiopianMonths[reportDate.month - 1]} ${reportDate.year})`
                       : `${ethiopianMonths[reportDate.month - 1]} ${reportDate.year}`}
                   </h3>
@@ -1026,7 +1025,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                         <div key={label} className={styles.rankCard}>
                           <span className={styles.rankLabel}>{label}</span>
                           <span className={styles.rankName}>{top?.name || '-'}</span>
-                          <span className={styles.rankCount}>{top?.classId ? `Class ${top.classId}` : ''} â€” {top?.[field] || 0} {field}</span>
+                          <span className={styles.rankCount}>{top?.classId ? `Class ${top.classId}` : ''} — {top?.[field] || 0} {field}</span>
                         </div>
                       );
                     })}
@@ -1109,8 +1108,8 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                   <div className={styles.studentMeta}>
                     <span className={styles.studentName}>{student.student_name}</span>
                     <span className={styles.studentMetaSub}>
-                      {t('students.attendance.classId', 'Class ID')}: {classIdLabel(student.class_id) || 'N/A'} Â·{' '}
-                      {t('students.attendance.machineId', 'Machine ID')}: {student.smachine_id || 'â€”'}
+                      {t('students.attendance.classId', 'Class ID')}: {classIdLabel(student.class_id) || 'N/A'} ·{' '}
+                      {t('students.attendance.machineId', 'Machine ID')}: {student.smachine_id || '—'}
                     </span>
                   </div>
                   <div className={styles.statusToggles} role="group" aria-label={student.student_name}>
@@ -1187,11 +1186,11 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
       <Card className={styles.infoSection} padding="md">
         <h3 className={styles.infoTitle}>{t('students.attendance.howItWorks', 'How it works')}</h3>
         <ul className={styles.infoList}>
-          <li>{t('students.attendance.legendPresent', 'Present â€” student checked in on time')}</li>
-          <li>{t('students.attendance.legendLate', 'Late â€” student checked in late')}</li>
-          <li>{t('students.attendance.legendAbsent', 'Absent â€” student did not check in')}</li>
+          <li>{t('students.attendance.legendPresent', 'Present — student checked in on time')}</li>
+          <li>{t('students.attendance.legendLate', 'Late — student checked in late')}</li>
+          <li>{t('students.attendance.legendAbsent', 'Absent — student did not check in')}</li>
           <li>{t('students.attendance.legendLeave', 'Permission - student has approved permission')}</li>
-          <li>{t('students.attendance.legendNoData', 'No data â€” no record for this day')}</li>
+          <li>{t('students.attendance.legendNoData', 'No data — no record for this day')}</li>
         </ul>
         <p className={styles.note}>{t('students.attendance.weeklyNote', 'School weeks start from Monday.')}</p>
         <p className={styles.note}>{t('students.attendance.editHint', 'Click any cell in the weekly table to edit attendance details.')}</p>
@@ -1322,7 +1321,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
                             {day.year === weekInfo.today.year &&
                               day.month === weekInfo.today.month &&
                               day.day === weekInfo.today.day &&
-                              ` â€” ${t('students.attendance.todayInWeek', 'Today')}`}
+                              ` — ${t('students.attendance.todayInWeek', 'Today')}`}
                           </li>
                         ))}
                       </ul>
