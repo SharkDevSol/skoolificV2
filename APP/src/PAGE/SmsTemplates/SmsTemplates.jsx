@@ -16,7 +16,8 @@ import {
   ChevronUp,
   Search,
   CheckCircle2,
-  Clock
+  Clock,
+  Power
 } from 'lucide-react';
 
 const TEMPLATE_METADATA = {
@@ -158,7 +159,8 @@ const SmsTemplates = () => {
           `✅ ${title} is now ${nextState ? 'ACTIVE (Will send SMS)' : 'INACTIVE (SMS paused & credits saved)'}`
         );
       }
-    } catch (err) {
+    } catch (error) {
+      console.error('Error toggling SMS template:', error);
       // Revert on error
       setTemplates(prev =>
         prev.map(t => (t.template_key === key ? { ...t, is_active: !nextState } : t))
@@ -208,7 +210,8 @@ const SmsTemplates = () => {
         setEditing(null);
         fetchTemplates();
       }
-    } catch (err) {
+    } catch (error) {
+      console.error('Error saving template:', error);
       showAlert('error', 'Failed to save template.');
     } finally {
       setSavingTemplate(false);
@@ -597,6 +600,21 @@ const SmsTemplates = () => {
             </div>
           )}
 
+          {/* Latest Dispatch Summary */}
+          {sendResultSummary && (
+            <div className={`${styles.alertMessage} ${styles.alertSuccess}`}>
+              <span>
+                <strong>Latest Dispatch Summary:</strong> Total: {sendResultSummary.total} • Sent: {sendResultSummary.sent} • Skipped: {sendResultSummary.skipped} • Failed: {sendResultSummary.failed}
+              </span>
+              <button
+                onClick={() => setSendResultSummary(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
+
           {/* Controls Bar */}
           <div className={styles.controlsCard}>
             <div className={styles.selectorsRow}>
@@ -608,10 +626,20 @@ const SmsTemplates = () => {
                   onChange={e => setSelectedTerm(Number(e.target.value))}
                   className={styles.selectInput}
                 >
-                  <option value={1}>Term 1 — Meskerem to Hidar (Mid-Semester 1)</option>
-                  <option value={2}>Term 2 — Tahsas to Tir (End of Semester 1)</option>
-                  <option value={3}>Term 3 — Yakatit to Miazia (Mid-Semester 2)</option>
-                  <option value={4}>Term 4 — Ginbot to Sene (End of Semester 2)</option>
+                  {terms && terms.length > 0 ? (
+                    terms.map(t => (
+                      <option key={t.termNumber} value={t.termNumber}>
+                        {t.name} — {t.period}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value={1}>Term 1 — Meskerem to Hidar (Mid-Semester 1)</option>
+                      <option value={2}>Term 2 — Tahsas to Tir (End of Semester 1)</option>
+                      <option value={3}>Term 3 — Yakatit to Miazia (Mid-Semester 2)</option>
+                      <option value={4}>Term 4 — Ginbot to Sene (End of Semester 2)</option>
+                    </>
+                  )}
                 </select>
               </div>
 
