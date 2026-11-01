@@ -885,8 +885,8 @@ async function ensureScheduleSettingsTable() {
         send_time: '09:30',
         auto_send_enabled: true,
         window_start_day: 26,
-        window_end_day: 30,
-        notes: 'Dispatches reminders to guardians of students with pending tuition 5 days before each Ethiopian month starts.'
+        window_end_day: 26,
+        notes: 'Dispatches ONE reminder on Day 26 of every Ethiopian month to guardians of students with unpaid fees.'
       },
       {
         schedule_key: 'mark_report',
@@ -904,9 +904,9 @@ async function ensureScheduleSettingsTable() {
         schedule_key: 'absence_alert',
         title: 'Daily Student Absence Alert SMS',
         category: 'Attendance',
-        send_time: '09:00',
+        send_time: 'Instant',
         auto_send_enabled: true,
-        notes: 'Dispatched to guardian immediately upon marking absent or after morning roll call cutoff.'
+        notes: 'Instant dispatch: Sends immediately to guardian whenever a student is marked absent (no delayed calendar schedule).'
       }
     ];
 
@@ -959,7 +959,8 @@ router.get('/schedules', async (req, res) => {
         month: eth.month,
         day: eth.day,
         monthName: ETH_MONTH_NAMES[eth.month - 1] || `Month ${eth.month}`,
-        isPaymentWindow: eth.day >= 26 && eth.day <= 30
+        isPaymentDay: eth.day === 26,
+        daysUntilPaymentReminder: eth.day <= 26 ? 26 - eth.day : (30 - eth.day + 26)
       };
     } catch (_) {}
 

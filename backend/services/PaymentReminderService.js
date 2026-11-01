@@ -111,33 +111,30 @@ async function runReminderSweep(options = {}) {
   const { force = false, branchDb = null } = options;
   const eth = ethiopianCalendar.toEthiopian(new Date());
 
-  // Read dynamic window settings from sms_schedule_settings
-  let startDay = 26;
-  let endDay = 30;
+  // Read trigger day settings from sms_schedule_settings (default Day 26 — once per month)
+  let triggerDay = 26;
   try {
     const mainPool = require('../config/db');
-    const sch = await mainPool.query("SELECT auto_send_enabled, window_start_day, window_end_day FROM sms_schedule_settings WHERE schedule_key = 'payment_reminder' LIMIT 1");
+    const sch = await mainPool.query("SELECT auto_send_enabled, window_start_day FROM sms_schedule_settings WHERE schedule_key = 'payment_reminder' LIMIT 1");
     if (sch.rows.length > 0) {
       if (sch.rows[0].auto_send_enabled === false && !force) {
         console.log('[PaymentReminder] Auto send disabled in sms_schedule_settings. Skipping sweep.');
         return { ran: false, reason: 'auto_send_disabled', ethDate: eth };
       }
-      if (sch.rows[0].window_start_day) startDay = sch.rows[0].window_start_day;
-      if (sch.rows[0].window_end_day) endDay = sch.rows[0].window_end_day;
+      if (sch.rows[0].window_start_day) triggerDay = parseInt(sch.rows[0].window_start_day, 10);
     }
   } catch (_) {}
 
-  // Ethiopian regular months have 30 days.
-  // Window defaults to Day 26 to Day 30 (5 days before new month).
-  const isReminderWindow = eth.day >= startDay && eth.day <= endDay;
+  // Trigger strictly on Day 26 (one time every month, 5 days before the new month starts)
+  const isTriggerDay = eth.day === triggerDay;
 
-  if (!isReminderWindow && !force && !options.targetMonth) {
-    console.log(`[PaymentReminder] Today is ${eth.day}/${eth.month}/${eth.year} ET. Not in configured window (Day ${startDay}-${endDay}). Skipping automatic sweep.`);
+  if (!isTriggerDay && !force && !options.targetMonth) {
+    console.log(`[PaymentReminder] Today is ${eth.day}/${eth.month}/${eth.year} ET. Reminder sends only on Day ${triggerDay} (one time per month). Skipping automatic sweep.`);
     return {
       ran: false,
-      reason: `Not in window (Day ${startDay}-${endDay})`,
+      reason: `Not on scheduled trigger day (Day ${triggerDay})`,
       ethDate: eth,
-      nextTriggerDay: startDay
+      triggerDay
     };
   }
 

@@ -1049,13 +1049,15 @@ const SmsTemplates = () => {
                 </div>
               </div>
               <div>
-                {ethCalendar.isPaymentWindow ? (
+                {ethCalendar.isPaymentDay ? (
                   <span className={`${styles.statusBadge} ${styles.statusReady}`}>
-                    ⚡ Payment Window Active (Days 26–30)
+                    ⚡ Today is Payment Reminder Day (Day 26)
                   </span>
                 ) : (
                   <span className={`${styles.statusBadge}`} style={{ background: '#e2e8f0', color: '#475569' }}>
-                    Standard Period (Window opens on Day 26)
+                    {ethCalendar.day < 26
+                      ? `Next Reminder: Day 26 (${26 - ethCalendar.day} days away)`
+                      : `Sent for this month on Day 26 (Next: Day 26 of next month)`}
                   </span>
                 )}
               </div>
@@ -1105,88 +1107,90 @@ const SmsTemplates = () => {
                     </div>
 
                     <div className={styles.scheduleFieldsGrid}>
-                      <div className={styles.scheduleField}>
-                        <label>⏰ Send Time (24-Hour)</label>
-                        <input
-                          type="time"
-                          value={edit.send_time || '09:00'}
-                          onChange={(e) =>
-                            handleScheduleChange(s.schedule_key, 'send_time', e.target.value)
-                          }
-                        />
-                      </div>
-
-                      {s.schedule_key === 'payment_reminder' && (
+                      {s.schedule_key === 'absence_alert' ? (
+                        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '16px 20px', borderRadius: '8px', gridColumn: '1 / -1' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', color: '#166534', marginBottom: '6px', fontSize: '15px' }}>
+                            <CheckCircle2 size={18} /> Immediate Event Trigger (No Delayed Calendar Schedule)
+                          </div>
+                          <p style={{ margin: 0, fontSize: '13px', color: '#15803d', lineHeight: '1.5' }}>
+                            Daily Absence SMS does <strong>not</strong> wait for a scheduled date or delayed time. It triggers <strong>immediately</strong> to the guardian's phone number as soon as an administrator or teacher records an <strong>ABSENT</strong> mark for that student.
+                          </p>
+                        </div>
+                      ) : (
                         <>
                           <div className={styles.scheduleField}>
-                            <label>📅 Window Start Day</label>
+                            <label>⏰ Send Time (24-Hour)</label>
                             <input
-                              type="number"
-                              min="1"
-                              max="30"
-                              value={edit.window_start_day || 26}
+                              type="time"
+                              value={edit.send_time || '09:00'}
                               onChange={(e) =>
-                                handleScheduleChange(s.schedule_key, 'window_start_day', e.target.value)
+                                handleScheduleChange(s.schedule_key, 'send_time', e.target.value)
                               }
                             />
                           </div>
-                          <div className={styles.scheduleField}>
-                            <label>📅 Window End Day</label>
-                            <input
-                              type="number"
-                              min="1"
-                              max="30"
-                              value={edit.window_end_day || 30}
-                              onChange={(e) =>
-                                handleScheduleChange(s.schedule_key, 'window_end_day', e.target.value)
-                              }
-                            />
-                          </div>
-                        </>
-                      )}
 
-                      {s.schedule_key === 'mark_report' && (
-                        <>
-                          <div className={styles.scheduleField}>
-                            <label>Term 1 Target Date</label>
-                            <input
-                              type="text"
-                              value={edit.term_1_date || 'Hidar 20 (Mid-Semester 1)'}
-                              onChange={(e) =>
-                                handleScheduleChange(s.schedule_key, 'term_1_date', e.target.value)
-                              }
-                            />
-                          </div>
-                          <div className={styles.scheduleField}>
-                            <label>Term 2 Target Date</label>
-                            <input
-                              type="text"
-                              value={edit.term_2_date || 'Tir 25 (End of Semester 1)'}
-                              onChange={(e) =>
-                                handleScheduleChange(s.schedule_key, 'term_2_date', e.target.value)
-                              }
-                            />
-                          </div>
-                          <div className={styles.scheduleField}>
-                            <label>Term 3 Target Date</label>
-                            <input
-                              type="text"
-                              value={edit.term_3_date || 'Miazia 20 (Mid-Semester 2)'}
-                              onChange={(e) =>
-                                handleScheduleChange(s.schedule_key, 'term_3_date', e.target.value)
-                              }
-                            />
-                          </div>
-                          <div className={styles.scheduleField}>
-                            <label>Term 4 Target Date</label>
-                            <input
-                              type="text"
-                              value={edit.term_4_date || 'Sene 25 (End of Semester 2)'}
-                              onChange={(e) =>
-                                handleScheduleChange(s.schedule_key, 'term_4_date', e.target.value)
-                              }
-                            />
-                          </div>
+                          {s.schedule_key === 'payment_reminder' && (
+                            <div className={styles.scheduleField}>
+                              <label>📅 Monthly Send Day (1 Time / Month)</label>
+                              <input
+                                type="number"
+                                min="1"
+                                max="30"
+                                value={edit.window_start_day || 26}
+                                onChange={(e) =>
+                                  handleScheduleChange(s.schedule_key, 'window_start_day', e.target.value)
+                                }
+                              />
+                              <small style={{ color: '#64748b', fontSize: '11px', marginTop: '3px' }}>
+                                Triggers strictly on Day 26 (once per month, 5 days before the new month).
+                              </small>
+                            </div>
+                          )}
+
+                          {s.schedule_key === 'mark_report' && (
+                            <>
+                              <div className={styles.scheduleField}>
+                                <label>Term 1 Target Date</label>
+                                <input
+                                  type="text"
+                                  value={edit.term_1_date || 'Hidar 20 (Mid-Semester 1)'}
+                                  onChange={(e) =>
+                                    handleScheduleChange(s.schedule_key, 'term_1_date', e.target.value)
+                                  }
+                                />
+                              </div>
+                              <div className={styles.scheduleField}>
+                                <label>Term 2 Target Date</label>
+                                <input
+                                  type="text"
+                                  value={edit.term_2_date || 'Tir 25 (End of Semester 1)'}
+                                  onChange={(e) =>
+                                    handleScheduleChange(s.schedule_key, 'term_2_date', e.target.value)
+                                  }
+                                />
+                              </div>
+                              <div className={styles.scheduleField}>
+                                <label>Term 3 Target Date</label>
+                                <input
+                                  type="text"
+                                  value={edit.term_3_date || 'Miazia 20 (Mid-Semester 2)'}
+                                  onChange={(e) =>
+                                    handleScheduleChange(s.schedule_key, 'term_3_date', e.target.value)
+                                  }
+                                />
+                              </div>
+                              <div className={styles.scheduleField}>
+                                <label>Term 4 Target Date</label>
+                                <input
+                                  type="text"
+                                  value={edit.term_4_date || 'Sene 25 (End of Semester 2)'}
+                                  onChange={(e) =>
+                                    handleScheduleChange(s.schedule_key, 'term_4_date', e.target.value)
+                                  }
+                                />
+                              </div>
+                            </>
+                          )}
                         </>
                       )}
                     </div>
@@ -1194,8 +1198,13 @@ const SmsTemplates = () => {
                     <div className={styles.scheduleCardFooter}>
                       <span className={styles.scheduleStatusNote}>
                         <Clock size={14} />
-                        Next dispatch time: <strong>{edit.send_time || '09:00'}</strong>
-                        {edit.auto_send_enabled ? ' (Active)' : ' (Disabled)'}
+                        {s.schedule_key === 'absence_alert' ? (
+                          <span>Dispatch Mode: <strong>Instant on mark entry</strong> {edit.auto_send_enabled ? '(Active)' : '(Disabled)'}</span>
+                        ) : s.schedule_key === 'payment_reminder' ? (
+                          <span>Monthly Trigger: <strong>Day {edit.window_start_day || 26} at {edit.send_time || '09:30'}</strong> (1 time per month)</span>
+                        ) : (
+                          <span>Next dispatch time: <strong>{edit.send_time || '10:00'}</strong> {edit.auto_send_enabled ? '(Active)' : '(Disabled)'}</span>
+                        )}
                       </span>
 
                       <button
