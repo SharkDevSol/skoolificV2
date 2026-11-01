@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+router.use(express.json());
 const pool = require('../config/db');
 const { sendSMS } = require('../services/SMSService');
 let cleanupStaleJobs = async () => {};
@@ -309,7 +310,7 @@ router.get('/templates', async (req, res) => {
 // PUT /api/sms/templates/:key — update template text and/or is_active status
 router.put('/templates/:key', async (req, res) => {
   try {
-    const { template_text, is_active } = req.body;
+    const { template_text, is_active } = req.body || {};
     const { key } = req.params;
 
     if (template_text === undefined && is_active === undefined) {
@@ -356,7 +357,7 @@ router.put('/templates/:key', async (req, res) => {
 router.put('/templates/:key/toggle', async (req, res) => {
   try {
     const { key } = req.params;
-    const { is_active } = req.body;
+    const { is_active } = req.body || {};
 
     const existing = await pool.query('SELECT * FROM sms_templates WHERE template_key = $1', [key]);
     let result;
@@ -586,7 +587,7 @@ router.get('/mark-report/preview', async (req, res) => {
 router.post('/mark-report/send', async (req, res) => {
   try {
     await ensureMarkReportLogsTable();
-    const { termNumber = 1, students = [], force = false } = req.body;
+    const { termNumber = 1, students = [], force = false } = req.body || {};
 
     if (!Array.isArray(students) || students.length === 0) {
       return res.status(400).json({ success: false, error: 'No students selected for sending' });
