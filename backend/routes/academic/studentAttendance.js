@@ -931,32 +931,33 @@ router.put('/update', async (req, res) => {
       className, studentId, ethYear, ethMonth, ethDay, status: calculatedStatus,
     });
 
-    // Notify the guardian when the admin marks the student ABSENT or LATE
-    // (only when the status actually changed, to avoid notification spam).
+    // Notify the guardian when the attendance is marked or updated
     try {
       const newStatus = String(calculatedStatus || '').toUpperCase();
       const prevStatus = String(existingRecord.rows[0] && existingRecord.rows[0].status || '').toUpperCase();
-      if (newStatus && newStatus !== prevStatus) {
-        // Send SMS to guardian when student is marked ABSENT
-        if (newStatus === 'ABSENT') {
-          try {
-            const { sendAbsenceAlertSms } = require('../../services/AbsenceSmsService');
-            sendAbsenceAlertSms(getDb(req), {
-              className,
-              studentId,
-              ethDateStr: `${ethYear}-${String(ethMonth).padStart(2, '0')}-${String(ethDay).padStart(2, '0')}`
-            }).catch(e => console.warn('[Attendance SMS] Failed to trigger absence SMS:', e.message));
-          } catch (smsErr) {
-            console.warn('[Attendance SMS] Module error:', smsErr.message);
-          }
+      
+      // Send SMS to guardian when student is marked ABSENT
+      if (newStatus === 'ABSENT' && newStatus !== prevStatus) {
+        try {
+          const { sendAbsenceAlertSms } = require('../../services/AbsenceSmsService');
+          sendAbsenceAlertSms(getDb(req), {
+            className,
+            studentId,
+            ethDateStr: `${ethYear}-${String(ethMonth).padStart(2, '0')}-${String(ethDay).padStart(2, '0')}`
+          }).catch(e => console.warn('[Attendance SMS] Failed to trigger absence SMS:', e.message));
+        } catch (smsErr) {
+          console.warn('[Attendance SMS] Module error:', smsErr.message);
         }
+      }
 
+      if (newStatus) {
         const st = await getDb(req).query(
           'SELECT student_name, guardian_username FROM classes_schema."' + className + '" WHERE school_id::text = $1 LIMIT 1',
           [String(studentId)]
         );
         const row = st.rows[0];
         if (row && row.guardian_username) {
+          console.log(`[Attendance Push] Dispatching push to guardian '${row.guardian_username}' for student '${row.student_name}' status '${newStatus}'`);
           const { notifyGuardianPush } = require('../../services/guardianPush');
           const statusKey = { PRESENT: 'present', ABSENT: 'absent', LATE: 'late', LEAVE: 'leave', EXCUSED: 'leave', VACATION: 'leave' }[newStatus] || newStatus.toLowerCase();
           notifyGuardianPush(
@@ -973,7 +974,9 @@ router.put('/update', async (req, res) => {
               className: className,
               date: ethYear + '-' + ethMonth + '-' + ethDay,
             }
-          ).catch((e) => console.warn('admin attendance push error:', e.message));
+          ).then(res => {
+            console.log(`[Attendance Push] Result for '${row.guardian_username}':`, res);
+          }).catch((e) => console.warn('admin attendance push error:', e.message));
         }
       }
     } catch (_) {}

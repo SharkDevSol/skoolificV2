@@ -13,19 +13,19 @@ const { t } = require('./notificationTranslations');
 // Stores timestamp; suppresses identical notifications sent within 12 hours.
 const attendancePushCache = new Map();
 
-// Periodic prune every 30 minutes
+// Periodic prune every 10 minutes
 setInterval(() => {
-  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const cutoff = Date.now() - 60 * 1000;
   for (const [key, ts] of attendancePushCache.entries()) {
     if (ts < cutoff) attendancePushCache.delete(key);
   }
-}, 30 * 60 * 1000).unref();
+}, 10 * 60 * 1000).unref();
 
 const notifyGuardianPush = async (guardianUsername, title, body, data = {}) => {
   if (!guardianUsername) return { sent: 0 };
   try {
     // Deduplicate attendance notifications so guardians never get spammed
-    // with repeated "Absent" or "Late" pushes when class rosters are saved multiple times
+    // with repeated "Absent" or "Late" pushes when class rosters are rapidly re-saved (<15 seconds)
     if (data && String(data.type).toLowerCase() === 'attendance') {
       const gUser = String(guardianUsername || '').toLowerCase().trim();
       const statusKey = String(data.status || '').toLowerCase().trim();
@@ -34,8 +34,8 @@ const notifyGuardianPush = async (guardianUsername, title, body, data = {}) => {
 
       const dedupKey = `attendance:${gUser}:${studentKey}:${dateKey}:${statusKey}`;
       const lastSent = attendancePushCache.get(dedupKey);
-      if (lastSent && (Date.now() - lastSent < 12 * 60 * 60 * 1000)) {
-        console.log(`[guardianPush] Suppressed duplicate attendance notification: ${dedupKey}`);
+      if (lastSent && (Date.now() - lastSent < 15 * 1000)) {
+        console.log(`[guardianPush] Suppressed rapid duplicate attendance notification (<15s): ${dedupKey}`);
         return { sent: 0, suppressed: true, reason: 'duplicate_attendance' };
       }
 
@@ -50,7 +50,7 @@ const notifyGuardianPush = async (guardianUsername, title, body, data = {}) => {
     try {
       const langRow = await db.query(
         `SELECT language FROM guardian_devices
-         WHERE guardian_username = $1 AND active = true
+         WHERE LOWER(guardian_username) = LOWER($1) AND active = true
          ORDER BY updated_at DESC LIMIT 1`,
         [guardianUsername]
       );

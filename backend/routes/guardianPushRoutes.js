@@ -191,7 +191,7 @@ async function pushToGuardian(guardianUsername, title, body, data = {}) {
   try {
     const { rows } = await db.query(
       `SELECT fcm_token FROM guardian_devices
-       WHERE guardian_username = $1 AND active = true`,
+       WHERE LOWER(guardian_username) = LOWER($1) AND active = true`,
       [guardianUsername]
     );
     if (!rows.length) {
