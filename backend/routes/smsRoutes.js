@@ -16,6 +16,121 @@ const normalizePhone = (raw) => {
   return phone;
 };
 
+const isDummyPhone = (raw) => {
+  const clean = String(raw || '').replace(/[^0-9]/g, '');
+  if (!clean || clean.length < 9) return true;
+  if (/^0?700000000+$/.test(clean) || /^251700000000+$/.test(clean)) return true;
+  if (/^0?900000000+$/.test(clean) || /^251900000000+$/.test(clean)) return true;
+  if (/^0+$/.test(clean) || /^1+$/.test(clean) || /000000$/.test(clean)) return true;
+  return false;
+};
+
+const getSubjectSchemaName = (subjectName) => {
+  const clean = (subjectName || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `subject_${clean}_schema`;
+};
+
+const abbreviateSubject = (name) => {
+  const n = (name || '').trim();
+  const map = {
+    'mathematics': 'Math',
+    'math': 'Math',
+    'english': 'Eng',
+    'biology': 'Bio',
+    'chemistry': 'Chem',
+    'physics': 'Phy',
+    'geography': 'Geo',
+    'history': 'Hist',
+    'somali': 'Som',
+    'arabic': 'Arab',
+    'islamic': 'Isl',
+    'islamic studies': 'Isl',
+    'civics': 'Civ',
+    'citizenship': 'Civ',
+    'general science': 'G/Sci',
+    'social studies': 'Soc',
+    'afan oromo': 'A/Or',
+    'amharic': 'Amh',
+    'ict': 'ICT',
+    'pe': 'PE',
+    'art': 'Art'
+  };
+  const lower = n.toLowerCase();
+  if (map[lower]) return map[lower];
+  if (n.length <= 6) return n;
+  return n.slice(0, 5) + '.';
+};
+
+const ETHIOPIAN_TERMS = [
+  { termNumber: 1, name: 'Term 1', period: 'Meskerem - Hidar (Mid-Semester 1)' },
+  { termNumber: 2, name: 'Term 2', period: 'Tahsas - Tir (End of Semester 1)' },
+  { termNumber: 3, name: 'Term 3', period: 'Yakatit - Miazia (Mid-Semester 2)' },
+  { termNumber: 4, name: 'Term 4', period: 'Ginbot - Sene (End of Semester 2)' }
+];
+
+const DEFAULT_TEMPLATES = [
+  {
+    template_key: 'absence_alert',
+    template_text: 'Ku: {guardian_name}. Ardayga {student_name} ({class_name}) maanta ma uusan iman dugsiga taariikh: {date}. Haddii aysan fasax ahayn fadlan la xiriir maamulka. Mahadsanid, {school_name}.',
+    is_active: true
+  },
+  {
+    template_key: 'mark_report',
+    template_text: 'Ku: {guardian_name}. Warbixinta buundooyinka {term_name} ee ardayga {student_name} ({class_name}): {marks_summary}. Mahadsanid, {school_name}.',
+    is_active: true
+  },
+  {
+    template_key: 'payment_reminder',
+    template_text: 'Ku: Mudane/Marwo {guardian_name}, Waxaan si xushmad leh kuugu xasuusinaynaa in lacagta bisha {month_name} ee ardayga {student_name} ay dhiman tahay ({amount_due} Birr). Fadlan bixi lacagta ka hor inta aysan bilaaban bisha cusub si waxbarashada ardaygu u sii socoto si habsarri leh. Mahadsanid, {school_name}.',
+    is_active: true
+  },
+  {
+    template_key: 'payment_receipt',
+    template_text: 'Ku: {guardian_name}. Waxaan xaqiijinaynaa in lacag dhan {amount_paid} Birr oo ah bisha/bilaaha {months_paid} ee ardayga {student_name} la helay. Mahadsanid, {school_name}.',
+    is_active: true
+  },
+  {
+    template_key: 'guardian_welcome',
+    template_text: 'Ku soo dhawoow {school_name}. Koontadaada waalidka waa: Username: {guardian_username}, Password: {guardian_password}. Fadlan gal portal-ka si aad ula socoto ardaygaaga.',
+    is_active: true
+  },
+  {
+    template_key: 'student_welcome',
+    template_text: 'Ku soo dhawoow {school_name}. Koontadaada ardaynimo waa: Username: {student_username}, Password: {student_password}. Fadlan gal portal-ka si aad u aragto casharrada iyo buundooyinka.',
+    is_active: true
+  },
+  {
+    template_key: 'staff_welcome',
+    template_text: 'Ku soo dhawoow {Branch}. Koontadaada shaqaalenimo waa: Username: {staff_username}, Password: {staff_password}. Fadlan gal portal-ka.',
+    is_active: true
+  }
+];
+
+async function ensureMarkReportLogsTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS mark_report_logs (
+        id SERIAL PRIMARY KEY,
+        term_number INTEGER NOT NULL,
+        class_name VARCHAR(50) NOT NULL,
+        student_name VARCHAR(150) NOT NULL,
+        phone VARCHAR(30) NOT NULL,
+        marks_summary TEXT,
+        status VARCHAR(20) DEFAULT 'sent',
+        error TEXT,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (e) {
+    console.warn('mark_report_logs table creation error:', e.message);
+  }
+}
+
 // List classes_schema tables (G1, G2, ...) for this branch
 async function getClassTables() {
   const result = await pool.query(
@@ -171,18 +286,18 @@ router.get('/templates', async (req, res) => {
       )
     `).catch(() => {});
 
-    // Ensure payment_reminder exists with default Somali message (> 100 characters)
-    const somaliReminder = 'Ku: Mudane/Marwo {guardian_name}, Waxaan si xushmad leh kuugu xasuusinaynaa in lacagta bisha {month_name} ee ardayga {student_name} ay dhiman tahay ({amount_due} Birr). Fadlan bixi lacagta ka hor inta aysan bilaaban bisha cusub si waxbarashada ardaygu u sii socoto si habsarri leh. Mahadsanid, {school_name}.';
-
-    await pool.query(
-      `INSERT INTO sms_templates (template_key, template_text, is_active)
-       VALUES ('payment_reminder', $1, true)
-       ON CONFLICT (template_key) DO NOTHING`,
-      [somaliReminder]
-    ).catch(() => {});
+    // Ensure default templates exist
+    for (const tmpl of DEFAULT_TEMPLATES) {
+      await pool.query(
+        `INSERT INTO sms_templates (template_key, template_text, is_active)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (template_key) DO NOTHING`,
+        [tmpl.template_key, tmpl.template_text, tmpl.is_active]
+      ).catch(() => {});
+    }
 
     const result = await pool.query(
-      'SELECT id, template_key, template_text, is_active FROM sms_templates ORDER BY template_key'
+      'SELECT id, template_key, template_text, is_active, updated_at FROM sms_templates ORDER BY template_key'
     );
     res.json({ success: true, data: result.rows });
   } catch (error) {
@@ -191,28 +306,368 @@ router.get('/templates', async (req, res) => {
   }
 });
 
-// PUT /api/sms/templates/:key — update or create a template
+// PUT /api/sms/templates/:key — update template text and/or is_active status
 router.put('/templates/:key', async (req, res) => {
   try {
-    const { template_text } = req.body;
+    const { template_text, is_active } = req.body;
     const { key } = req.params;
 
-    if (!template_text) {
-      return res.status(400).json({ success: false, error: 'template_text is required' });
+    if (template_text === undefined && is_active === undefined) {
+      return res.status(400).json({ success: false, error: 'Either template_text or is_active is required' });
     }
 
-    const result = await pool.query(
-      `INSERT INTO sms_templates (template_key, template_text, is_active, updated_at)
-       VALUES ($2, $1, true, NOW())
-       ON CONFLICT (template_key)
-       DO UPDATE SET template_text = $1, updated_at = NOW()
-       RETURNING id, template_key, template_text, is_active`,
-      [template_text, key]
-    );
+    const existing = await pool.query('SELECT * FROM sms_templates WHERE template_key = $1', [key]);
+    let result;
+
+    if (existing.rows.length === 0) {
+      // Find default fallback if available
+      const def = DEFAULT_TEMPLATES.find(t => t.template_key === key);
+      const textToUse = template_text !== undefined ? template_text : (def?.template_text || '');
+      const activeToUse = is_active !== undefined ? Boolean(is_active) : (def?.is_active ?? true);
+
+      result = await pool.query(
+        `INSERT INTO sms_templates (template_key, template_text, is_active, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         RETURNING id, template_key, template_text, is_active, updated_at`,
+        [key, textToUse, activeToUse]
+      );
+    } else {
+      const row = existing.rows[0];
+      const newText = template_text !== undefined ? template_text : row.template_text;
+      const newActive = is_active !== undefined ? Boolean(is_active) : row.is_active;
+
+      result = await pool.query(
+        `UPDATE sms_templates
+         SET template_text = $1, is_active = $2, updated_at = NOW()
+         WHERE template_key = $3
+         RETURNING id, template_key, template_text, is_active, updated_at`,
+        [newText, newActive, key]
+      );
+    }
 
     res.json({ success: true, data: result.rows[0] });
   } catch (error) {
     console.error('Error updating SMS template:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT /api/sms/templates/:key/toggle — toggle template active / inactive state
+router.put('/templates/:key/toggle', async (req, res) => {
+  try {
+    const { key } = req.params;
+    const { is_active } = req.body;
+
+    const existing = await pool.query('SELECT * FROM sms_templates WHERE template_key = $1', [key]);
+    let result;
+
+    if (existing.rows.length === 0) {
+      const def = DEFAULT_TEMPLATES.find(t => t.template_key === key);
+      const targetActive = is_active !== undefined ? Boolean(is_active) : true;
+      result = await pool.query(
+        `INSERT INTO sms_templates (template_key, template_text, is_active, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         RETURNING id, template_key, template_text, is_active, updated_at`,
+        [key, def?.template_text || '', targetActive]
+      );
+    } else {
+      const targetActive = is_active !== undefined ? Boolean(is_active) : !existing.rows[0].is_active;
+      result = await pool.query(
+        `UPDATE sms_templates
+         SET is_active = $1, updated_at = NOW()
+         WHERE template_key = $2
+         RETURNING id, template_key, template_text, is_active, updated_at`,
+        [targetActive, key]
+      );
+    }
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error toggling SMS template:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/sms/mark-report/terms — list 4 Ethiopian terms
+router.get('/mark-report/terms', async (req, res) => {
+  res.json({ success: true, data: ETHIOPIAN_TERMS });
+});
+
+// GET /api/sms/mark-report/classes — list all classes
+router.get('/mark-report/classes', async (req, res) => {
+  try {
+    const classes = await getClassTables();
+    res.json({ success: true, data: classes });
+  } catch (error) {
+    console.error('Error fetching mark report classes:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/sms/mark-report/preview — preview aggregated student marks and rendered SMS messages
+router.get('/mark-report/preview', async (req, res) => {
+  try {
+    await ensureMarkReportLogsTable();
+    const termNumber = parseInt(req.query.termNumber, 10) || 1;
+    const selectedClass = req.query.className || 'all';
+
+    // Fetch active mark_report template
+    let templateText = 'Ku: {guardian_name}. Warbixinta buundooyinka {term_name} ee ardayga {student_name} ({class_name}): {marks_summary}. Mahadsanid, {school_name}.';
+    let isMarkReportActive = true;
+    try {
+      const tRes = await pool.query('SELECT template_text, is_active FROM sms_templates WHERE template_key = $1', ['mark_report']);
+      if (tRes.rows.length > 0) {
+        templateText = tRes.rows[0].template_text;
+        isMarkReportActive = tRes.rows[0].is_active !== false;
+      }
+    } catch (_) {}
+
+    const schoolName = process.env.SCHOOL_NAME || 'IQRA ACADEMY';
+    const termObj = ETHIOPIAN_TERMS.find(t => t.termNumber === termNumber) || ETHIOPIAN_TERMS[0];
+
+    const allClasses = await getClassTables();
+    const targetClasses = (selectedClass === 'all' || !selectedClass)
+      ? allClasses
+      : allClasses.filter(c => c.toLowerCase() === selectedClass.toLowerCase());
+
+    // Fetch sent history for deduplication
+    const sentLogsRes = await pool.query(
+      'SELECT class_name, student_name, phone, sent_at FROM mark_report_logs WHERE term_number = $1 AND status = $2',
+      [termNumber, 'sent']
+    );
+    const sentSet = new Set(sentLogsRes.rows.map(r => `${(r.class_name || '').toLowerCase()}:::${(r.student_name || '').trim().toLowerCase()}`));
+
+    const studentCards = [];
+    let totalStudents = 0;
+    let totalWithPhone = 0;
+    let totalWithMarks = 0;
+    let alreadySentCount = 0;
+    let totalEstimatedSegments = 0;
+
+    for (const cls of targetClasses) {
+      let studentRows = [];
+      try {
+        const colRes = await pool.query(
+          `SELECT column_name FROM information_schema.columns WHERE table_schema = 'classes_schema' AND table_name = $1`,
+          [cls]
+        );
+        const cols = new Set(colRes.rows.map(r => r.column_name));
+        const selCols = ['student_name', 'guardian_name', 'guardian_phone']
+          .concat(cols.has('guardian_2nd_phone') ? ['guardian_2nd_phone'] : [])
+          .concat(cols.has('is_active') ? ['is_active'] : []);
+        const activeFilter = cols.has('is_active') ? 'WHERE is_active = TRUE OR is_active IS NULL' : '';
+        const r = await pool.query(
+          `SELECT ${selCols.map(c => `"${c}"`).join(', ')} FROM classes_schema."${cls}" ${activeFilter} ORDER BY student_name`
+        );
+        studentRows = r.rows;
+      } catch (clsErr) {
+        console.warn(`Error reading class table ${cls}:`, clsErr.message);
+        continue;
+      }
+
+      // Get subjects for this class
+      let subjects = [];
+      try {
+        const subRes = await pool.query(
+          'SELECT DISTINCT subject_name FROM subjects_of_school_schema.subject_class_mappings WHERE LOWER(class_name) = LOWER($1)',
+          [cls]
+        );
+        subjects = subRes.rows.map(r => r.subject_name);
+        if (subjects.length === 0) {
+          const allSubRes = await pool.query('SELECT subject_name FROM subjects_of_school_schema.subjects');
+          subjects = allSubRes.rows.map(r => r.subject_name);
+        }
+      } catch (_) {}
+
+      // Query marks for each subject in this class
+      const marksByStudent = new Map();
+      for (const sub of subjects) {
+        const schemaName = getSubjectSchemaName(sub);
+        const tableName = `${cls.toLowerCase()}_term_${termNumber}`;
+        try {
+          const mRes = await pool.query(`SELECT student_name, total FROM ${schemaName}.${tableName}`);
+          const abbr = abbreviateSubject(sub);
+          for (const m of mRes.rows) {
+            if (m.total !== null && m.total !== undefined && m.total !== '') {
+              const sKey = (m.student_name || '').trim().toLowerCase();
+              if (!marksByStudent.has(sKey)) marksByStudent.set(sKey, []);
+              marksByStudent.get(sKey).push({
+                subject: sub,
+                abbr,
+                score: Math.round(Number(m.total))
+              });
+            }
+          }
+        } catch (_) {
+          // Table doesn't exist yet or subject has no marks
+        }
+      }
+
+      // Build cards
+      for (const s of studentRows) {
+        totalStudents++;
+        const sName = (s.student_name || '').trim();
+        const gName = (s.guardian_name || '').trim() || `${sName} Guardian`;
+        const phone = normalizePhone(s.guardian_phone || s.guardian_2nd_phone);
+        const hasPhone = Boolean(phone && phone.length >= 9 && !isDummyPhone(phone));
+        if (hasPhone) totalWithPhone++;
+
+        const sKey = sName.toLowerCase();
+        const marksList = marksByStudent.get(sKey) || [];
+        const hasMarks = marksList.length > 0;
+        if (hasMarks) totalWithMarks++;
+
+        let marksSummary = 'No marks entered yet';
+        let totalSum = 0;
+        if (hasMarks) {
+          const parts = marksList.map(m => {
+            totalSum += m.score;
+            return `${m.abbr}: ${m.score}`;
+          });
+          marksSummary = `${parts.join(', ')} (Tot: ${totalSum})`;
+        }
+
+        const rendered = templateText
+          .replace(/\{guardian_name\}/g, gName)
+          .replace(/\{student_name\}/g, sName)
+          .replace(/\{class_name\}/g, cls)
+          .replace(/\{term_name\}/g, termObj.name)
+          .replace(/\{marks_summary\}/g, marksSummary)
+          .replace(/\{school_name\}/g, schoolName);
+
+        const charCount = rendered.length;
+        const segments = Math.max(1, Math.ceil(charCount / 159));
+        const isAlreadySent = sentSet.has(`${cls.toLowerCase()}:::${sKey}`);
+        if (isAlreadySent) alreadySentCount++;
+        if (hasPhone) totalEstimatedSegments += segments;
+
+        studentCards.push({
+          studentName: sName,
+          className: cls,
+          guardianName: gName,
+          guardianPhone: phone,
+          rawPhone: s.guardian_phone,
+          hasPhone,
+          hasMarks,
+          marksCount: marksList.length,
+          marksSummary,
+          renderedMessage: rendered,
+          charCount,
+          segments,
+          alreadySent: isAlreadySent
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        term: termObj,
+        selectedClass,
+        classes: allClasses,
+        isTemplateActive: isMarkReportActive,
+        stats: {
+          totalStudents,
+          totalWithPhone,
+          totalWithMarks,
+          alreadySentCount,
+          totalEstimatedSegments
+        },
+        students: studentCards
+      }
+    });
+  } catch (error) {
+    console.error('Error generating mark report preview:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/sms/mark-report/send — dispatch term mark reports with deduplication & switch enforcement
+router.post('/mark-report/send', async (req, res) => {
+  try {
+    await ensureMarkReportLogsTable();
+    const { termNumber = 1, students = [], force = false } = req.body;
+
+    if (!Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({ success: false, error: 'No students selected for sending' });
+    }
+
+    // Verify mark_report is active
+    let isMarkReportActive = true;
+    try {
+      const tRes = await pool.query('SELECT is_active FROM sms_templates WHERE template_key = $1', ['mark_report']);
+      if (tRes.rows.length > 0) isMarkReportActive = tRes.rows[0].is_active !== false;
+    } catch (_) {}
+
+    if (!isMarkReportActive && !force) {
+      return res.status(400).json({
+        success: false,
+        error: 'Term Mark Report SMS is currently inactive. Please turn ON the toggle switch in SMS Templates first.'
+      });
+    }
+
+    const results = [];
+    const queue = [...students];
+    const CONCURRENCY = 4;
+
+    async function worker() {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        const phone = normalizePhone(item.guardianPhone);
+        if (!phone || phone.length < 9 || isDummyPhone(phone)) {
+          results.push({ ...item, success: false, error: 'Invalid or dummy guardian phone number' });
+          continue;
+        }
+
+        const smsRes = await sendSMS(phone, item.renderedMessage, null, {
+          templateKey: 'mark_report',
+          recipientName: item.guardianName,
+          studentName: item.studentName
+        });
+
+        if (smsRes.success && !smsRes.skipped) {
+          try {
+            await pool.query(
+              `INSERT INTO mark_report_logs (term_number, class_name, student_name, phone, marks_summary, status, sent_at)
+               VALUES ($1, $2, $3, $4, $5, 'sent', NOW())`,
+              [termNumber, item.className, item.studentName, phone, item.marksSummary || '']
+            );
+          } catch (dbErr) {
+            console.warn('mark_report_logs insert failed:', dbErr.message);
+          }
+        }
+
+        results.push({
+          studentName: item.studentName,
+          className: item.className,
+          guardianPhone: phone,
+          success: smsRes.success,
+          skipped: Boolean(smsRes.skipped),
+          reason: smsRes.reason || null,
+          error: smsRes.error || null,
+          provider: smsRes.provider || null
+        });
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, students.length) }, () => worker()));
+
+    const sent = results.filter(r => r.success && !r.skipped);
+    const skipped = results.filter(r => r.skipped);
+    const failed = results.filter(r => !r.success);
+
+    res.json({
+      success: true,
+      data: {
+        total: results.length,
+        sent: sent.length,
+        skipped: skipped.length,
+        failed: failed.length,
+        results
+      }
+    });
+  } catch (error) {
+    console.error('Error sending mark reports:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

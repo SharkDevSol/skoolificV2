@@ -16,6 +16,9 @@ $backendFiles = @(
   "routes\staffRoutes.js",
   "routes\academic\studentAttendance.js",
   "routes\subAccountRoutes.js",
+  "routes\smsRoutes.js",
+  "services\SMSService.js",
+  "services\NotificationService.js",
   "config\db.js",
   "services\DatabaseConnectionManager.js"
 )

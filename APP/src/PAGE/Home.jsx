@@ -469,7 +469,7 @@ const Home = () => {
         {
           path: "/sms",
           icon: <FiMessageSquare />,
-          label: t('nav.smsTemplates', 'SMS Templates'),
+          label: t('nav.smsTemplates', 'SMS & Mark Reports'),
         },
         {
           path: "/sms-counter",

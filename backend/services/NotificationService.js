@@ -117,7 +117,9 @@ class NotificationService {
         try {
           const smsResult = await smsService.sendSMS(
             userInfo.phone_number,
-            `${title}\n\n${message}`
+            `${title}\n\n${message}`,
+            null,
+            { templateKey: notificationType, recipientName: userInfo.name }
           );
           results.sms = smsResult.success;
           

@@ -46,6 +46,24 @@ async function logSmsSend({ templateKey, recipientName, phone, message, status, 
   }
 }
 
+// Check if a template is active in the sms_templates table
+async function isTemplateActive(templateKey) {
+  if (!templateKey) return true;
+  const key = templateKey === 'attendance' ? 'absence_alert' : templateKey;
+  try {
+    const pool = require('../config/db');
+    const res = await pool.query(
+      'SELECT is_active FROM sms_templates WHERE template_key = $1 LIMIT 1',
+      [key]
+    );
+    if (res.rows.length === 0) return true;
+    return res.rows[0].is_active !== false;
+  } catch (e) {
+    console.warn(`[SMS Service] Could not verify template status for '${key}':`, e.message);
+    return true; // fail-open so transient query issues do not break critical flows
+  }
+}
+
 const sendSMS = async (to, message, senderId, meta = {}) => {
   // SMS credit count: 1 SMS per 160 chars, so >159 chars = 2 SMS, >319 = 3 SMS...
   const segments = Math.max(1, Math.ceil(String(message).length / 159));
@@ -54,6 +72,17 @@ const sendSMS = async (to, message, senderId, meta = {}) => {
     return { success: false, error: 'Invalid or dummy placeholder phone number' };
   }
   let result;
+
+  // Active / Inactive switch check: stop and save credits if template is inactive
+  const templateKey = meta?.templateKey || meta?.type || null;
+  if (templateKey) {
+    const active = await isTemplateActive(templateKey);
+    if (!active) {
+      console.log(`[SMS Service] Template '${templateKey}' is INACTIVE. Skipped SMS send to ${to}`);
+      return { success: true, skipped: true, reason: `Template '${templateKey}' is inactive` };
+    }
+  }
+
   // Daily attendance SMS pause check (per user setting)
   if ((meta?.templateKey === 'absence_alert' || meta?.templateKey === 'attendance') && process.env.ATTENDANCE_SMS_ENABLED !== 'true') {
     console.log(`[SMS Service] Daily attendance SMS paused. Skipped send to ${to}`);
@@ -163,5 +192,6 @@ const splitMessage = (text, maxLen = 153) => {
 module.exports = { 
   sendSMS, 
   splitMessage, 
+  isTemplateActive,
   initialize: async () => true 
 };
