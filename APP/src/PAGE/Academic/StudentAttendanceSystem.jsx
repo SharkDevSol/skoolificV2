@@ -737,7 +737,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
         ethMonth: dayInfo.month,
         ethDay: dayInfo.day,
         status,
-        checkInTime: '08:00:00',
+        checkInTime: status === 'LATE' ? '08:45:00' : '08:00:00',
         notes: ''
       });
 
@@ -1227,7 +1227,13 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
           label={t('students.attendance.status', 'Status')}
           options={statusEditOptions}
           value={editForm.status}
-          onChange={(v) => setEditForm({ ...editForm, status: v })}
+          onChange={(v) => {
+            let newTime = editForm.checkInTime;
+            if (v === 'LATE' && (!newTime || newTime <= '08:30')) {
+              newTime = '08:45';
+            }
+            setEditForm({ ...editForm, status: v, checkInTime: newTime });
+          }}
         />
 
         <Input

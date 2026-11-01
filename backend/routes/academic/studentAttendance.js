@@ -828,21 +828,38 @@ router.put('/update', async (req, res) => {
 
     // Auto-calculate correct status based on check-in time and shift
     let calculatedStatus = status;
+    let finalCheckInTime = checkInTime;
     
-    if ((status === 'PRESENT' || status === 'LATE') && checkInTime && settingsResult.rows.length > 0) {
+    if (settingsResult.rows.length > 0) {
       const lateThreshold = shiftNumber === 2 
         ? settingsResult.rows[0].shift2_late_threshold 
         : settingsResult.rows[0].shift1_late_threshold;
       
-      const checkInTimeOnly = checkInTime.substring(0, 5); // HH:MM
-      const lateThresholdOnly = lateThreshold.substring(0, 5); // HH:MM
-      
-      if (checkInTimeOnly > lateThresholdOnly) {
+      const lateThresholdOnly = (lateThreshold || (shiftNumber === 2 ? '13:00' : '08:30')).substring(0, 5); // HH:MM
+
+      if (status === 'LATE') {
+        // Explicitly marked as LATE: NEVER downgrade to PRESENT
         calculatedStatus = 'LATE';
-        console.log(`Auto-corrected status to LATE: check-in ${checkInTimeOnly} > threshold ${lateThresholdOnly} (Shift ${shiftNumber})`);
-      } else {
-        calculatedStatus = 'PRESENT';
-        console.log(`Status confirmed as PRESENT: check-in ${checkInTimeOnly} <= threshold ${lateThresholdOnly} (Shift ${shiftNumber})`);
+        if (checkInTime) {
+          const checkInTimeOnly = checkInTime.substring(0, 5);
+          if (checkInTimeOnly <= lateThresholdOnly) {
+            // Adjust check-in time past the late threshold so the timestamp is consistent with LATE status
+            const [thH, thM] = lateThresholdOnly.split(':').map(Number);
+            const lateM = (thM + 15) % 60;
+            const lateH = thH + Math.floor((thM + 15) / 60);
+            finalCheckInTime = `${String(lateH).padStart(2, '0')}:${String(lateM).padStart(2, '0')}:00`;
+          }
+        } else {
+          finalCheckInTime = shiftNumber === 2 ? '13:15:00' : '08:45:00';
+        }
+      } else if (status === 'PRESENT' && checkInTime) {
+        const checkInTimeOnly = checkInTime.substring(0, 5);
+        if (checkInTimeOnly > lateThresholdOnly) {
+          calculatedStatus = 'LATE';
+          console.log(`Auto-corrected status to LATE: check-in ${checkInTimeOnly} > threshold ${lateThresholdOnly} (Shift ${shiftNumber})`);
+        } else {
+          calculatedStatus = 'PRESENT';
+        }
       }
     }
 
@@ -874,7 +891,7 @@ router.put('/update', async (req, res) => {
           AND ethiopian_month = $8 
           AND ethiopian_day = $9
         RETURNING *
-      `, [calculatedStatus, checkInTime, notes, shiftNumber, studentId, className, ethYear, ethMonth, ethDay]);
+      `, [calculatedStatus, finalCheckInTime, notes, shiftNumber, studentId, className, ethYear, ethMonth, ethDay]);
     } else {
       // Create new record
       const weekNumber = getWeekNumber(ethDay);
@@ -904,7 +921,7 @@ router.put('/update', async (req, res) => {
       `, [
         studentId, student.student_name, className, student.smachine_id,
         ethYear, ethMonth, ethDay,
-        dayOfWeek, weekNumber, checkInTime, calculatedStatus, notes, shiftNumber
+        dayOfWeek, weekNumber, finalCheckInTime, calculatedStatus, notes, shiftNumber
       ]);
     }
 
