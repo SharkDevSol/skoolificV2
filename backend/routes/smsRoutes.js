@@ -117,18 +117,28 @@ async function ensureMarkReportLogsTable() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS mark_report_logs (
         id SERIAL PRIMARY KEY,
+        branch_code VARCHAR(20),
         term_number INTEGER NOT NULL,
+        term_name VARCHAR(100),
         class_name VARCHAR(50) NOT NULL,
         student_name VARCHAR(150) NOT NULL,
-        phone VARCHAR(30) NOT NULL,
+        guardian_name VARCHAR(150),
+        phone VARCHAR(50) NOT NULL,
+        message TEXT,
         marks_summary TEXT,
         status VARCHAR(20) DEFAULT 'sent',
         error TEXT,
+        sent_by VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.query(`ALTER TABLE mark_report_logs ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
+    await pool.query(`ALTER TABLE mark_report_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
+    await pool.query(`ALTER TABLE mark_report_logs ALTER COLUMN message DROP NOT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE mark_report_logs ALTER COLUMN marks_summary DROP NOT NULL`).catch(() => {});
   } catch (e) {
-    console.warn('mark_report_logs table creation error:', e.message);
+    console.warn('mark_report_logs table setup error:', e.message);
   }
 }
 
@@ -433,7 +443,7 @@ router.get('/mark-report/preview', async (req, res) => {
 
     // Fetch sent history for deduplication
     const sentLogsRes = await pool.query(
-      'SELECT class_name, student_name, phone, sent_at FROM mark_report_logs WHERE term_number = $1 AND status = $2',
+      'SELECT class_name, student_name, phone FROM mark_report_logs WHERE term_number = $1 AND status = $2',
       [termNumber, 'sent']
     );
     const sentSet = new Set(sentLogsRes.rows.map(r => `${(r.class_name || '').toLowerCase()}:::${(r.student_name || '').trim().toLowerCase()}`));
@@ -629,9 +639,9 @@ router.post('/mark-report/send', async (req, res) => {
         if (smsRes.success && !smsRes.skipped) {
           try {
             await pool.query(
-              `INSERT INTO mark_report_logs (term_number, class_name, student_name, phone, marks_summary, status, sent_at)
-               VALUES ($1, $2, $3, $4, $5, 'sent', NOW())`,
-              [termNumber, item.className, item.studentName, phone, item.marksSummary || '']
+              `INSERT INTO mark_report_logs (term_number, class_name, student_name, guardian_name, phone, marks_summary, message, status, created_at, sent_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'sent', NOW(), NOW())`,
+              [termNumber, item.className, item.studentName, item.guardianName || null, phone, item.marksSummary || '', item.renderedMessage || '']
             );
           } catch (dbErr) {
             console.warn('mark_report_logs insert failed:', dbErr.message);
