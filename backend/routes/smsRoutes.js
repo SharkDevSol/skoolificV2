@@ -851,6 +851,198 @@ router.post('/resend-all-failed', async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// SMS Schedule Settings (Send Times & Automated Schedules)
+// -------------------------------------------------------------
+async function ensureScheduleSettingsTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.sms_schedule_settings (
+        id SERIAL PRIMARY KEY,
+        schedule_key VARCHAR(50) UNIQUE NOT NULL,
+        title VARCHAR(100) NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        send_time VARCHAR(10) DEFAULT '09:00',
+        auto_send_enabled BOOLEAN DEFAULT TRUE,
+        window_start_day INTEGER DEFAULT 26,
+        window_end_day INTEGER DEFAULT 30,
+        term_1_date VARCHAR(60) DEFAULT 'Hidar 20 (Mid-Semester 1)',
+        term_2_date VARCHAR(60) DEFAULT 'Tir 25 (End of Semester 1)',
+        term_3_date VARCHAR(60) DEFAULT 'Miazia 20 (Mid-Semester 2)',
+        term_4_date VARCHAR(60) DEFAULT 'Sene 25 (End of Semester 2)',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Seed default schedules if not already present
+    const defaultSchedules = [
+      {
+        schedule_key: 'payment_reminder',
+        title: 'Monthly Fee Payment Reminder SMS',
+        category: 'Finance',
+        send_time: '09:30',
+        auto_send_enabled: true,
+        window_start_day: 26,
+        window_end_day: 30,
+        notes: 'Dispatches reminders to guardians of students with pending tuition 5 days before each Ethiopian month starts.'
+      },
+      {
+        schedule_key: 'mark_report',
+        title: 'Term Mark Report SMS (4x / Academic Year)',
+        category: 'Academic',
+        send_time: '10:00',
+        auto_send_enabled: true,
+        term_1_date: 'Hidar 20 (Mid-Semester 1)',
+        term_2_date: 'Tir 25 (End of Semester 1)',
+        term_3_date: 'Miazia 20 (Mid-Semester 2)',
+        term_4_date: 'Sene 25 (End of Semester 2)',
+        notes: 'Dispatches aggregated subject mark summaries 4 times per year to parents.'
+      },
+      {
+        schedule_key: 'absence_alert',
+        title: 'Daily Student Absence Alert SMS',
+        category: 'Attendance',
+        send_time: '09:00',
+        auto_send_enabled: true,
+        notes: 'Dispatched to guardian immediately upon marking absent or after morning roll call cutoff.'
+      }
+    ];
+
+    for (const s of defaultSchedules) {
+      await pool.query(
+        `INSERT INTO public.sms_schedule_settings 
+          (schedule_key, title, category, send_time, auto_send_enabled, window_start_day, window_end_day, term_1_date, term_2_date, term_3_date, term_4_date, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (schedule_key) DO NOTHING`,
+        [
+          s.schedule_key,
+          s.title,
+          s.category,
+          s.send_time,
+          s.auto_send_enabled,
+          s.window_start_day || 26,
+          s.window_end_day || 30,
+          s.term_1_date || null,
+          s.term_2_date || null,
+          s.term_3_date || null,
+          s.term_4_date || null,
+          s.notes || null
+        ]
+      );
+    }
+  } catch (err) {
+    console.warn('sms_schedule_settings setup warning:', err.message);
+  }
+}
+
+// GET /api/sms/schedules — list all SMS schedule settings
+router.get('/schedules', async (req, res) => {
+  try {
+    await ensureScheduleSettingsTable();
+    const result = await pool.query(
+      `SELECT * FROM public.sms_schedule_settings ORDER BY id ASC`
+    );
+
+    // Compute live Ethiopian calendar status
+    let ethInfo = null;
+    try {
+      const ethiopianCalendar = require('../utils/ethiopianCalendar');
+      const eth = ethiopianCalendar.toEthiopian(new Date());
+      const ETH_MONTH_NAMES = [
+        'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yakatit',
+        'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
+      ];
+      ethInfo = {
+        year: eth.year,
+        month: eth.month,
+        day: eth.day,
+        monthName: ETH_MONTH_NAMES[eth.month - 1] || `Month ${eth.month}`,
+        isPaymentWindow: eth.day >= 26 && eth.day <= 30
+      };
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      schedules: result.rows,
+      ethCalendar: ethInfo
+    });
+  } catch (error) {
+    console.error('Error fetching SMS schedules:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT /api/sms/schedules/:key — update send time, window days, or term dates
+router.put('/schedules/:key', async (req, res) => {
+  try {
+    await ensureScheduleSettingsTable();
+    const { key } = req.params;
+    const body = req.body || {};
+
+    const {
+      send_time,
+      auto_send_enabled,
+      window_start_day,
+      window_end_day,
+      term_1_date,
+      term_2_date,
+      term_3_date,
+      term_4_date,
+      notes
+    } = body;
+
+    const existing = await pool.query(
+      `SELECT * FROM public.sms_schedule_settings WHERE schedule_key = $1`,
+      [key]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, error: `Schedule '${key}' not found` });
+    }
+
+    const cur = existing.rows[0];
+
+    const updated = await pool.query(
+      `UPDATE public.sms_schedule_settings
+       SET send_time = COALESCE($1, send_time),
+           auto_send_enabled = CASE WHEN $2::boolean IS NOT NULL THEN $2::boolean ELSE auto_send_enabled END,
+           window_start_day = COALESCE($3, window_start_day),
+           window_end_day = COALESCE($4, window_end_day),
+           term_1_date = COALESCE($5, term_1_date),
+           term_2_date = COALESCE($6, term_2_date),
+           term_3_date = COALESCE($7, term_3_date),
+           term_4_date = COALESCE($8, term_4_date),
+           notes = COALESCE($9, notes),
+           updated_at = NOW()
+       WHERE schedule_key = $10
+       RETURNING *`,
+      [
+        send_time !== undefined ? send_time : null,
+        typeof auto_send_enabled === 'boolean' ? auto_send_enabled : null,
+        window_start_day !== undefined ? parseInt(window_start_day, 10) : null,
+        window_end_day !== undefined ? parseInt(window_end_day, 10) : null,
+        term_1_date !== undefined ? term_1_date : null,
+        term_2_date !== undefined ? term_2_date : null,
+        term_3_date !== undefined ? term_3_date : null,
+        term_4_date !== undefined ? term_4_date : null,
+        notes !== undefined ? notes : null,
+        key
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: `Schedule '${key}' updated successfully`,
+      schedule: updated.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating SMS schedule:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Helper: get rendered template for a branch
 async function getRenderedTemplate(templateKey, variables) {
   try {

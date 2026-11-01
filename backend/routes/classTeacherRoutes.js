@@ -1262,27 +1262,45 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
             E: { status: 'leave', label: 'PERMISSION' },
           };
           const meta = notifyMeta[short];
-          if (meta && guardianUsername) {
+          if (meta) {
             const prevShort = storedRow ? String(storedRow[dayName] || '') : '';
             if (prevShort !== short) {
               const gd = dayDateMap[dayName];
               const ymd = gd.getFullYear() + '-' + String(gd.getMonth() + 1).padStart(2, '0') + '-' + String(gd.getDate()).padStart(2, '0');
-              const { notifyGuardianPush } = require('../services/guardianPush');
-              notifyGuardianPush(
-                guardianUsername,
-                'Attendance: ' + meta.label,
-                studentName + ' was marked ' + meta.label + ' (' + ymd + ').',
-                {
-                  type: 'attendance',
-                  status: meta.status,
-                  studentName: studentName,
-                  student_name: studentName,
-                  studentId: String(school_id),
-                  school_id: String(school_id),
-                  className: className,
-                  date: ymd,
+
+              // Send SMS to guardian if marked ABSENT
+              if (short === 'A') {
+                try {
+                  const { sendAbsenceAlertSms } = require('../services/AbsenceSmsService');
+                  sendAbsenceAlertSms(req.pool || pool, {
+                    className,
+                    studentId: school_id,
+                    studentName,
+                    ethDateStr: ymd
+                  }).catch(e => console.warn('[ClassTeacher SMS] Error sending absence SMS:', e.message));
+                } catch (smsErr) {
+                  console.warn('[ClassTeacher SMS] Module error:', smsErr.message);
                 }
-              ).catch((e) => console.warn('class-teacher attendance push error:', e.message));
+              }
+
+              if (guardianUsername) {
+                const { notifyGuardianPush } = require('../services/guardianPush');
+                notifyGuardianPush(
+                  guardianUsername,
+                  'Attendance: ' + meta.label,
+                  studentName + ' was marked ' + meta.label + ' (' + ymd + ').',
+                  {
+                    type: 'attendance',
+                    status: meta.status,
+                    studentName: studentName,
+                    student_name: studentName,
+                    studentId: String(school_id),
+                    school_id: String(school_id),
+                    className: className,
+                    date: ymd,
+                  }
+                ).catch((e) => console.warn('class-teacher attendance push error:', e.message));
+              }
             }
           }
         } catch (_) {}

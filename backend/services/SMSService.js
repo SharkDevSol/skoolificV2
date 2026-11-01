@@ -83,12 +83,6 @@ const sendSMS = async (to, message, senderId, meta = {}) => {
     }
   }
 
-  // Daily attendance SMS pause check (per user setting)
-  if ((meta?.templateKey === 'absence_alert' || meta?.templateKey === 'attendance') && process.env.ATTENDANCE_SMS_ENABLED !== 'true') {
-    console.log(`[SMS Service] Daily attendance SMS paused. Skipped send to ${to}`);
-    return { success: true, skipped: true, reason: 'Attendance SMS paused' };
-  }
-
   try {
     // Android Gateway worker provider (Ordnite SMS Helper APK)
     if (PROVIDER === 'android_gateway') {

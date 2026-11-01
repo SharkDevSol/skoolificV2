@@ -91,6 +91,60 @@ const SmsTemplates = () => {
   const [sendProgress, setSendProgress] = useState(0);
   const [sendResultSummary, setSendResultSummary] = useState(null);
 
+  // Schedules & Send Times state
+  const [schedules, setSchedules] = useState([]);
+  const [loadingSchedules, setLoadingSchedules] = useState(false);
+  const [savingScheduleKey, setSavingScheduleKey] = useState(null);
+  const [scheduleEdits, setScheduleEdits] = useState({});
+  const [ethCalendar, setEthCalendar] = useState(null);
+
+  const fetchSchedules = async () => {
+    setLoadingSchedules(true);
+    try {
+      const res = await api.get('/sms/schedules');
+      if (res.data?.success) {
+        const list = res.data.schedules || [];
+        setSchedules(list);
+        setEthCalendar(res.data.ethCalendar || null);
+        const map = {};
+        list.forEach(s => {
+          map[s.schedule_key] = { ...s };
+        });
+        setScheduleEdits(map);
+      }
+    } catch (err) {
+      console.warn('Failed to load SMS schedules:', err);
+    } finally {
+      setLoadingSchedules(false);
+    }
+  };
+
+  const handleScheduleChange = (key, field, value) => {
+    setScheduleEdits(prev => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const handleSaveSchedule = async (key) => {
+    setSavingScheduleKey(key);
+    try {
+      const payload = scheduleEdits[key] || {};
+      const res = await api.put(`/sms/schedules/${key}`, payload);
+      if (res.data?.success) {
+        showAlert('success', `Schedule settings for '${payload.title || key}' updated successfully!`);
+        setSchedules(prev => prev.map(s => s.schedule_key === key ? res.data.schedule : s));
+      }
+    } catch (err) {
+      showAlert('error', 'Failed to update schedule: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSavingScheduleKey(null);
+    }
+  };
+
   useEffect(() => {
     fetchTemplates();
     fetchTermsAndClasses();
@@ -413,6 +467,16 @@ const SmsTemplates = () => {
           ) : (
             <span className={`${styles.statusBadge} ${styles.statusDanger}`}>OFF</span>
           )}
+        </button>
+
+        <button
+          className={`${styles.tabButton} ${activeTab === 'schedules' ? styles.tabButtonActive : ''}`}
+          onClick={() => {
+            setActiveTab('schedules');
+            fetchSchedules();
+          }}
+        >
+          <Clock size={17} /> Send Times & Schedules
         </button>
       </div>
 
@@ -960,6 +1024,199 @@ const SmsTemplates = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: SEND TIMES & AUTOMATED SCHEDULES */}
+      {activeTab === 'schedules' && (
+        <div>
+          {/* Ethiopian Calendar Context Banner */}
+          {ethCalendar && (
+            <div className={styles.calendarBanner}>
+              <div className={styles.calendarBannerLeft}>
+                <div className={styles.calendarIcon}>
+                  <Clock size={24} />
+                </div>
+                <div>
+                  <h4 className={styles.calendarBannerTitle}>
+                    Ethiopian Calendar: {ethCalendar.day} {ethCalendar.monthName} {ethCalendar.year} ET
+                  </h4>
+                  <p className={styles.calendarBannerSub}>
+                    System automated jobs evaluate trigger windows against the Ethiopian academic calendar.
+                  </p>
+                </div>
+              </div>
+              <div>
+                {ethCalendar.isPaymentWindow ? (
+                  <span className={`${styles.statusBadge} ${styles.statusReady}`}>
+                    ⚡ Payment Window Active (Days 26–30)
+                  </span>
+                ) : (
+                  <span className={`${styles.statusBadge}`} style={{ background: '#e2e8f0', color: '#475569' }}>
+                    Standard Period (Window opens on Day 26)
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {loadingSchedules ? (
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <RefreshCw size={24} className="spin" /> Loading schedule settings...
+            </div>
+          ) : (
+            <div className={styles.scheduleGrid}>
+              {schedules.map((s) => {
+                const edit = scheduleEdits[s.schedule_key] || s;
+                const isSaving = savingScheduleKey === s.schedule_key;
+
+                return (
+                  <div key={s.schedule_key} className={styles.scheduleCard}>
+                    <div className={styles.scheduleCardHeader}>
+                      <div className={styles.scheduleHeaderInfo}>
+                        <h3>
+                          {s.title}
+                          <span className={styles.scheduleCategoryBadge}>{s.category}</span>
+                        </h3>
+                        <p>{s.notes}</p>
+                      </div>
+
+                      <div className={styles.switchWrapper}>
+                        <span
+                          className={`${styles.switchLabel} ${
+                            edit.auto_send_enabled ? styles.switchLabelActive : styles.switchLabelInactive
+                          }`}
+                        >
+                          {edit.auto_send_enabled ? 'Auto-Schedule Active' : 'Paused / Manual Only'}
+                        </span>
+                        <label className={styles.toggleSwitch}>
+                          <input
+                            type="checkbox"
+                            checked={!!edit.auto_send_enabled}
+                            onChange={(e) =>
+                              handleScheduleChange(s.schedule_key, 'auto_send_enabled', e.target.checked)
+                            }
+                          />
+                          <span className={styles.toggleSlider}></span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className={styles.scheduleFieldsGrid}>
+                      <div className={styles.scheduleField}>
+                        <label>⏰ Send Time (24-Hour)</label>
+                        <input
+                          type="time"
+                          value={edit.send_time || '09:00'}
+                          onChange={(e) =>
+                            handleScheduleChange(s.schedule_key, 'send_time', e.target.value)
+                          }
+                        />
+                      </div>
+
+                      {s.schedule_key === 'payment_reminder' && (
+                        <>
+                          <div className={styles.scheduleField}>
+                            <label>📅 Window Start Day</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="30"
+                              value={edit.window_start_day || 26}
+                              onChange={(e) =>
+                                handleScheduleChange(s.schedule_key, 'window_start_day', e.target.value)
+                              }
+                            />
+                          </div>
+                          <div className={styles.scheduleField}>
+                            <label>📅 Window End Day</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="30"
+                              value={edit.window_end_day || 30}
+                              onChange={(e) =>
+                                handleScheduleChange(s.schedule_key, 'window_end_day', e.target.value)
+                              }
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {s.schedule_key === 'mark_report' && (
+                        <>
+                          <div className={styles.scheduleField}>
+                            <label>Term 1 Target Date</label>
+                            <input
+                              type="text"
+                              value={edit.term_1_date || 'Hidar 20 (Mid-Semester 1)'}
+                              onChange={(e) =>
+                                handleScheduleChange(s.schedule_key, 'term_1_date', e.target.value)
+                              }
+                            />
+                          </div>
+                          <div className={styles.scheduleField}>
+                            <label>Term 2 Target Date</label>
+                            <input
+                              type="text"
+                              value={edit.term_2_date || 'Tir 25 (End of Semester 1)'}
+                              onChange={(e) =>
+                                handleScheduleChange(s.schedule_key, 'term_2_date', e.target.value)
+                              }
+                            />
+                          </div>
+                          <div className={styles.scheduleField}>
+                            <label>Term 3 Target Date</label>
+                            <input
+                              type="text"
+                              value={edit.term_3_date || 'Miazia 20 (Mid-Semester 2)'}
+                              onChange={(e) =>
+                                handleScheduleChange(s.schedule_key, 'term_3_date', e.target.value)
+                              }
+                            />
+                          </div>
+                          <div className={styles.scheduleField}>
+                            <label>Term 4 Target Date</label>
+                            <input
+                              type="text"
+                              value={edit.term_4_date || 'Sene 25 (End of Semester 2)'}
+                              onChange={(e) =>
+                                handleScheduleChange(s.schedule_key, 'term_4_date', e.target.value)
+                              }
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <div className={styles.scheduleCardFooter}>
+                      <span className={styles.scheduleStatusNote}>
+                        <Clock size={14} />
+                        Next dispatch time: <strong>{edit.send_time || '09:00'}</strong>
+                        {edit.auto_send_enabled ? ' (Active)' : ' (Disabled)'}
+                      </span>
+
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={() => handleSaveSchedule(s.schedule_key)}
+                        disabled={isSaving}
+                      >
+                        {isSaving ? (
+                          <>
+                            <RefreshCw size={14} className="spin" /> Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Check size={14} /> Save Schedule Settings
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

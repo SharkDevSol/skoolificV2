@@ -111,17 +111,33 @@ async function runReminderSweep(options = {}) {
   const { force = false, branchDb = null } = options;
   const eth = ethiopianCalendar.toEthiopian(new Date());
 
+  // Read dynamic window settings from sms_schedule_settings
+  let startDay = 26;
+  let endDay = 30;
+  try {
+    const mainPool = require('../config/db');
+    const sch = await mainPool.query("SELECT auto_send_enabled, window_start_day, window_end_day FROM sms_schedule_settings WHERE schedule_key = 'payment_reminder' LIMIT 1");
+    if (sch.rows.length > 0) {
+      if (sch.rows[0].auto_send_enabled === false && !force) {
+        console.log('[PaymentReminder] Auto send disabled in sms_schedule_settings. Skipping sweep.');
+        return { ran: false, reason: 'auto_send_disabled', ethDate: eth };
+      }
+      if (sch.rows[0].window_start_day) startDay = sch.rows[0].window_start_day;
+      if (sch.rows[0].window_end_day) endDay = sch.rows[0].window_end_day;
+    }
+  } catch (_) {}
+
   // Ethiopian regular months have 30 days.
-  // Day 26 is exactly 5 days before the new month starts on Day 1.
-  const isReminderWindow = eth.day >= 26 && eth.day <= 30;
+  // Window defaults to Day 26 to Day 30 (5 days before new month).
+  const isReminderWindow = eth.day >= startDay && eth.day <= endDay;
 
   if (!isReminderWindow && !force && !options.targetMonth) {
-    console.log(`[PaymentReminder] Today is ${eth.day}/${eth.month}/${eth.year} ET. Not in 5-day pre-month window (Day 26-30). Skipping automatic sweep.`);
+    console.log(`[PaymentReminder] Today is ${eth.day}/${eth.month}/${eth.year} ET. Not in configured window (Day ${startDay}-${endDay}). Skipping automatic sweep.`);
     return {
       ran: false,
-      reason: 'Not in 5-day pre-month window',
+      reason: `Not in window (Day ${startDay}-${endDay})`,
       ethDate: eth,
-      nextTriggerDay: 26
+      nextTriggerDay: startDay
     };
   }
 

@@ -273,6 +273,19 @@ async function markAbsentStudents() {
             status: 'ABSENT',
           });
 
+          // Send absence alert SMS if this is today
+          if (isToday) {
+            try {
+              const { sendAbsenceAlertSms } = require('./AbsenceSmsService');
+              sendAbsenceAlertSms(pool, {
+                className: student.class_name,
+                studentId: student.student_id,
+                studentName: student.student_name,
+                ethDateStr: `${currentDate.year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+              }).catch(e => console.warn('[AutoMarker SMS] Error sending absence SMS:', e.message));
+            } catch (_) {}
+          }
+
 
           dayMarked++;
 

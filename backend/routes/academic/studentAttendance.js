@@ -920,6 +920,20 @@ router.put('/update', async (req, res) => {
       const newStatus = String(calculatedStatus || '').toUpperCase();
       const prevStatus = String(existingRecord.rows[0] && existingRecord.rows[0].status || '').toUpperCase();
       if (newStatus && newStatus !== prevStatus) {
+        // Send SMS to guardian when student is marked ABSENT
+        if (newStatus === 'ABSENT') {
+          try {
+            const { sendAbsenceAlertSms } = require('../../services/AbsenceSmsService');
+            sendAbsenceAlertSms(getDb(req), {
+              className,
+              studentId,
+              ethDateStr: `${ethYear}-${String(ethMonth).padStart(2, '0')}-${String(ethDay).padStart(2, '0')}`
+            }).catch(e => console.warn('[Attendance SMS] Failed to trigger absence SMS:', e.message));
+          } catch (smsErr) {
+            console.warn('[Attendance SMS] Module error:', smsErr.message);
+          }
+        }
+
         const st = await getDb(req).query(
           'SELECT student_name, guardian_username FROM classes_schema."' + className + '" WHERE school_id::text = $1 LIMIT 1',
           [String(studentId)]
