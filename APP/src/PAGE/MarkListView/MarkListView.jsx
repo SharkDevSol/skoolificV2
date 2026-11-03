@@ -56,8 +56,14 @@ const MarkListView = () => {
         ]);
         const tc = parseInt(configRes.data?.term_count || configRes.data?.terms, 10) || 2;
         setTermCount(tc);
-        if (classesRes.data?.length > 0) {
-          setSelectedClass(classesRes.data[0]);
+        const rawClasses = classesRes.data;
+        const classList = Array.isArray(rawClasses) ? rawClasses : (rawClasses?.classes || []);
+        setClasses(classList);
+        if (classList.length > 0) {
+          const firstVal = typeof classList[0] === 'object' && classList[0] !== null
+            ? (classList[0].class_name || classList[0].name || classList[0].id)
+            : classList[0];
+          setSelectedClass(firstVal);
         }
       } catch (error) {
         console.error('Error fetching initial data:', error);
@@ -74,7 +80,7 @@ const MarkListView = () => {
     const fetchSubjects = async () => {
       try {
         const response = await axios.get(`${API_BASE_URL}/mark-list/subjects-classes`);
-        const classSubjects = response.data?.filter((m) => m.class_name === selectedClass) || [];
+        const classSubjects = response.data?.filter((m) => String(m.class_name).toLowerCase() === String(selectedClass).toLowerCase()) || [];
         setSubjects(classSubjects);
         if (classSubjects.length > 0) {
           setSelectedSubject(classSubjects[0].subject_name);
@@ -213,7 +219,11 @@ const MarkListView = () => {
   const allSubjects = rankingData?.subjects || [];
 
   const classOptions = useMemo(
-    () => classes.map((cls) => ({ value: cls, label: cls })),
+    () => (classes || []).map((cls) => {
+      const val = typeof cls === 'object' && cls !== null ? (cls.class_name || cls.name || cls.id) : cls;
+      const lbl = typeof cls === 'object' && cls !== null ? (cls.class_name || cls.name || cls.label || val) : String(cls).toUpperCase();
+      return { value: val, label: lbl };
+    }),
     [classes]
   );
 

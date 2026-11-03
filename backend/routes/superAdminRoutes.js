@@ -542,7 +542,10 @@ router.get('/report/marks', authenticateToken, authorizeRoles('super_admin'), as
               className,
               totalGradedStudents: studentsRanked.length,
               subjectsCount: topBySubject.length,
-              topStudents: studentsRanked.slice(0, 10), // Top 10 "Big Mark" students in class
+              highestTotalMark: studentsRanked[0]?.totalScore || 0,
+              lowestTotalMark: studentsRanked[studentsRanked.length - 1]?.totalScore || 0,
+              topStudents: studentsRanked.slice(0, 10).map((st, i) => ({ ...st, rank: i + 1 })), // Top 10 "Big Mark" students in class
+              lowestStudents: [...studentsRanked].reverse().slice(0, 10).map((st, i) => ({ ...st, rank: studentsRanked.length - i })), // Lowest 10 students
               topBySubject
             });
           }

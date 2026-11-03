@@ -600,3 +600,73 @@
 :global(.dark-mode) .taskItem:hover {
   background: rgba(102, 126, 234, 0.15);
 }
+
+/* Attendance & Academic Analytics Leaderboards */
+.pillBtnRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+
+.pillBtn {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pillBtn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.pillBtnActive {
+  background: #667eea !important;
+  color: #ffffff !important;
+  border-color: #667eea !important;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.subjectPill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 2px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+}
+
+.subjectPillHigh {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+
+:global(.dark-mode) .pillBtn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+}
+
+:global(.dark-mode) .pillBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+:global(.dark-mode) .subjectPill {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #e2e8f0;
+}

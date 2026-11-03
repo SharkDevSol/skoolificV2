@@ -654,6 +654,7 @@ const SuperAdmin = () => {
   const [mkTerm, setMkTerm] = useState('1');
   const [marksClassFilter, setMarksClassFilter] = useState('ALL');
   const [marksSearch, setMarksSearch] = useState('');
+  const [marksRankView, setMarksRankView] = useState('highest'); // 'highest' | 'lowest'
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1342,7 +1343,8 @@ const SuperAdmin = () => {
               <select value={mkTerm} onChange={(e) => setMkTerm(e.target.value)}>
                 <option value="1">Term 1</option>
                 <option value="2">Term 2</option>
-                <option value="3">Term 3</option>
+                {String(branch || '').toUpperCase().includes('BILAL') && <option value="3">Term 3</option>}
+                {String(branch || '').toUpperCase().includes('BILAL') && <option value="4">Term 4</option>}
               </select>
             </label>
             <label>Search Class or Student
@@ -1418,30 +1420,59 @@ const SuperAdmin = () => {
                         🏫 Class {c.className}
                       </span>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span className={`${styles.badgePill} ${styles.badgeOld}`}>{c.studentCount} Students</span>
-                        <span className={`${styles.badgePill} ${styles.badgeNew}`}>{c.subjectCount} Subjects</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#107c41' }}>Class Avg: {c.classAvgScore}</span>
+                        <span className={`${styles.badgePill} ${styles.badgeOld}`}>{c.studentCount || c.totalGradedStudents} Students</span>
+                        <span className={`${styles.badgePill} ${styles.badgeNew}`}>{c.subjectCount || c.subjectsCount} Subjects</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#107c41' }}>Class Avg: {c.classAvgScore || c.avgScore}</span>
+                        {c.highestTotalMark !== undefined && (
+                          <span className={`${styles.badgePill} ${styles.badgeNew}`} style={{ background: '#dcfce7', color: '#15803d' }}>
+                            🏆 High Mark: {c.highestTotalMark} pts
+                          </span>
+                        )}
+                        {c.lowestTotalMark !== undefined && (
+                          <span className={`${styles.badgePill} ${styles.badgeRed}`} style={{ background: '#fee2e2', color: '#991b1b' }}>
+                            🔻 Low Mark: {c.lowestTotalMark} pts
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    {/* Big Mark Students Table */}
-                    <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-                      🏆 Overall Top Scorers ("Big Mark" Students)
+                    {/* High vs Low Rank Toggle */}
+                    <div className={styles.pillTabRow} style={{ margin: '8px 0 10px 0' }}>
+                      <button
+                        type="button"
+                        className={`${styles.pillTabBtn} ${marksRankView === 'highest' ? styles.pillTabBtnActive : ''}`}
+                        onClick={() => setMarksRankView('highest')}
+                      >
+                        🏆 Highest Rank ("Big Mark" Students)
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.pillTabBtn} ${marksRankView === 'lowest' ? styles.pillTabBtnActive : ''}`}
+                        onClick={() => setMarksRankView('lowest')}
+                      >
+                        🔻 Lowest Rank ("Lowest Mark" Students)
+                      </button>
                     </div>
-                    {c.bigMarkStudents && c.bigMarkStudents.length > 0 ? (
-                      <div className={styles.tableScroll}>
-                        <table className={styles.tableDetailed}>
-                          <thead>
-                            <tr>
-                              <th style={{ width: 40 }}>Rank</th>
-                              <th>Student Name</th>
-                              <th>Total Score</th>
-                              <th>Average</th>
-                              <th>Subject Scores Breakdown</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {c.bigMarkStudents.map((st) => (
+
+                    {(() => {
+                      const displayStudents = marksRankView === 'highest'
+                        ? (c.bigMarkStudents || c.topStudents || [])
+                        : (c.lowestStudents || []);
+
+                      return displayStudents && displayStudents.length > 0 ? (
+                        <div className={styles.tableScroll}>
+                          <table className={styles.tableDetailed}>
+                            <thead>
+                              <tr>
+                                <th style={{ width: 40 }}>Rank</th>
+                                <th>Student Name</th>
+                                <th>Total Score</th>
+                                <th>Average</th>
+                                <th>Subject Scores Breakdown</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {displayStudents.map((st) => (
                               <tr key={st.rank}>
                                 <td>
                                   <span style={{
@@ -1482,9 +1513,10 @@ const SuperAdmin = () => {
                       </div>
                     ) : (
                       <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '6px 0' }}>
-                        No ranked students for this class.
+                        No ranked students found for this view.
                       </div>
-                    )}
+                    );
+                    })()}
 
                     {/* Subject Top Scorers */}
                     {c.subjectTopScorers && c.subjectTopScorers.length > 0 && (
