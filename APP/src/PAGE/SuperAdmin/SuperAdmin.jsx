@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '../../utils/api';
 import {
   FiHome, FiUsers, FiCheckCircle, FiClipboard, FiAlertTriangle, FiDollarSign, FiSettings,
-  FiLogOut, FiChevronDown, FiCheck, FiMoon, FiGlobe, FiKey, FiUser, FiMessageSquare
+  FiLogOut, FiChevronDown, FiCheck, FiMoon, FiGlobe, FiKey, FiUser, FiMessageSquare,
+  FiDownload, FiFileText
 } from 'react-icons/fi';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import styles from './SuperAdmin.module.css';
 import SmsCounter from '../SmsCounter/SmsCounter';
 
@@ -41,7 +44,16 @@ const I18N = {
     passwordTooShort: 'New password must be at least 4 characters', wrongPassword: 'Current password is incorrect',
     preferences: 'Preferences', language: 'Language', darkMode: 'Dark Mode', darkModeDesc: 'Switch to dark colors',
     languageDesc: 'Choose the app language', english: 'English', somali: 'Somali', amharic: 'Amharic', arabic: 'Arabic',
-    perBranchDetail: 'Each branch shows its own classes and totals', ofExpected: 'of expected', collectedWord: 'collected'
+    perBranchDetail: 'Each branch shows its own classes and totals', ofExpected: 'of expected', collectedWord: 'collected',
+    downloadPdfReport: 'Download Official PDF Report', generatingPdf: 'Generating PDF Report...',
+    liveAudit: 'Live Real-Time Finance Audit', standardFeeSchedule: 'Standard Approved Fee Schedule',
+    advancePaymentsTitle: 'Advance Prepayments (Locked Months)', paying: 'Paying', unassigned: 'Unassigned',
+    unlockedDue: 'Unlocked Due', monthlyFee: 'Monthly Fee', regFee: 'Reg Fee', m1Paid: 'M1 Paid', m2Paid: 'M2 Paid',
+    unpaidDue: 'Unpaid Due', monthPerformance: 'Month-by-Month Expected vs Collected',
+    unassignedTitle: 'Unassigned Students (Classification Required)',
+    unassignedDesc: 'Students with unassigned Old/New status in the system database. Setting Old or New status in their profile resolves fee calculation.',
+    unpaidDirectoryTitle: 'Unpaid Students Directory',
+    unpaidDesc: 'Students with outstanding unpaid invoices in unlocked months (Meskerem & Tikimt).'
   },
   so: {
     appName: 'Super Admin', loginSub: 'Warbixinaha dhammaan laamaha hal meel',
@@ -71,7 +83,17 @@ const I18N = {
     passwordTooShort: 'Furaha cusub waa inuu ka yaraan 4 xaraf', wrongPassword: 'Furaha hadda waa khalad',
     preferences: 'Doorshooyinka', language: 'Luqadda', darkMode: 'Habka Madow', darkModeDesc: 'U beddel midabbada madow',
     languageDesc: 'Dooro luqadda app-ka', english: 'Ingiriis', somali: 'Soomaali', amharic: 'Amxaari', arabic: 'Carabi',
-    perBranchDetail: 'Laan kastaa waxay muujisaa fasalladeeda iyo wadarta', ofExpected: 'laga filayay', collectedWord: 'la ururiyay'
+    perBranchDetail: 'Laan kastaa waxay muujisaa fasalladeeda iyo wadarta', ofExpected: 'laga filayay', collectedWord: 'la ururiyay',
+    downloadPdfReport: 'Soo Dejiso Warbixinta PDF', generatingPdf: 'PDF ayaa la diyaarinayaa...',
+    liveAudit: 'Hanti-dhawrka Maaliyadeed ee Tooska ah', standardFeeSchedule: 'Jadwalka Kharashka Dugsiga',
+    advancePaymentsTitle: 'Lacagaha Hore Loo Bixiyay (Bilaha Xiran)', paying: 'Lacag-bixiye', unassigned: 'Aan La Qeexin',
+    unlockedDue: 'Waajibka Bisha Furan', monthlyFee: 'Kharashka Bisha', regFee: 'Kharashka Diiwaangelinta',
+    m1Paid: 'Bisha 1 La Bixiyay', m2Paid: 'Bisha 2 La Bixiyay', unpaidDue: 'Aan La Bixin (Waajib)',
+    monthPerformance: 'Lacagta La Filayo vs La Ururiyay Bil Kasta',
+    unassignedTitle: 'Ardayda Aan La Qeexin (U Baahan Hore/Cusub)',
+    unassignedDesc: 'Ardaydan laguma qeexin xogta dugsiga inay Hore yihiin ama Cusub yihiin.',
+    unpaidDirectoryTitle: 'Liiska Ardayda Aan Bixin Lacagta',
+    unpaidDesc: 'Ardayda aan weli bixin lacagta bilaha furan (Meskerem & Tikimt).'
   },
   am: {
     appName: 'ሱፐር አድሚን', loginSub: 'የሁሉም ቅርንጫፎች ሪፖርቶች በአንድ ቦታ',
@@ -101,7 +123,17 @@ const I18N = {
     passwordTooShort: 'አዲሱ የይለፍ ቃል ቢያንስ 4 ቁምፊ መሆን አለበት', wrongPassword: 'የአሁኑ የይለፍ ቃል ትክክል አይደለም',
     preferences: 'ምርጫዎች', language: 'ቋንቋ', darkMode: 'ጨለማ ሁነታ', darkModeDesc: 'ወደ ጨለማ ቀለሞች ቀይር',
     languageDesc: 'የመተግበሪያውን ቋንቋ ምረጥ', english: 'እንግሊዝኛ', somali: 'ሶማሊኛ', amharic: 'አማርኛ', arabic: 'አረብኛ',
-    perBranchDetail: 'እያንዳንዱ ቅርንጫፍ የራሱን ክፍሎችና ጠቅላላ ያሳያል', ofExpected: 'ከሚጠበቀው', collectedWord: 'የተሰበሰበ'
+    perBranchDetail: 'እያንዳንዱ ቅርንጫፍ የራሱን ክፍሎችና ጠቅላላ ያሳያል', ofExpected: 'ከሚጠበቀው', collectedWord: 'የተሰበሰበ',
+    downloadPdfReport: 'የፒዲኤፍ ሪፖርት አውርድ', generatingPdf: 'ፒዲኤፍ እየተዘጋጀ ነው...',
+    liveAudit: 'የቀጥታ የፋይናንስ ኦዲት ሪፖርት', standardFeeSchedule: 'መደበኛ የክፍያ ሰንጠረዥ',
+    advancePaymentsTitle: 'ቀደም ብለው የተከፈሉ ክፍያዎች (የተዘጉ ወራት)', paying: 'የሚከፍሉ', unassigned: 'ያልተመደበ',
+    unlockedDue: 'ያልተከፈለ እዳ', monthlyFee: 'የወር ክፍያ', regFee: 'የምዝገባ ክፍያ',
+    m1Paid: 'ወር 1 የተከፈለ', m2Paid: 'ወር 2 የተከፈለ', unpaidDue: 'ያልተከፈለ (የደረሰ)',
+    monthPerformance: 'በወር የሚጠበቅ እና የተሰበሰበ አፈጻጸም',
+    unassignedTitle: 'ያልተመደቡ ተማሪዎች (አዲስ/ቀድሞ መለየት የሚያስፈልጋቸው)',
+    unassignedDesc: 'እነዚህ ተማሪዎች በዳታቤዝ ውስጥ ቀድሞ ወይም አዲስ መሆናቸው አልተገለጸም።',
+    unpaidDirectoryTitle: 'ክፍያ ያልፈጸሙ ተማሪዎች ማውጫ',
+    unpaidDesc: 'በተከፈቱ ወራት (መስከረም እና ጥቅምት) ክፍያ ያልፈጸሙ ተማሪዎች።'
   },
   ar: {
     appName: 'إقرأ سوبر أدمن', loginSub: 'تقارير جميع الفروع في مكان واحد',
@@ -131,7 +163,17 @@ const I18N = {
     passwordTooShort: 'كلمة المرور الجديدة يجب أن تكون 4 أحرف على الأقل', wrongPassword: 'كلمة المرور الحالية غير صحيحة',
     preferences: 'التفضيلات', language: 'اللغة', darkMode: 'الوضع الداكن', darkModeDesc: 'التبديل إلى الألوان الداكنة',
     languageDesc: 'اختر لغة التطبيق', english: 'الإنجليزية', somali: 'الصومالية', amharic: 'الأمهرية', arabic: 'العربية',
-    perBranchDetail: 'كل فرع يعرض صفوفه وإجمالياته', ofExpected: 'من المتوقع', collectedWord: 'تم تحصيله'
+    perBranchDetail: 'كل فرع يعرض صفوفه وإجمالياته', ofExpected: 'من المتوقع', collectedWord: 'تم تحصيله',
+    downloadPdfReport: 'تحميل تقرير PDF', generatingPdf: 'جارٍ تجهيز ملف PDF...',
+    liveAudit: 'تقرير التدقيق المالي المباشر', standardFeeSchedule: 'جدول الرسوم المعتمد',
+    advancePaymentsTitle: 'المدفوعات المسبقة (الشهور المقفلة)', paying: 'دافع', unassigned: 'غير مصنف',
+    unlockedDue: 'المستحق غير المدفوع', monthlyFee: 'الرسوم الشهرية', regFee: 'رسوم التسجيل',
+    m1Paid: 'شهر 1 مسدد', m2Paid: 'شهر 2 مسدد', unpaidDue: 'مستحق غير مسدد',
+    monthPerformance: 'المتوقع مقابل المحصل شهرياً',
+    unassignedTitle: 'الطلاب غير المصنفين (يلزم تحديد قديم/جديد)',
+    unassignedDesc: 'هؤلاء الطلاب لم يُحدد لهم تصنيف (قديم أو جديد) في قاعدة البيانات.',
+    unpaidDirectoryTitle: 'دليل الطلاب غير المسددين',
+    unpaidDesc: 'الطلاب الذين عليهم مستحقات غير مسددة في الشهور المفتوحة (مسكرم وتكمت).'
   }
 };
 
@@ -159,6 +201,416 @@ const fmt = (n) => {
 };
 
 const birr = (n) => fmt(n) + ' Birr';
+
+const exportFinancePdf = (f, branchFilter) => {
+  if (!f) return;
+  const doc = new jsPDF('l', 'pt', 'a4');
+  const pageWidth = doc.internal.pageSize.width;
+  const pageHeight = doc.internal.pageSize.height;
+  const margin = 36;
+  const contentWidth = pageWidth - margin * 2;
+
+  // Header Banner
+  doc.setFillColor(139, 26, 26);
+  doc.rect(0, 0, pageWidth, 54, 'F');
+  doc.setFillColor(247, 148, 30);
+  doc.rect(0, 54, pageWidth, 3, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('IQRA EDUCATIONAL COMPLEX', margin, 24);
+
+  doc.setFontSize(9.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(255, 217, 160);
+  doc.text('SUPER ADMIN COMPREHENSIVE MONTHLY PAYMENT & FEE AUDIT REPORT', margin, 40);
+
+  const now = new Date();
+  const dateStr = now.toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  doc.setFontSize(8.5);
+  doc.setTextColor(255, 255, 255);
+  doc.text(
+    `Academic Year: ${f.academicYear || '2019 E.C.'}  |  Month: ${f.currentEthMonthName || 'Tikimt'}  |  Live Data: ${dateStr}`,
+    pageWidth - margin, 32, { align: 'right' }
+  );
+
+  let currentY = 70;
+
+  // 1. Executive Summary Table
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(139, 26, 26);
+  doc.text('1. Executive Financial & Enrollment Summary', margin, currentY);
+  currentY += 6;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    head: [['Metric', 'Value', 'Financial Metric', 'Amount (ETB)']],
+    body: [
+      [
+        'Total Active Enrolled Students',
+        `${fmt(f.grandStudents)} students`,
+        'Total Fee Collected to Date',
+        `${fmt(f.grandCollected)} ETB`
+      ],
+      [
+        'Student Breakdown (Old / New / Unassigned)',
+        `${fmt(f.grandOld)} Old  |  ${fmt(f.grandNew)} New  |  ${fmt(f.grandUnassigned)} Unassigned`,
+        'Unlocked Due Outstanding (Months 1-2)',
+        `${fmt(f.grandPendingUnlocked || f.grandPending)} ETB`
+      ],
+      [
+        'Paying vs Scholarship / Free Students',
+        `${fmt(f.grandPayingStudents)} Paying  |  ${fmt(f.grandFreeStudents)} Free`,
+        'Advance Prepayments (Locked Months M3-M9)',
+        `${fmt(f.grandAdvance)} ETB`
+      ],
+      [
+        'Unlocked Unpaid Students Count',
+        `${fmt(f.grandUnpaidUnlocked)} students with pending unlocked fee`,
+        'Collections Today',
+        `${fmt(f.grandCollectedToday)} ETB`
+      ]
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: [139, 26, 26], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+    bodyStyles: { fontSize: 8, textColor: [30, 41, 59], cellPadding: 4 },
+    columnStyles: {
+      0: { fontStyle: 'bold', width: contentWidth * 0.28 },
+      1: { width: contentWidth * 0.22 },
+      2: { fontStyle: 'bold', width: contentWidth * 0.28 },
+      3: { width: contentWidth * 0.22, fontStyle: 'bold', textColor: [139, 26, 26] }
+    }
+  });
+
+  currentY = doc.lastAutoTable.finalY + 16;
+
+  // 2. Month-by-Month Collection Performance
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(139, 26, 26);
+  doc.text('2. Month-by-Month Target & Collection Performance', margin, currentY);
+  currentY += 6;
+
+  const m1Rate = f.grandM1Expected > 0 ? Math.round((f.grandM1Collected / f.grandM1Expected) * 100) : 0;
+  const m2Rate = f.grandM2Expected > 0 ? Math.round((f.grandM2Collected / f.grandM2Expected) * 100) : 0;
+  const unlRate = f.grandExpected > 0 ? Math.round(((f.grandCollectedUnlocked || f.grandCollected) / f.grandExpected) * 100) : 0;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    head: [['Month', 'Status', 'Target Expected (ETB)', 'Total Collected (ETB)', 'Pending Outstanding (ETB)', 'Collection Rate (%)']],
+    body: [
+      ['Month 1: Meskerem (Tuition + Registration)', 'Unlocked (Due)', `${fmt(f.grandM1Expected)} ETB`, `${fmt(f.grandM1Collected)} ETB`, `${fmt(Math.max(f.grandM1Expected - f.grandM1Collected, 0))} ETB`, `${m1Rate}%`],
+      ['Month 2: Tikimt (Monthly Tuition)', 'Unlocked (Due)', `${fmt(f.grandM2Expected)} ETB`, `${fmt(f.grandM2Collected)} ETB`, `${fmt(Math.max(f.grandM2Expected - f.grandM2Collected, 0))} ETB`, `${m2Rate}%`],
+      ['Months 3 to 9: Prepayments Early', 'Locked (Prepaid)', '-', `${fmt(f.grandAdvance)} ETB`, '-', 'Advance']
+    ],
+    foot: [
+      ['TOTAL UNLOCKED PERIOD (M1 & M2)', 'Current Horizon', `${fmt(f.grandExpected)} ETB`, `${fmt(f.grandCollectedUnlocked || f.grandCollected)} ETB`, `${fmt(f.grandPendingUnlocked || f.grandPending)} ETB`, `${unlRate}%`]
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: [80, 20, 20], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    footStyles: { fillColor: [253, 235, 211], textColor: [139, 26, 26], fontStyle: 'bold', fontSize: 8 },
+    bodyStyles: { fontSize: 8, textColor: [30, 41, 59], cellPadding: 3.5 }
+  });
+
+  currentY = doc.lastAutoTable.finalY + 16;
+
+  // 3. Standard Fee Schedule Table
+  if (f.feeSchedule && f.feeSchedule.length > 0) {
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(139, 26, 26);
+    doc.text('3. Approved Standard Fee Structure (Monthly Tuition & Registration)', margin, currentY);
+    currentY += 6;
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      head: [['Category / Level', 'Classes Covered', 'Monthly Tuition', 'Old Student Reg', 'New Student Reg', 'Month 1 Old (Total)', 'Month 1 New (Total)']],
+      body: f.feeSchedule.map(s => [
+        s.category,
+        s.classes,
+        `${fmt(s.monthlyFee)} ETB`,
+        `${fmt(s.oldRegFee)} ETB`,
+        `${fmt(s.newRegFee)} ETB`,
+        `${fmt(s.m1Old)} ETB`,
+        `${fmt(s.m1New)} ETB`
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [139, 26, 26], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3.5 },
+      alternateRowStyles: { fillColor: [250, 250, 250] }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 16;
+  }
+
+  // 4. Branch Comparative Summary Table
+  const branchesList = f.byBranch || [];
+  if (branchesList.length > 0) {
+    if (currentY > pageHeight - 130) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(139, 26, 26);
+    doc.text('4. Branch Comparative Financial Summary (Target vs Collected)', margin, currentY);
+    currentY += 6;
+
+    const branchRows = branchesList.map(b => [
+      b.branchName || b.branchCode,
+      fmt(b.totalStudents),
+      `${fmt(b.payingStudents)} / ${fmt(b.freeStudents)}`,
+      `${fmt(b.m1Expected)} / ${fmt(b.m1Collected)}`,
+      `${fmt(b.m2Expected)} / ${fmt(b.m2Collected)}`,
+      `${fmt(b.expected)} ETB`,
+      `${fmt(b.collectedUnlocked || b.collected)} ETB`,
+      `${fmt(b.pendingUnlocked || b.pending)} ETB`,
+      `${b.rate || 0}%`,
+      `${fmt(b.advanceCollected)} ETB`
+    ]);
+
+    const branchTotals = [
+      'ALL BRANCHES (TOTAL)',
+      fmt(f.grandStudents),
+      `${fmt(f.grandPayingStudents)} / ${fmt(f.grandFreeStudents)}`,
+      `${fmt(f.grandM1Expected)} / ${fmt(f.grandM1Collected)}`,
+      `${fmt(f.grandM2Expected)} / ${fmt(f.grandM2Collected)}`,
+      `${fmt(f.grandExpected)} ETB`,
+      `${fmt(f.grandCollectedUnlocked || f.grandCollected)} ETB`,
+      `${fmt(f.grandPendingUnlocked || f.grandPending)} ETB`,
+      `${f.grandRate || 0}%`,
+      `${fmt(f.grandAdvance)} ETB`
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      head: [['Branch', 'Enrolled', 'Paying/Free', 'M1 Exp / Coll', 'M2 Exp / Coll', 'Total Expected', 'Total Collected', 'Unlocked Due', 'Rate', 'Advance (M3-M9)']],
+      body: branchRows,
+      foot: [branchTotals],
+      theme: 'grid',
+      headStyles: { fillColor: [139, 26, 26], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      footStyles: { fillColor: [253, 235, 211], textColor: [139, 26, 26], fontStyle: 'bold', fontSize: 7.5 },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3.5 }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 16;
+  }
+
+  // 5. Detailed Class-by-Class Tables for Each Branch
+  branchesList.forEach((b, bIdx) => {
+    const classes = b.classes || [];
+    if (classes.length === 0) return;
+
+    if (currentY > pageHeight - 140 || bIdx > 0) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(139, 26, 26);
+    doc.text(
+      `5.${bIdx + 1} ${b.branchName || b.branchCode} — Detailed Class-by-Class Target & Collection Breakdown`,
+      margin, currentY
+    );
+    currentY += 6;
+
+    const classRows = classes.map(c => [
+      c.className,
+      fmt(c.totalStudents || c.students),
+      `${fmt(c.oldStudents)} / ${fmt(c.newStudents)}`,
+      fmt(c.payingStudents),
+      `${fmt(c.monthlyFee)}`,
+      `${fmt(c.m1Expected)} / ${fmt(c.m1Collected)}`,
+      `${fmt(c.m2Expected)} / ${fmt(c.m2Collected)}`,
+      `${fmt(c.expected)} ETB`,
+      `${fmt(c.collectedUnlocked || c.collected)} ETB`,
+      `${fmt(c.pendingUnlocked || c.pending)} ETB`,
+      `${c.rate || 0}%`
+    ]);
+
+    const bTotal = [
+      `${b.branchName || b.branchCode} TOTAL`,
+      fmt(b.totalStudents),
+      `${fmt(b.oldStudents)} / ${fmt(b.newStudents)}`,
+      fmt(b.payingStudents),
+      '-',
+      `${fmt(b.m1Expected)} / ${fmt(b.m1Collected)}`,
+      `${fmt(b.m2Expected)} / ${fmt(b.m2Collected)}`,
+      `${fmt(b.expected)} ETB`,
+      `${fmt(b.collectedUnlocked || b.collected)} ETB`,
+      `${fmt(b.pendingUnlocked || b.pending)} ETB`,
+      `${b.rate || 0}%`
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      head: [['Class', 'Total', 'Old / New', 'Paying', 'Monthly', 'M1 Exp / Coll', 'M2 Exp / Coll', 'Total Expected', 'Total Collected', 'Unlocked Due', 'Rate']],
+      body: classRows,
+      foot: [bTotal],
+      theme: 'grid',
+      headStyles: { fillColor: [139, 26, 26], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      footStyles: { fillColor: [253, 235, 211], textColor: [139, 26, 26], fontStyle: 'bold', fontSize: 7.5 },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3 },
+      alternateRowStyles: { fillColor: [250, 250, 250] }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 16;
+  });
+
+  // 6. Unassigned Students Table (Old / New Not Set)
+  const unassignedList = f.unassignedStudents || [];
+  if (unassignedList.length > 0) {
+    doc.addPage();
+    currentY = 40;
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(139, 26, 26);
+    doc.text(
+      `6. Unassigned Students (${unassignedList.length} Students Requiring Old / New Classification)`,
+      margin, currentY
+    );
+    currentY += 6;
+
+    const unassignedRows = unassignedList.map((st, idx) => [
+      (idx + 1).toString(),
+      st.branch || st.branchCode,
+      st.class,
+      st.studentName,
+      'Status NULL (Pending Admin Classification)'
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      head: [['#', 'Branch', 'Class', 'Student Name', 'System Action Required']],
+      body: unassignedRows,
+      theme: 'grid',
+      headStyles: { fillColor: [180, 83, 9], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3 },
+      alternateRowStyles: { fillColor: [254, 243, 199] }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 16;
+  }
+
+  // 7. Unpaid Students Directory (Unlocked Months)
+  const unpaidList = f.unpaidStudents || [];
+  if (unpaidList.length > 0) {
+    doc.addPage();
+    currentY = 40;
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(139, 26, 26);
+    doc.text(
+      `7. Detailed Unpaid Students Directory (Unlocked Months) — ${unpaidList.length} Students Outstanding`,
+      margin, currentY
+    );
+    currentY += 6;
+
+    const unpaidRows = unpaidList.map((st, idx) => [
+      (idx + 1).toString(),
+      st.branch || st.branchCode,
+      st.class,
+      st.studentName,
+      `${st.unpaidMonthsCount} Month(s)`,
+      (st.unpaidMonths || []).join(', '),
+      `${fmt(st.totalDue)} ETB`
+    ]);
+
+    const totalUnpaidSum = unpaidList.reduce((acc, st) => acc + (st.totalDue || 0), 0);
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      head: [['#', 'Branch', 'Class', 'Student Name', 'Months Due', 'Unpaid Months Breakdown', 'Total Due (ETB)']],
+      body: unpaidRows,
+      foot: [['TOTAL UNPAID OUTSTANDING', '', '', '', `${unpaidList.length} students`, '', `${fmt(totalUnpaidSum)} ETB`]],
+      theme: 'grid',
+      headStyles: { fillColor: [139, 26, 26], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      footStyles: { fillColor: [254, 226, 226], textColor: [185, 28, 28], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3 },
+      alternateRowStyles: { fillColor: [250, 250, 250] }
+    });
+
+    currentY = doc.lastAutoTable.finalY + 16;
+  }
+
+  // 8. Advance Prepayments for Locked Months
+  const allLockedPayments = [];
+  branchesList.forEach(b => {
+    (b.lockedMonthPayments || []).forEach(p => allLockedPayments.push(p));
+  });
+
+  if (allLockedPayments.length > 0) {
+    if (currentY > pageHeight - 120) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(139, 26, 26);
+    doc.text(
+      `8. Advance Prepayments for Locked Months (Months 3 to 9) — ${allLockedPayments.length} Total Prepayments`,
+      margin, currentY
+    );
+    currentY += 6;
+
+    const lockedRows = allLockedPayments.map((p, idx) => [
+      (idx + 1).toString(),
+      p.branch,
+      p.class,
+      p.studentName,
+      p.monthName || `Month ${p.monthNumber}`,
+      (p.receiptNumber && p.receiptNumber !== 'N/A' && String(p.receiptNumber).trim())
+        ? String(p.receiptNumber).trim()
+        : ('RCP-' + String(p.invoiceNumber || idx + 1).padStart(6, '0')),
+      `${fmt(p.paidAmount)} ETB`
+    ]);
+
+    const totalLockedAmount = allLockedPayments.reduce((acc, p) => acc + (p.paidAmount || 0), 0);
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      head: [['#', 'Branch', 'Class', 'Student Name', 'Target Prepaid Month', 'Receipt #', 'Amount Paid']],
+      body: lockedRows,
+      foot: [['TOTAL ADVANCE PREPAYMENTS', '', '', '', '', `${allLockedPayments.length} payments`, `${fmt(totalLockedAmount)} ETB`]],
+      theme: 'grid',
+      headStyles: { fillColor: [80, 20, 20], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      footStyles: { fillColor: [253, 235, 211], textColor: [139, 26, 26], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3 }
+    });
+  }
+
+  // Footer on all pages
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7.5);
+    doc.setTextColor(120, 120, 120);
+    doc.text('Iqra Educational Complex — Confidential Financial Audit Report', margin, pageHeight - 16);
+    doc.text(`Generated: ${dateStr}`, pageWidth / 2, pageHeight - 16, { align: 'center' });
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 16, { align: 'right' });
+  }
+
+  const timeStamp = now.toISOString().replace(/[-:T]/g, '').substring(0, 14);
+  doc.save(`Iqra_Monthly_Payment_Report_${timeStamp}.pdf`);
+};
 
 const SuperAdmin = () => {
   const [lang, setLang] = useState(localStorage.getItem('superAdminLang') || 'en');
@@ -188,16 +640,44 @@ const SuperAdmin = () => {
   const [regFrom, setRegFrom] = useState(() => new Date().toISOString().substring(0, 10));
   const [regTo, setRegTo] = useState(() => new Date().toISOString().substring(0, 10));
 
-  const [attYear, setAttYear] = useState('');
-  const [attMonth, setAttMonth] = useState('');
+  const [attViewMode, setAttViewMode] = useState('month'); // 'month' | 'week' | 'date'
+  const [attYear, setAttYear] = useState('2019');
+  const [attMonth, setAttMonth] = useState('2');
+  const [attWeek, setAttWeek] = useState('1');
+  const [attDay, setAttDay] = useState('');
+  const [attLeaderboardTab, setAttLeaderboardTab] = useState('absent'); // 'absent' | 'present' | 'late' | 'permission'
+
   const [finMonth, setFinMonth] = useState('');
   const [faultYear, setFaultYear] = useState('');
   const [faultMonth, setFaultMonth] = useState('');
   const [mkYear, setMkYear] = useState('');
-  const [mkTerm, setMkTerm] = useState('');
+  const [mkTerm, setMkTerm] = useState('1');
+  const [marksClassFilter, setMarksClassFilter] = useState('ALL');
+  const [marksSearch, setMarksSearch] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+
+  // Finance Tab filters and pagination states
+  const [unpaidSearch, setUnpaidSearch] = useState('');
+  const [unpaidBranchFilter, setUnpaidBranchFilter] = useState('ALL');
+  const [unpaidMonthsFilter, setUnpaidMonthsFilter] = useState('ALL');
+  const [unpaidPage, setUnpaidPage] = useState(1);
+  const [unassignedSearch, setUnassignedSearch] = useState('');
+
+  const handleDownloadPdf = () => {
+    if (!finance || pdfGenerating) return;
+    try {
+      setPdfGenerating(true);
+      exportFinancePdf(finance, branch);
+    } catch (err) {
+      console.error('Failed to generate PDF:', err);
+      alert('Error generating PDF report. Please try again.');
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
 
   const [accForm, setAccForm] = useState({ currentPassword: '', newUsername: '', newPassword: '', confirmPassword: '' });
   const [accMsg, setAccMsg] = useState('');
@@ -244,7 +724,12 @@ const SuperAdmin = () => {
         api.get('/super-admin/branches', { timeout: 60000 }),
         api.get('/super-admin/report/students', { timeout: 90000, params: { branchCode: b } }),
         api.get('/super-admin/report/attendance', { timeout: 90000, params: {
-          branchCode: b, year: attYear || undefined, month: attMonth || undefined
+          branchCode: b,
+          viewMode: attViewMode,
+          year: attYear || undefined,
+          month: attMonth || undefined,
+          week: attViewMode === 'week' ? (attWeek || undefined) : undefined,
+          day: attViewMode === 'date' ? (attDay || undefined) : undefined
         }}),
         api.get('/super-admin/report/marks', { timeout: 90000, params: {
           branchCode: b, academic_year: mkYear || undefined, term: mkTerm || undefined
@@ -300,7 +785,7 @@ const SuperAdmin = () => {
     } finally {
       setLoading(false);
     }
-  }, [branch, attYear, attMonth, mkYear, mkTerm, faultYear, faultMonth, finMonth, regFrom, regTo]);
+  }, [branch, attViewMode, attYear, attMonth, attWeek, attDay, mkYear, mkTerm, faultYear, faultMonth, finMonth, regFrom, regTo]);
 
   useEffect(() => {
     if (isLoggedIn) loadAll();
@@ -410,8 +895,9 @@ const SuperAdmin = () => {
 
   const ALLOWED_BRANCH_CODES = ['IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
   const activeBranches = (data) => {
-    if (!data?.byBranch) return [];
-    return data.byBranch.filter(
+    if (!data) return [];
+    const list = data.byBranch || data.branches || [];
+    return list.filter(
       (b) => !b.error && ALLOWED_BRANCH_CODES.includes(String(b.branchCode).toUpperCase())
     );
   };
@@ -601,14 +1087,45 @@ const SuperAdmin = () => {
     const ringStyle = {
       background: `conic-gradient(#8b1a1a ${a?.grandRate || 0}%, ${dark ? '#3a2924' : '#f2e9e3'} ${a?.grandRate || 0}% 100%)`
     };
-    const maxTotal = Math.max(1, ...(a?.byBranch || []).filter((b) => !b.error).map((b) => b.total));
+    const maxTotal = Math.max(1, ...(a?.byBranch || []).filter((b) => !b.error).map((b) => b.total || 0));
+
     return (
       <>
+        {/* View Mode Segment Switcher */}
+        <div className={styles.viewSegment}>
+          <button
+            type="button"
+            className={`${styles.viewSegmentBtn} ${attViewMode === 'month' ? styles.viewSegmentBtnActive : ''}`}
+            onClick={() => setAttViewMode('month')}
+          >
+            📅 Monthly View
+          </button>
+          <button
+            type="button"
+            className={`${styles.viewSegmentBtn} ${attViewMode === 'week' ? styles.viewSegmentBtnActive : ''}`}
+            onClick={() => setAttViewMode('week')}
+          >
+            📆 Weekly View
+          </button>
+          <button
+            type="button"
+            className={`${styles.viewSegmentBtn} ${attViewMode === 'date' ? styles.viewSegmentBtnActive : ''}`}
+            onClick={() => setAttViewMode('date')}
+          >
+            📌 Daily (By Date) View
+          </button>
+        </div>
+
+        {/* Filter Controls based on View Mode */}
         <div className={styles.card}>
-          <div className={styles.cardTitle}>{t('filterEthDate')}</div>
+          <div className={styles.cardTitle}>
+            {attViewMode === 'month' && '📅 Filter by Ethiopian Month'}
+            {attViewMode === 'week' && '📆 Filter by Ethiopian Week'}
+            {attViewMode === 'date' && '📌 Filter by Ethiopian Date'}
+          </div>
           <div className={styles.filterRow}>
             <label>{t('year')}
-              <input type="number" placeholder="2018" value={attYear} onChange={(e) => setAttYear(e.target.value)} />
+              <input type="number" placeholder="2019" value={attYear} onChange={(e) => setAttYear(e.target.value)} />
             </label>
             <label>{t('month')}
               <select value={attMonth} onChange={(e) => setAttMonth(e.target.value)}>
@@ -616,9 +1133,33 @@ const SuperAdmin = () => {
                 {ETH_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
               </select>
             </label>
+            {attViewMode === 'week' && (
+              <label>Week Number
+                <select value={attWeek} onChange={(e) => setAttWeek(e.target.value)}>
+                  <option value="1">Week 1</option>
+                  <option value="2">Week 2</option>
+                  <option value="3">Week 3</option>
+                  <option value="4">Week 4</option>
+                  <option value="5">Week 5</option>
+                </select>
+              </label>
+            )}
+            {attViewMode === 'date' && (
+              <label>Day (1 - 30)
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  placeholder="e.g. 5"
+                  value={attDay}
+                  onChange={(e) => setAttDay(e.target.value)}
+                />
+              </label>
+            )}
           </div>
         </div>
 
+        {/* Overall Ring & KPI Stats */}
         <div className={styles.card}>
           <div className={styles.ringWrap}>
             <div className={styles.ring} style={ringStyle}>
@@ -628,49 +1169,159 @@ const SuperAdmin = () => {
               <div className={styles.legendRow}><span className={`${styles.dot} ${styles.dotGreen}`} /> {t('present')} <b>{fmt(a?.grandPresent)}</b></div>
               <div className={styles.legendRow}><span className={`${styles.dot} ${styles.dotGold}`} /> {t('late')} <b>{fmt(a?.grandLate)}</b></div>
               <div className={styles.legendRow}><span className={`${styles.dot} ${styles.dotRed}`} /> {t('absent')} <b>{fmt(a?.grandAbsent)}</b></div>
+              <div className={styles.legendRow}><span className={`${styles.dot} ${styles.dotBlue}`} /> Permission / Leave <b>{fmt(a?.grandPermission)}</b></div>
               <div className={styles.legendRow}>{t('total')} {t('records')} <b>{fmt(a?.grandTotal)}</b></div>
             </div>
           </div>
         </div>
 
+        {/* Branch Detailed Breakdown */}
         <h3 className={styles.sectionTitle}>{t('byBranch')}</h3>
         {activeBranches(a).map((b) => {
-          const filled = (b.classes || []).filter((c) => c.total > 0);
+          const filled = (b.classes || []).filter((c) => (c.total || 0) > 0);
+          const activeLeaderboard = (b.leaderboards && b.leaderboards[
+            attLeaderboardTab === 'absent' ? 'mostAbsent' :
+            attLeaderboardTab === 'present' ? 'mostPresent' :
+            attLeaderboardTab === 'late' ? 'mostLate' : 'mostPermission'
+          ]) || [];
+
           return (
-          <div key={b.branchCode} className={styles.card}>
-            <div className={styles.cardTitle}>
-              {b.branchName} — {b.rate}% {t('present')}
-            </div>
-            <div className={styles.barRow}>
-              <div className={styles.barTrack}>
-                <div className={styles.barFill} style={{ width: `${(b.total / maxTotal) * 100}%` }} />
+            <div key={b.branchCode} className={styles.card}>
+              <div className={styles.cardTitle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <span>{b.branchName} — <span style={{ color: '#107c41' }}>{b.rate}% Attendance Rate</span></span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>
+                  {fmt(b.total)} Records (P: {fmt(b.present)} · L: {fmt(b.late)} · A: {fmt(b.absent)} · Perm: {fmt(b.permission)})
+                </span>
               </div>
-              <div className={styles.barTop} style={{ marginTop: 5 }}>
-                <span>{fmt(b.total)} {t('records')}</span>
-                <span>P {fmt(b.present)} · L {fmt(b.late)} · A {fmt(b.absent)}</span>
+
+              <div className={styles.barRow}>
+                <div className={styles.barTrack}>
+                  <div className={styles.barFill} style={{ width: `${(b.total / maxTotal) * 100}%` }} />
+                </div>
               </div>
+
+              {/* Attendance Leaderboards Section */}
+              <div style={{ marginTop: 14, marginBottom: 12, padding: '12px 14px', background: 'var(--inputBg)', borderRadius: 10, border: '1px solid var(--line)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    🏆 Student Leaderboards ({attViewMode.toUpperCase()} VIEW)
+                  </span>
+                  <div className={styles.pillTabRow} style={{ margin: 0 }}>
+                    <button
+                      type="button"
+                      className={`${styles.pillTabBtn} ${attLeaderboardTab === 'absent' ? styles.pillTabBtnActive : ''}`}
+                      onClick={() => setAttLeaderboardTab('absent')}
+                    >
+                      🔴 Most Absent
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.pillTabBtn} ${attLeaderboardTab === 'present' ? styles.pillTabBtnActive : ''}`}
+                      onClick={() => setAttLeaderboardTab('present')}
+                    >
+                      🟢 Most Present
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.pillTabBtn} ${attLeaderboardTab === 'late' ? styles.pillTabBtnActive : ''}`}
+                      onClick={() => setAttLeaderboardTab('late')}
+                    >
+                      🟡 Most Late
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.pillTabBtn} ${attLeaderboardTab === 'permission' ? styles.pillTabBtnActive : ''}`}
+                      onClick={() => setAttLeaderboardTab('permission')}
+                    >
+                      🔵 Permission / Leave
+                    </button>
+                  </div>
+                </div>
+
+                {activeLeaderboard.length > 0 ? (
+                  <div className={styles.tableScroll}>
+                    <table className={styles.tableDetailed}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: 40 }}>#</th>
+                          <th>Student Name</th>
+                          <th>Class</th>
+                          <th>
+                            {attLeaderboardTab === 'absent' && 'Days Absent'}
+                            {attLeaderboardTab === 'present' && 'Days Present'}
+                            {attLeaderboardTab === 'late' && 'Times Late'}
+                            {attLeaderboardTab === 'permission' && 'Leaves / Permissions'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeLeaderboard.map((s, idx) => (
+                          <tr key={idx}>
+                            <td style={{ color: 'var(--muted)', fontWeight: 600 }}>#{idx + 1}</td>
+                            <td style={{ fontWeight: 600 }}>{s.student_name}</td>
+                            <td><span className={`${styles.badgePill} ${styles.badgeOld}`}>{s.class_name}</span></td>
+                            <td>
+                              <b style={{
+                                color: attLeaderboardTab === 'absent' ? '#b21e23' :
+                                       attLeaderboardTab === 'present' ? '#107c41' :
+                                       attLeaderboardTab === 'late' ? '#b8860b' : '#2563eb'
+                              }}>
+                                {s.count}
+                              </b>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '6px 0' }}>
+                    No records found for this category in the selected timeframe.
+                  </div>
+                )}
+              </div>
+
+              {/* Class by Class Breakdown Table */}
+              <div style={{ fontWeight: 700, fontSize: 12.5, margin: '10px 0 6px 0' }}>
+                📊 Class-by-Class Attendance Summary
+              </div>
+              {filled.length > 0 ? (
+                <div className={styles.tableScroll}>
+                  <table className={styles.tableDetailed}>
+                    <thead>
+                      <tr>
+                        <th>{t('class')}</th>
+                        <th>{t('present')}</th>
+                        <th>{t('late')}</th>
+                        <th>{t('absent')}</th>
+                        <th>Permission</th>
+                        <th>{t('total')}</th>
+                        <th>{t('rate')} (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filled.map((c) => (
+                        <tr key={c.className}>
+                          <td><b>{c.className}</b></td>
+                          <td style={{ color: '#107c41', fontWeight: 600 }}>{fmt(c.present)}</td>
+                          <td style={{ color: '#b8860b', fontWeight: 600 }}>{fmt(c.late)}</td>
+                          <td style={{ color: '#b21e23', fontWeight: 600 }}>{fmt(c.absent)}</td>
+                          <td style={{ color: '#2563eb', fontWeight: 600 }}>{fmt(c.permission)}</td>
+                          <td><b>{fmt(c.total)}</b></td>
+                          <td>
+                            <span className={`${styles.badgePill} ${c.rate >= 80 ? styles.badgeOld : styles.badgeRed}`}>
+                              {c.rate}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className={styles.empty}>{t('noAttendance')}</div>
+              )}
             </div>
-            {filled.length > 0 ? (
-            <table className={styles.table}>
-              <thead>
-                <tr><th>{t('class')}</th><th>{t('present')}</th><th>{t('late')}</th><th>{t('absent')}</th><th>{t('rate')}</th></tr>
-              </thead>
-              <tbody>
-                {filled.map((c) => (
-                  <tr key={c.className}>
-                    <td>{c.className}</td>
-                    <td>{fmt(c.present)}</td>
-                    <td>{fmt(c.late)}</td>
-                    <td>{fmt(c.absent)}</td>
-                    <td><b>{c.rate}%</b></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            ) : (
-              <div className={styles.empty}>{t('noAttendance')}</div>
-            )}
-          </div>
           );
         })}
       </>
@@ -679,66 +1330,207 @@ const SuperAdmin = () => {
 
   const MarksTab = () => {
     const m = marks;
-    const maxExams = Math.max(1, ...(m?.byBranch || []).filter((b) => !b.error).map((b) => b.exams));
+    const filteredBranches = (m?.byBranch || []).filter(b => !b.error);
+
     return (
       <>
+        {/* Term & Search Filter Card */}
         <div className={styles.card}>
-          <div className={styles.cardTitle}>{t('filter')}</div>
+          <div className={styles.cardTitle}>🎯 Marks & Academic Performance Filter</div>
           <div className={styles.filterRow}>
-            <label>{t('academicYear')}
-              <input placeholder="2018/2019" value={mkYear} onChange={(e) => setMkYear(e.target.value)} />
-            </label>
             <label>{t('term')}
               <select value={mkTerm} onChange={(e) => setMkTerm(e.target.value)}>
-                <option value="">{t('allTerms')}</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
+                <option value="1">Term 1</option>
+                <option value="2">Term 2</option>
+                <option value="3">Term 3</option>
+              </select>
+            </label>
+            <label>Search Class or Student
+              <input
+                type="text"
+                placeholder="Search e.g. G7, Abdirahman..."
+                value={marksSearch}
+                onChange={(e) => setMarksSearch(e.target.value)}
+              />
+            </label>
+            <label>Filter by Class
+              <select value={marksClassFilter} onChange={(e) => setMarksClassFilter(e.target.value)}>
+                <option value="ALL">All Classes</option>
+                {Array.from(new Set(
+                  filteredBranches.flatMap(b => (b.classes || []).map(c => c.className))
+                )).sort().map(cls => (
+                  <option key={cls} value={cls}>{cls}</option>
+                ))}
               </select>
             </label>
           </div>
         </div>
 
+        {/* Grand KPIs */}
         <div className={styles.statGrid}>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>{t('exams')}</div>
-            <div className={styles.statValue}>{fmt(m?.grandExams)}</div>
+            <div className={styles.statLabel}>Total Graded Students</div>
+            <div className={styles.statValue}>{fmt(m?.grandGradedStudents || 0)}</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>{t('average')}</div>
-            <div className={styles.statValueGold}>{m?.grandAvgPct ?? 0}%</div>
+            <div className={styles.statLabel}>Recorded Subjects</div>
+            <div className={styles.statValueGold}>{fmt(m?.grandSubjectsCount || 0)}</div>
+          </div>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>Overall Average Score</div>
+            <div className={styles.statValue} style={{ color: '#107c41' }}>
+              {m?.grandAvgScore ? `${m.grandAvgScore}` : '0.0'}
+            </div>
           </div>
         </div>
 
-        <h3 className={styles.sectionTitle}>{t('byBranch')}</h3>
-        {activeBranches(m).map((b) => (
-          <div key={b.branchCode} className={styles.card}>
-            <div className={styles.cardTitle}>
-              {b.branchName} — {fmt(b.exams)} {t('exams')} · {t('average')} {b.avgPct}%
-            </div>
-            <div className={styles.barRow}>
-              <div className={styles.barTrack}>
-                <div className={styles.barFill} style={{ width: `${(b.exams / maxExams) * 100}%` }} />
+        {/* Branch & Class Top Scorers */}
+        <h3 className={styles.sectionTitle}>🏆 Top Performing Students ("Big Mark") by Class & Branch</h3>
+
+        {filteredBranches.map(b => {
+          let classesList = (b.classes || []);
+          if (marksClassFilter !== 'ALL') {
+            classesList = classesList.filter(c => c.className.toUpperCase() === marksClassFilter.toUpperCase());
+          }
+          if (marksSearch) {
+            const q = marksSearch.toLowerCase();
+            classesList = classesList.filter(c => {
+              const matchClass = c.className.toLowerCase().includes(q);
+              const matchStudent = (c.bigMarkStudents || []).some(s => s.studentName.toLowerCase().includes(q));
+              return matchClass || matchStudent;
+            });
+          }
+
+          return (
+            <div key={b.branchCode} className={styles.card}>
+              <div className={styles.cardTitle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <span>{b.branchName} — Term {m?.term || mkTerm}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>
+                  {b.gradedStudents} Graded Students · {b.subjectsCount} Subjects · Branch Avg: <b>{b.avgScore}</b>
+                </span>
               </div>
+
+              {classesList.length > 0 ? (
+                classesList.map(c => (
+                  <div key={c.className} style={{ marginTop: 14, marginBottom: 14, padding: '14px', background: 'var(--inputBg)', borderRadius: 10, border: '1px solid var(--line)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
+                        🏫 Class {c.className}
+                      </span>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span className={`${styles.badgePill} ${styles.badgeOld}`}>{c.studentCount} Students</span>
+                        <span className={`${styles.badgePill} ${styles.badgeNew}`}>{c.subjectCount} Subjects</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#107c41' }}>Class Avg: {c.classAvgScore}</span>
+                      </div>
+                    </div>
+
+                    {/* Big Mark Students Table */}
+                    <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                      🏆 Overall Top Scorers ("Big Mark" Students)
+                    </div>
+                    {c.bigMarkStudents && c.bigMarkStudents.length > 0 ? (
+                      <div className={styles.tableScroll}>
+                        <table className={styles.tableDetailed}>
+                          <thead>
+                            <tr>
+                              <th style={{ width: 40 }}>Rank</th>
+                              <th>Student Name</th>
+                              <th>Total Score</th>
+                              <th>Average</th>
+                              <th>Subject Scores Breakdown</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {c.bigMarkStudents.map((st) => (
+                              <tr key={st.rank}>
+                                <td>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: '50%',
+                                    fontWeight: 700,
+                                    fontSize: 11,
+                                    background: st.rank === 1 ? '#ffd700' : st.rank === 2 ? '#c0c0c0' : st.rank === 3 ? '#cd7f32' : 'var(--card)',
+                                    color: st.rank <= 3 ? '#000' : 'var(--text)'
+                                  }}>
+                                    {st.rank}
+                                  </span>
+                                </td>
+                                <td style={{ fontWeight: 600 }}>{st.studentName}</td>
+                                <td><b style={{ color: '#107c41' }}>{fmt(st.totalScore)}</b></td>
+                                <td><b>{st.avgScore}</b></td>
+                                <td>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxWidth: 650 }}>
+                                    {(st.subjects || []).map((sub, sIdx) => (
+                                      <span
+                                        key={sIdx}
+                                        className={`${styles.subjectBadge} ${sub.score >= 90 ? styles.subjectBadgeHigh : ''}`}
+                                        title={`${sub.subject}: ${sub.score}`}
+                                      >
+                                        <b>{sub.subject}:</b> {sub.score}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '6px 0' }}>
+                        No ranked students for this class.
+                      </div>
+                    )}
+
+                    {/* Subject Top Scorers */}
+                    {c.subjectTopScorers && c.subjectTopScorers.length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                          📚 Highest Scorer by Subject
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+                          {c.subjectTopScorers.map((sub, subIdx) => {
+                            const top = (sub.topStudents || [])[0];
+                            return (
+                              <div key={subIdx} style={{
+                                padding: '8px 10px',
+                                background: 'var(--card)',
+                                border: '1px solid var(--line)',
+                                borderRadius: 8,
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                              }}>
+                                <div>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                                    {sub.subject}
+                                  </div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+                                    {top?.studentName || '—'}
+                                  </div>
+                                </div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#107c41' }}>
+                                  {top?.score !== undefined ? top.score : '—'}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className={styles.empty}>No class mark sheets found matching the current filter.</div>
+              )}
             </div>
-            <table className={styles.table}>
-              <thead>
-                <tr><th>{t('class')}</th><th>{t('exams')}</th><th>{t('marksCount')}</th><th>{t('average')} %</th></tr>
-              </thead>
-              <tbody>
-                {b.classes.map((c) => (
-                  <tr key={c.classId}>
-                    <td>{t('class')} {c.classId}</td>
-                    <td>{fmt(c.exams)}</td>
-                    <td>{fmt(c.marks)}</td>
-                    <td><b>{c.avgPct}%</b></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {b.classes.length === 0 && <div className={styles.empty}>{t('noExamData')}</div>}
-          </div>
-        ))}
+          );
+        })}
+        {filteredBranches.length === 0 && <div className={styles.empty}>{t('noBranchData')}</div>}
       </>
     );
   };
@@ -797,13 +1589,75 @@ const SuperAdmin = () => {
   const FinanceTab = () => {
     const f = finance;
     const byClass = f?.byClass || [];
-    const maxExpected = Math.max(1, ...byClass.map((c) => c.expected));
+    const maxExpected = Math.max(1, ...byClass.map((c) => c.expected || 0));
     const rate = f?.grandExpected > 0 ? Math.round((f.grandCollected / f.grandExpected) * 100) : 0;
+    const branchesList = activeBranches(f);
+
+    // Collect all locked month prepayments
+    const allLockedPayments = [];
+    branchesList.forEach(b => {
+      (b.lockedMonthPayments || []).forEach(p => allLockedPayments.push(p));
+    });
+
+    // Unassigned students filter
+    const unassignedList = f?.unassignedStudents || [];
+    const filteredUnassigned = unassignedList.filter(s => {
+      if (!unassignedSearch) return true;
+      const q = unassignedSearch.toLowerCase();
+      return (s.studentName || '').toLowerCase().includes(q) ||
+             (s.class || '').toLowerCase().includes(q) ||
+             (s.branch || '').toLowerCase().includes(q);
+    });
+
+    // Unpaid students filter & pagination
+    const unpaidList = f?.unpaidStudents || [];
+    const filteredUnpaid = unpaidList.filter(s => {
+      if (unpaidBranchFilter !== 'ALL' && s.branch !== unpaidBranchFilter) return false;
+      if (unpaidMonthsFilter !== 'ALL') {
+        if (unpaidMonthsFilter === '>1') {
+          if ((s.unpaidMonthsCount || 0) <= 1) return false;
+        } else if (String(s.unpaidMonthsCount) !== String(unpaidMonthsFilter)) {
+          return false;
+        }
+      }
+      if (unpaidSearch) {
+        const q = unpaidSearch.toLowerCase();
+        const matchName = (s.studentName || '').toLowerCase().includes(q);
+        const matchClass = (s.class || '').toLowerCase().includes(q);
+        if (!matchName && !matchClass) return false;
+      }
+      return true;
+    });
+
+    const unpaidPageSize = 15;
+    const unpaidTotalPages = Math.max(1, Math.ceil(filteredUnpaid.length / unpaidPageSize));
+    const currentUnpaidPage = Math.min(unpaidPage, unpaidTotalPages);
+    const pagedUnpaid = filteredUnpaid.slice((currentUnpaidPage - 1) * unpaidPageSize, currentUnpaidPage * unpaidPageSize);
+
     return (
       <>
+        {/* Action Header Card with Download Button & Live Badge */}
         <div className={styles.card}>
-          <div className={styles.cardTitle}>{t('filterEthMonth')}</div>
-          <div className={styles.filterRow}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <div className={styles.liveBadge}>
+              <span className={styles.liveDot} />
+              {t('liveAudit')} · {f?.academicYear || '2019 E.C.'} ({f?.currentEthMonthName || 'Tikimt'})
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+              {new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+            </div>
+          </div>
+
+          <button
+            className={styles.downloadPdfBtn}
+            onClick={handleDownloadPdf}
+            disabled={pdfGenerating || !f}
+          >
+            <FiDownload style={{ fontSize: 18 }} />
+            {pdfGenerating ? t('generatingPdf') : t('downloadPdfReport')}
+          </button>
+
+          <div className={styles.filterRow} style={{ marginTop: 6 }}>
             <label>{t('month')}
               <select value={finMonth} onChange={(e) => setFinMonth(e.target.value)}>
                 <option value="">{t('allMonths')}</option>
@@ -813,75 +1667,499 @@ const SuperAdmin = () => {
           </div>
         </div>
 
+        {/* Hero Card */}
         <div className={styles.hero}>
           <div className={styles.heroLabel}>{t('collectedToday')}</div>
           <div className={styles.heroValue}>{fmt(f?.grandCollectedToday)} <span style={{ fontSize: 18 }}>Birr</span></div>
           <div className={styles.heroSub}>
-            {t('collected')} {birr(f?.grandCollected)} · {rate}% {t('ofExpected')} {birr(f?.grandExpected)} · {birr(f?.grandPending)} {t('pending')}
+            {t('collected')} {birr(f?.grandCollected)} · {rate}% {t('ofExpected')} {birr(f?.grandExpected)} · {birr(f?.grandPendingUnlocked || f?.grandPending)} {t('pending')}
           </div>
         </div>
 
+        {/* Executive KPI Stats Grid */}
         <div className={styles.statGrid}>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>{t('expected')}</div>
-            <div className={styles.statValue}>{fmt(f?.grandExpected)}</div>
+            <div className={styles.statLabel}>{t('totalStudents')}</div>
+            <div className={styles.statValue}>{fmt(f?.grandStudents)}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              <span className={`${styles.badgePill} ${styles.badgeOld}`}>{fmt(f?.grandOld)} {t('oldStudents')}</span>{' '}
+              <span className={`${styles.badgePill} ${styles.badgeNew}`}>{fmt(f?.grandNew)} {t('newStudents')}</span>{' '}
+              {f?.grandUnassigned > 0 && <span className={`${styles.badgePill} ${styles.badgeUnassigned}`}>{fmt(f?.grandUnassigned)} {t('unassigned')}</span>}
+            </div>
           </div>
-          <div className={styles.statCard}>
-            <div className={styles.statLabel}>{t('pending')}</div>
-            <div className={styles.statValueRed}>{fmt(f?.grandPending)}</div>
-          </div>
+
           <div className={styles.statCard}>
             <div className={styles.statLabel}>{t('freeStudents')}</div>
             <div className={styles.statValue}>{fmt(f?.grandFreeStudents)}</div>
-          </div>
-          <div className={styles.statCard}>
-            <div className={styles.statLabel}>{t('freeRegPaid')}</div>
-            <div className={styles.statValueGold}>{fmt(f?.grandFreeRegPaid)} <span style={{ fontSize: 12 }}>Birr</span></div>
-          </div>
-        </div>
-
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>{t('unlockedNote')}</div>
-        </div>
-
-        <h3 className={styles.sectionTitle}>{t('byBranch')}</h3>
-        {activeBranches(f).map((b) => {
-          const filled = (b.classes || []).filter((c) => c.students > 0);
-          return (
-          <div key={b.branchCode} className={styles.card}>
-            <div className={styles.cardTitle}>
-              {b.branchName} — {t('collected')} {birr(b.collected)}
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              {fmt(f?.grandPayingStudents)} {t('paying')}
             </div>
-            {filled.length > 0 ? (
-            <table className={styles.table}>
-              <thead>
-                <tr><th>{t('class')}</th><th>{t('studentsCount')}</th><th>{t('collected')}</th><th>{t('pending')}</th></tr>
-              </thead>
-              <tbody>
-                {filled.map((c) => (
-                  <tr key={c.className}>
-                    <td>{c.className}</td>
-                    <td>{fmt(c.students)}</td>
-                    <td>{fmt(c.collected)}</td>
-                    <td><b>{fmt(c.pending)}</b></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            ) : (
-              <div className={styles.empty}>{t('noInvoices')}</div>
-            )}
           </div>
+
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>{t('unpaidDue')}</div>
+            <div className={styles.statValueRed}>{fmt(f?.grandUnpaidUnlocked)} <small style={{ fontSize: 13 }}>students</small></div>
+            <div style={{ fontSize: 11, color: '#b21e23', fontWeight: 700, marginTop: 4 }}>
+              {birr(f?.grandPendingUnlocked || f?.grandPending)}
+            </div>
+          </div>
+
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>{t('advancePaymentsTitle')}</div>
+            <div className={styles.statValueGold}>{fmt(f?.grandAdvance)} <small style={{ fontSize: 13 }}>Birr</small></div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              {allLockedPayments.length} payments recorded
+            </div>
+          </div>
+        </div>
+
+        {/* Month-by-Month Expected vs Collected Performance */}
+        <div className={styles.card}>
+          <div className={styles.cardTitle}>{t('monthPerformance')}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 12, marginTop: 10 }}>
+            <div style={{ background: 'var(--inputBg)', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#8b1a1a', marginBottom: 8 }}>Month 1 · Meskerem (Tuition + Reg)</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Expected:</span>
+                <b>{birr(f?.grandM1Expected)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Collected:</span>
+                <b style={{ color: '#15803d' }}>{birr(f?.grandM1Collected)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: 'var(--muted)' }}>Collection Rate:</span>
+                <span className={`${styles.badgePill} ${styles.badgeGreen}`}>
+                  {f?.grandM1Expected > 0 ? Math.round((f.grandM1Collected / f.grandM1Expected) * 100) : 0}%
+                </span>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--inputBg)', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#8b1a1a', marginBottom: 8 }}>Month 2 · Tikimt (Monthly Tuition)</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Expected:</span>
+                <b>{birr(f?.grandM2Expected)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Collected:</span>
+                <b style={{ color: '#15803d' }}>{birr(f?.grandM2Collected)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: 'var(--muted)' }}>Collection Rate:</span>
+                <span className={`${styles.badgePill} ${styles.badgeGreen}`}>
+                  {f?.grandM2Expected > 0 ? Math.round((f.grandM2Collected / f.grandM2Expected) * 100) : 0}%
+                </span>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--inputBg)', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0369a1', marginBottom: 8 }}>Total Unlocked Months (M1 + M2)</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Total Expected:</span>
+                <b>{birr(f?.grandExpectedUnlocked || f?.grandExpected)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Total Collected:</span>
+                <b style={{ color: '#15803d' }}>{birr(f?.grandCollectedUnlocked || f?.grandCollected)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: 'var(--muted)' }}>Outstanding Due:</span>
+                <b style={{ color: '#b91c1c' }}>{birr(f?.grandPendingUnlocked || f?.grandPending)}</b>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.card} style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
+            ℹ️ {t('unlockedNote')}
+          </div>
+        </div>
+
+        {/* Standard Fee Schedule Card */}
+        {f?.feeSchedule && f.feeSchedule.length > 0 && (
+          <div className={styles.card}>
+            <div className={styles.cardTitle}>{t('standardFeeSchedule')}</div>
+            <div className={styles.tableScroll}>
+              <table className={styles.tableDetailed}>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Classes</th>
+                    <th>{t('monthlyFee')}</th>
+                    <th>Old Reg</th>
+                    <th>New Reg</th>
+                    <th>M1 Total (Old)</th>
+                    <th>M1 Total (New)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {f.feeSchedule.map((fs, idx) => (
+                    <tr key={idx}>
+                      <td>{fs.category}</td>
+                      <td>{fs.classes}</td>
+                      <td><b>{fmt(fs.monthlyFee)} Birr</b></td>
+                      <td>{fmt(fs.oldRegFee)} Birr</td>
+                      <td>{fmt(fs.newRegFee)} Birr</td>
+                      <td><span className={`${styles.badgePill} ${styles.badgeOld}`}>{fmt(fs.m1Old)} Birr</span></td>
+                      <td><span className={`${styles.badgePill} ${styles.badgeNew}`}>{fmt(fs.m1New)} Birr</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Detailed Class-by-Class Breakdown per Branch */}
+        <h3 className={styles.sectionTitle}>{t('byBranch')}</h3>
+        {branchesList.map((b) => {
+          const filled = (b.classes || []).filter((c) => (c.totalStudents || c.students) > 0);
+          const totalM1 = filled.reduce((acc, c) => acc + (c.m1PaidCount || 0), 0);
+          const totalM2 = filled.reduce((acc, c) => acc + (c.m2PaidCount || 0), 0);
+
+          return (
+            <div key={b.branchCode} className={styles.card}>
+              <div className={styles.cardTitle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <span>{b.branchName || b.branchCode}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {fmt(b.totalStudents)} {t('studentsCount')} · {t('collected')} <b style={{ color: '#107c41' }}>{birr(b.collected)}</b>
+                </span>
+              </div>
+
+              <div style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 10px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span className={`${styles.badgePill} ${styles.badgeOld}`}>{fmt(b.oldStudents)} {t('oldStudents')}</span>
+                <span className={`${styles.badgePill} ${styles.badgeNew}`}>{fmt(b.newStudents)} {t('newStudents')}</span>
+                {b.unassignedStudents > 0 && <span className={`${styles.badgePill} ${styles.badgeUnassigned}`}>{fmt(b.unassignedStudents)} {t('unassigned')}</span>}
+                <span>· {fmt(b.freeStudents)} {t('freeStudents')}</span>
+                <span>· <b style={{ color: '#b21e23' }}>{fmt(b.unpaidUnlocked)} {t('unpaidDue')}</b></span>
+                {b.advanceCollected > 0 && <span>· <b style={{ color: '#c96a0a' }}>{fmt(b.advanceCollected)} Birr advance</b></span>}
+              </div>
+
+              {filled.length > 0 ? (
+                <div className={styles.tableScroll}>
+                  <table className={styles.tableDetailed}>
+                    <thead>
+                      <tr>
+                        <th>{t('class')}</th>
+                        <th>{t('total')}</th>
+                        <th>{t('oldStudents')}</th>
+                        <th>{t('newStudents')}</th>
+                        <th>Free</th>
+                        <th>Paying</th>
+                        <th>{t('monthlyFee')}</th>
+                        <th>{t('regFee')} (O/N)</th>
+                        <th>{t('m1Paid')}</th>
+                        <th>M1 Exp / Col</th>
+                        <th>{t('m2Paid')}</th>
+                        <th>M2 Exp / Col</th>
+                        <th>{t('unpaidDue')}</th>
+                        <th>Total Exp</th>
+                        <th>Total Col</th>
+                        <th>Rate %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filled.map((c) => (
+                        <tr key={c.className}>
+                          <td>{c.className}</td>
+                          <td><b>{fmt(c.totalStudents || c.students)}</b></td>
+                          <td>{fmt(c.oldStudents)}</td>
+                          <td>{fmt(c.newStudents)}</td>
+                          <td>{c.freeStudents > 0 ? <span className={`${styles.badgePill} ${styles.badgeGreen}`}>{c.freeStudents}</span> : '0'}</td>
+                          <td>{fmt(c.payingStudents)}</td>
+                          <td>{fmt(c.monthlyFee)}</td>
+                          <td style={{ fontSize: 10.5 }}>{fmt(c.oldRegFee)} / {fmt(c.newRegFee)}</td>
+                          <td>{fmt(c.m1PaidCount)}</td>
+                          <td style={{ fontSize: 10.5 }}>
+                            <span style={{ color: 'var(--muted)' }}>{fmt(c.m1Expected)}</span> / <b style={{ color: '#15803d' }}>{fmt(c.m1Collected)}</b>
+                          </td>
+                          <td>{fmt(c.m2PaidCount)}</td>
+                          <td style={{ fontSize: 10.5 }}>
+                            <span style={{ color: 'var(--muted)' }}>{fmt(c.m2Expected)}</span> / <b style={{ color: '#15803d' }}>{fmt(c.m2Collected)}</b>
+                          </td>
+                          <td>
+                            {c.unpaidUnlockedCount > 0 ? (
+                              <span className={`${styles.badgePill} ${styles.badgeRed}`}>{fmt(c.unpaidUnlockedCount)}</span>
+                            ) : (
+                              <span style={{ color: '#15803d', fontWeight: 600 }}>0</span>
+                            )}
+                          </td>
+                          <td><b>{fmt(c.expectedUnlocked || c.expected)}</b></td>
+                          <td><b style={{ color: '#15803d' }}>{fmt(c.collectedUnlocked || c.collected)}</b></td>
+                          <td>
+                            <span className={`${styles.badgePill} ${styles.badgeNew}`}>
+                              {c.rate}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className={styles.tableTotalRow}>
+                        <td>TOTAL</td>
+                        <td>{fmt(b.totalStudents)}</td>
+                        <td>{fmt(b.oldStudents)}</td>
+                        <td>{fmt(b.newStudents)}</td>
+                        <td>{fmt(b.freeStudents)}</td>
+                        <td>{fmt(b.payingStudents)}</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>{fmt(totalM1)}</td>
+                        <td style={{ fontSize: 10.5 }}>{fmt(b.m1Expected)} / {fmt(b.m1Collected)}</td>
+                        <td>{fmt(totalM2)}</td>
+                        <td style={{ fontSize: 10.5 }}>{fmt(b.m2Expected)} / {fmt(b.m2Collected)}</td>
+                        <td><span className={`${styles.badgePill} ${styles.badgeRed}`}>{fmt(b.unpaidUnlocked)}</span></td>
+                        <td>{fmt(b.expectedUnlocked || b.expected)} Birr</td>
+                        <td>{fmt(b.collectedUnlocked || b.collected)} Birr</td>
+                        <td>{b.rate}%</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : (
+                <div className={styles.empty}>{t('noInvoices')}</div>
+              )}
+            </div>
           );
         })}
 
+        {/* Unassigned Students Section (23 Students) */}
+        <div className={styles.card}>
+          <div className={styles.cardTitle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <span>⚠️ {t('unassignedTitle')} ({filteredUnassigned.length})</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>
+              Total across all branches: {unassignedList.length}
+            </span>
+          </div>
+
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, background: 'var(--inputBg)', padding: '8px 12px', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
+            ℹ️ {t('unassignedDesc')}
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <input
+              type="text"
+              className={styles.searchInput}
+              placeholder="Search unassigned student by name, class, or branch..."
+              value={unassignedSearch}
+              onChange={(e) => setUnassignedSearch(e.target.value)}
+            />
+          </div>
+
+          {filteredUnassigned.length > 0 ? (
+            <div className={styles.tableScroll}>
+              <table className={styles.tableDetailed}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 40 }}>#</th>
+                    <th>{t('branch')}</th>
+                    <th>{t('class')}</th>
+                    <th>{t('student')}</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUnassigned.map((s, idx) => (
+                    <tr key={idx}>
+                      <td style={{ color: 'var(--muted)' }}>{idx + 1}</td>
+                      <td><b>{s.branch}</b></td>
+                      <td><span className={`${styles.badgePill} ${styles.badgeOld}`}>{s.class}</span></td>
+                      <td style={{ fontWeight: 600 }}>{s.studentName}</td>
+                      <td>
+                        <span className={`${styles.badgePill} ${styles.badgeUnassigned}`}>
+                          Classification Required (NULL)
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className={styles.empty}>No unassigned students match your search.</div>
+          )}
+        </div>
+
+        {/* Unpaid Students Directory (637 Students) */}
+        <div className={styles.card}>
+          <div className={styles.cardTitle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <span>🚨 {t('unpaidDirectoryTitle')} ({filteredUnpaid.length})</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>
+              Showing {pagedUnpaid.length} of {filteredUnpaid.length} students
+            </span>
+          </div>
+
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, background: 'var(--inputBg)', padding: '8px 12px', borderRadius: 8, borderLeft: '4px solid #b21e23' }}>
+            ℹ️ {t('unpaidDesc')}
+          </div>
+
+          {/* Filter Bar */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 12 }}>
+            <input
+              type="text"
+              className={styles.searchInput}
+              placeholder="Search unpaid student name or class..."
+              value={unpaidSearch}
+              onChange={(e) => {
+                setUnpaidSearch(e.target.value);
+                setUnpaidPage(1);
+              }}
+            />
+
+            <select
+              className={styles.searchInput}
+              value={unpaidBranchFilter}
+              onChange={(e) => {
+                setUnpaidBranchFilter(e.target.value);
+                setUnpaidPage(1);
+              }}
+            >
+              <option value="ALL">All Branches</option>
+              {branchesList.map(b => (
+                <option key={b.branchCode} value={b.branchName || b.branchCode}>
+                  {b.branchName || b.branchCode}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className={styles.searchInput}
+              value={unpaidMonthsFilter}
+              onChange={(e) => {
+                setUnpaidMonthsFilter(e.target.value);
+                setUnpaidPage(1);
+              }}
+            >
+              <option value="ALL">All Unpaid (Any Months)</option>
+              <option value="1">1 Month Unpaid Only</option>
+              <option value="2">2 Months Unpaid Only</option>
+              <option value=">1">More Than 1 Month Unpaid (2+ Months)</option>
+            </select>
+          </div>
+
+          {filteredUnpaid.length > 0 ? (
+            <>
+              <div className={styles.tableScroll}>
+                <table className={styles.tableDetailed}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 40 }}>#</th>
+                      <th>{t('branch')}</th>
+                      <th>{t('class')}</th>
+                      <th>{t('student')}</th>
+                      <th>Unpaid Count</th>
+                      <th>Unpaid Months</th>
+                      <th>Total Due</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedUnpaid.map((s, idx) => {
+                      const rowNum = (currentUnpaidPage - 1) * unpaidPageSize + idx + 1;
+                      return (
+                        <tr key={idx}>
+                          <td style={{ color: 'var(--muted)' }}>{rowNum}</td>
+                          <td><b>{s.branch}</b></td>
+                          <td><span className={`${styles.badgePill} ${styles.badgeOld}`}>{s.class}</span></td>
+                          <td style={{ fontWeight: 600 }}>{s.studentName}</td>
+                          <td>
+                            <span className={`${styles.badgePill} ${styles.badgeRed}`}>
+                              {s.unpaidMonthsCount} month{s.unpaidMonthsCount > 1 ? 's' : ''}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: 11.5, color: '#b21e23', fontWeight: 500 }}>
+                            {(s.unpaidMonths || []).join(', ')}
+                          </td>
+                          <td>
+                            <b style={{ color: '#b21e23' }}>{fmt(s.totalDue)} Birr</b>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className={styles.paginationRow}>
+                <button
+                  className={styles.pageBtn}
+                  disabled={currentUnpaidPage <= 1}
+                  onClick={() => setUnpaidPage(p => Math.max(1, p - 1))}
+                >
+                  ← Previous
+                </button>
+                <span>
+                  Page <b>{currentUnpaidPage}</b> of <b>{unpaidTotalPages}</b> ({filteredUnpaid.length} total)
+                </span>
+                <button
+                  className={styles.pageBtn}
+                  disabled={currentUnpaidPage >= unpaidTotalPages}
+                  onClick={() => setUnpaidPage(p => Math.min(unpaidTotalPages, p + 1))}
+                >
+                  Next →
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className={styles.empty}>No unpaid students match your search/filter criteria.</div>
+          )}
+        </div>
+
+        {/* Advance Payments for Locked Months */}
+        {allLockedPayments.length > 0 && (
+          <div className={styles.card}>
+            <div className={styles.cardTitle}>
+              {t('advancePaymentsTitle')} ({allLockedPayments.length})
+            </div>
+            <div className={styles.tableScroll}>
+              <table className={styles.tableDetailed}>
+                <thead>
+                  <tr>
+                    <th>{t('branch')}</th>
+                    <th>{t('class')}</th>
+                    <th>{t('student')}</th>
+                    <th>{t('month')}</th>
+                    <th>Receipt #</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allLockedPayments.map((p, idx) => (
+                    <tr key={idx}>
+                      <td>{p.branch}</td>
+                      <td><b>{p.class}</b></td>
+                      <td>{p.studentName}</td>
+                      <td><span className={`${styles.badgePill} ${styles.badgeNew}`}>{p.monthName || `Month ${p.monthNumber}`}</span></td>
+                      <td style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 600 }}>
+                        {(p.receiptNumber && p.receiptNumber !== 'N/A' && String(p.receiptNumber).trim())
+                          ? String(p.receiptNumber).trim()
+                          : ('RCP-' + String(p.invoiceNumber || idx + 1).padStart(6, '0'))}
+                      </td>
+                      <td><b style={{ color: '#107c41' }}>{fmt(p.paidAmount)} Birr</b></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className={styles.tableTotalRow}>
+                    <td colSpan={5}>TOTAL ADVANCE PREPAYMENTS</td>
+                    <td>{fmt(f?.grandAdvance)} Birr</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Existing By Class bars */}
         <h3 className={styles.sectionTitle}>{t('byClass')} <small>({t('allBranchesNote')})</small></h3>
         <div className={styles.card}>
           {byClass.length > 0 ? (
             byClass.map((c) => (
               <div key={c.className} className={styles.barRow}>
                 <div className={styles.barTop}>
-                  <span>{c.className} · {fmt(c.students)} {t('studentsCount')}</span>
+                  <span>{c.className} · {fmt(c.students || c.totalStudents)} {t('studentsCount')}</span>
                   <span>{fmt(c.collected)} / {fmt(c.expected)}</span>
                 </div>
                 <div className={styles.barTrack}>
