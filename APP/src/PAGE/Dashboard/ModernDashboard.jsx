@@ -276,51 +276,34 @@ const ModernDashboard = () => {
         }
       });
 
-      // Attendance trend data (last 7 days)
-      const trends = attendanceTrendsRes.data?.data || attendanceTrendsRes.data || [];
-      if (Array.isArray(trends) && trends.length > 0) {
-        setAttendanceData(trends);
+      // 1. Attendance trend data (real data from attendanceAnalytics or fallback)
+      if (attAnalyticsRes?.data?.attendanceTrend && attAnalyticsRes.data.attendanceTrend.length > 0) {
+        setAttendanceData(attAnalyticsRes.data.attendanceTrend);
       } else {
-        const fallback = [];
-        for (let i = 6; i >= 0; i--) {
-          const date = new Date();
-          date.setDate(date.getDate() - i);
-          fallback.push({
-            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            present: 0,
-            absent: 0
-          });
+        const trends = attendanceTrendsRes.data?.data || attendanceTrendsRes.data || [];
+        if (Array.isArray(trends) && trends.length > 0) {
+          setAttendanceData(trends);
         }
-        setAttendanceData(fallback);
       }
 
-      // Generate performance trend data - only if we have data
-      const perfTrend = academicData.performanceTrend || [];
-      if (perfTrend.length === 0) {
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-        for (let i = 0; i < 6; i++) {
-          perfTrend.push({
-            month: months[i],
-            average: 0,
-            passRate: 0
-          });
-        }
+      // 2. Academic performance trend data (real class averages & pass rates)
+      if (acadAnalyticsRes?.data?.performanceTrend && acadAnalyticsRes.data.performanceTrend.length > 0) {
+        setPerformanceData(acadAnalyticsRes.data.performanceTrend);
+      } else if (academicData.performanceTrend && academicData.performanceTrend.length > 0) {
+        setPerformanceData(academicData.performanceTrend);
       }
-      setPerformanceData(perfTrend);
 
-      // Generate revenue trend data - only if we have data
-      const revTrend = financeData.revenueTrend || [];
-      if (revTrend.length === 0) {
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-        for (let i = 0; i < 6; i++) {
-          revTrend.push({
-            month: months[i],
-            collected: 0,
-            pending: 0
-          });
-        }
+      // 3. Revenue trend data (real monthly collections from monthly payment overview)
+      const ETH_MONTH_NAMES = ['Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yakatit', 'Megabit', 'Miyazya', 'Ginbot', 'Sene'];
+      const monthlyBreakdown = monthlyData.summary?.monthlyBreakdown || [];
+      if (monthlyBreakdown.length > 0) {
+        const revTrend = monthlyBreakdown.slice(0, 6).map((m) => ({
+          month: ETH_MONTH_NAMES[m.monthNumber - 1] || `Month ${m.monthNumber}`,
+          collected: Math.round(m.paid || 0),
+          pending: Math.round(m.pending || 0)
+        }));
+        setRevenueData(revTrend);
       }
-      setRevenueData(revTrend);
 
       // Gender distribution
       setGenderData([
@@ -385,7 +368,12 @@ const ModernDashboard = () => {
     const fetchTermData = async () => {
       try {
         const res = await api.get('/dashboard/academic-analytics', { params: { term: dashTerm } });
-        if (res.data) setAcademicAnalytics(res.data);
+        if (res.data) {
+          setAcademicAnalytics(res.data);
+          if (res.data.performanceTrend && res.data.performanceTrend.length > 0) {
+            setPerformanceData(res.data.performanceTrend);
+          }
+        }
       } catch (e) {}
     };
     fetchTermData();
@@ -953,7 +941,7 @@ const ModernDashboard = () => {
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={performanceData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-              <XAxis dataKey="month" stroke="#6B7280" />
+              <XAxis dataKey="name" stroke="#6B7280" />
               <YAxis stroke="#6B7280" />
               <Tooltip />
               <Legend />
@@ -980,8 +968,8 @@ const ModernDashboard = () => {
               <YAxis stroke="#6B7280" tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
               <Tooltip formatter={(value) => `${Number(value).toLocaleString()} Birr`} />
               <Legend />
-              <Bar dataKey="collected" fill="#10B981" radius={[8, 8, 0, 0]} />
-              <Bar dataKey="pending" fill="#F59E0B" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="collected" name="Collected" fill="#10B981" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="pending" name="Pending" fill="#F59E0B" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </motion.div>

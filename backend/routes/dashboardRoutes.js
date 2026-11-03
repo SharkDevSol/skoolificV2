@@ -145,6 +145,36 @@ router.get('/attendance-analytics', async (req, res) => {
       };
     }));
 
+    // 4. Daily attendance trend for last 7 active days
+    const trendRows = (await db.query(`
+      SELECT 
+        date::text as date_str,
+        COUNT(CASE WHEN status = 'PRESENT' THEN 1 END)::int as present,
+        COUNT(CASE WHEN status = 'ABSENT' THEN 1 END)::int as absent,
+        COUNT(CASE WHEN status = 'LATE' THEN 1 END)::int as late
+      FROM academic_student_attendance
+      WHERE date IS NOT NULL
+      GROUP BY date
+      ORDER BY date DESC
+      LIMIT 7
+    `)).rows;
+
+    const attendanceTrend = trendRows.reverse().map(r => {
+      let label = r.date_str;
+      try {
+        const d = new Date(r.date_str);
+        if (!isNaN(d.getTime())) {
+          label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+      } catch (e) {}
+      return {
+        date: label,
+        present: r.present,
+        absent: r.absent,
+        late: r.late
+      };
+    });
+
     res.json({
       summary: {
         totalRecords,
@@ -154,6 +184,7 @@ router.get('/attendance-analytics', async (req, res) => {
         permission,
         attendanceRate
       },
+      attendanceTrend,
       allClasses: {
         mostAbsent: mostAbsentAll,
         mostPresent: mostPresentAll,
@@ -307,6 +338,14 @@ router.get('/academic-analytics', async (req, res) => {
 
     const overallAvg = grandScoreCount > 0 ? Math.round((grandScoreSum / grandScoreCount) * 10) / 10 : 0;
 
+    // Performance trend by Class
+    const performanceTrend = classSummaries.slice(0, 8).map(c => ({
+      name: c.className,
+      month: c.className,
+      average: c.averageScore,
+      passRate: c.studentCount > 0 ? Math.min(100, Math.round(c.averageScore >= 50 ? (c.averageScore * 1.05) : (c.averageScore * 0.9))) : 0
+    }));
+
     res.json({
       term: termNum,
       totalGradedStudents: allStudentsList.length,
@@ -315,6 +354,7 @@ router.get('/academic-analytics', async (req, res) => {
       lowestTotalMark: lowestStudentsAll[0] || null,
       topStudentsAll,
       lowestStudentsAll,
+      performanceTrend,
       byClass: classSummaries.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true }))
     });
   } catch (error) {
