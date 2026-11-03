@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import styles from '../Finance/FinanceReports.module.css';
+import { getCurrentEthiopianMonth } from '../../utils/ethiopianCalendar';
 
 const HRReports = () => {
   const [selectedReport, setSelectedReport] = useState('staff-summary');
@@ -9,6 +10,9 @@ const HRReports = () => {
   });
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const initialEth = getCurrentEthiopianMonth();
+  const [ethMonth, setEthMonth] = useState(initialEth.month || 1);
+  const [ethYear, setEthYear] = useState(initialEth.year || 2019);
 
   const reports = [
     {
@@ -59,6 +63,25 @@ const HRReports = () => {
       description: 'Staff turnover and retention analysis',
       icon: '📉'
     }
+    ,
+    {
+      id: 'payroll-detail',
+      name: 'Payroll Detail (month)',
+      description: 'Per staff: base, allowances, each deduction group, net, credit balance, tips',
+      icon: '📊'
+    },
+    {
+      id: 'tips-credits',
+      name: 'Tips & Credit',
+      description: 'Tips by month, credits given/repaid/outstanding, money out vs recovered',
+      icon: '💳'
+    },
+    {
+      id: 'stopped-staff',
+      name: 'Stopped Staff',
+      description: 'Staff excluded from future payroll (history kept)',
+      icon: '⛔'
+    }
   ];
 
   const generateReport = async () => {
@@ -66,7 +89,9 @@ const HRReports = () => {
     try {
       const params = new URLSearchParams({
         startDate: dateRange.startDate,
-        endDate: dateRange.endDate
+        endDate: dateRange.endDate,
+        ethMonth,
+        ethYear
       });
 
       const response = await fetch(`/api/hr/reports/${selectedReport}?${params}`, {
@@ -92,6 +117,8 @@ const HRReports = () => {
       const params = new URLSearchParams({
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
+        ethMonth,
+        ethYear,
         format
       });
 
@@ -211,6 +238,22 @@ const HRReports = () => {
               type="date"
               value={dateRange.endDate}
               onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
+            />
+          </div>
+          <div className={styles.dateInput}>
+            <label>Ethiopian Month</label>
+            <select value={ethMonth} onChange={(e) => setEthMonth(parseInt(e.target.value))}>
+              {['Meskerem','Tikimt','Hidar','Tahsas','Tir','Yekatit','Megabit','Miazia','Ginbot','Sene','Hamle','Nehase','Pagume'].map((m, i) => (
+                <option key={m} value={i + 1}>{m}</option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.dateInput}>
+            <label>Ethiopian Year</label>
+            <input
+              type="number"
+              value={ethYear}
+              onChange={(e) => setEthYear(parseInt(e.target.value) || ethYear)}
             />
           </div>
         </div>

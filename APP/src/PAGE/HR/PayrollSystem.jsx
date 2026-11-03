@@ -12,6 +12,8 @@ const PayrollSystem = () => {
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [selectedYear, setSelectedYear] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [runStatus, setRunStatus] = useState('DRAFT');
   const [currentEthiopianDate, setCurrentEthiopianDate] = useState(() => {
     return getCurrentEthiopianMonth();
   });
@@ -25,7 +27,7 @@ const PayrollSystem = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleGeneratePayroll = async (ethMonth, ethYear) => {
+  const handleGeneratePayroll = async (ethMonth, ethYear, silent = false) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
@@ -47,8 +49,10 @@ const PayrollSystem = () => {
         setPayrollData(response.data.data);
         setSelectedMonth(ethMonth);
         setSelectedYear(ethYear);
+        setLocked(response.data.data.locked === true);
+        setRunStatus(response.data.data.status || 'DRAFT');
         setShowModal(false);
-        alert('✅ Payroll generated successfully!');
+        if (!silent) alert('✅ Payroll generated successfully!');
       }
     } catch (error) {
       console.error('Error generating payroll:', error);
@@ -102,6 +106,55 @@ const PayrollSystem = () => {
       alert('❌ Failed to export payroll');
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleDone = async () => {
+    if (!window.confirm('Lock this payroll month (Done)? After this, anything created later goes to the next month.')) return;
+    try {
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/hr/payroll/done`, { ethMonth: selectedMonth, ethYear: selectedYear }, {
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }
+      });
+      alert(res.data.message || 'Payroll locked.');
+      await handleGeneratePayroll(selectedMonth, selectedYear, true);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to lock payroll');
+    }
+  };
+
+  const handleUnlock = async () => {
+    const reason = window.prompt('Reason for unlocking this payroll month:');
+    if (reason === null) return;
+    try {
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      await axios.post(`${API_URL}/hr/payroll/unlock`, { ethMonth: selectedMonth, ethYear: selectedYear, reason }, {
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }
+      });
+      await handleGeneratePayroll(selectedMonth, selectedYear, true);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to unlock payroll');
+    }
+  };
+
+  const downloadExport = async (kind, ext) => {
+    if (!payrollData) return;
+    try {
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/hr/payroll/${kind}`, { ethMonth: selectedMonth, ethYear: selectedYear }, {
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.setAttribute('download', `Payroll_${selectedMonth}_${selectedYear}.${ext}`);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Failed to export ' + ext.toUpperCase());
     }
   };
 
@@ -219,8 +272,28 @@ const PayrollSystem = () => {
             </div>
           </div>
 
-          {/* Export Button */}
-          <div style={{ marginBottom: '20px', textAlign: 'right' }}>
+          {/* Actions */}
+          <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {locked ? (
+              <>
+                <span style={{ padding: '8px 14px', borderRadius: '8px', background: '#e8f5e9', color: '#2e7d32', fontWeight: 700 }}>
+                  🔒 LOCKED (DONE)
+                </span>
+                <button type="button" onClick={handleUnlock} style={{ padding: '12px 18px', background: '#e67e22', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+                  Unlock
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={handleDone} style={{ padding: '12px 18px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+                Done (lock month)
+              </button>
+            )}
+            <button type="button" onClick={() => downloadExport('export-pdf', 'pdf')} style={{ padding: '12px 18px', background: '#c0392b', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+              PDF
+            </button>
+            <button type="button" onClick={() => downloadExport('export-word', 'docx')} style={{ padding: '12px 18px', background: '#2c3e50', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+              Word
+            </button>
             <button
               onClick={handleExportExcel}
               disabled={exporting}
@@ -277,6 +350,7 @@ const PayrollSystem = () => {
                     <th style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>Allowances</th>
                     <th style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>Gross Salary</th>
                     <th style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>Deductions</th>
+                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Deduction Details</th>
                     <th style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>Net Salary</th>
                   </tr>
                 </thead>
@@ -312,21 +386,25 @@ const PayrollSystem = () => {
                       <td style={{ padding: '12px', textAlign: 'right', color: '#f44336', fontWeight: 600 }}>
                         -{item.total_deductions.toFixed(2)} Birr
                       </td>
+                      <td style={{ padding: '12px', fontSize: '12px', color: '#555' }}>
+                        {(item.deductions_breakdown || []).map(d => d.deduction_type + ': ' + Number(d.total_amount).toFixed(2)).join(' · ') || '-'}
+                      </td>
                       <td style={{ 
                         padding: '12px', 
                         textAlign: 'right', 
                         fontWeight: 700, 
                         fontSize: '16px',
-                        color: '#4CAF50'
+                        color: item.over_cap ? '#c0392b' : '#4CAF50'
                       }}>
                         {item.net_salary.toFixed(2)} Birr
+                        {item.over_cap ? <div style={{ fontSize: '11px', color: '#c0392b' }}>cap applied</div> : null}
                       </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#f8f9fa', borderTop: '2px solid #e0e0e0', fontWeight: 700 }}>
-                    <td colSpan="4" style={{ padding: '12px', textAlign: 'right' }}>TOTAL:</td>
+                    <td colSpan="5" style={{ padding: '12px', textAlign: 'right' }}>TOTAL:</td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>
                       {payrollData.payroll.reduce((sum, item) => sum + item.base_salary, 0).toFixed(2)} Birr
                     </td>
@@ -339,6 +417,7 @@ const PayrollSystem = () => {
                     <td style={{ padding: '12px', textAlign: 'right', color: '#f44336' }}>
                       -{payrollData.total_deductions.toFixed(2)} Birr
                     </td>
+                    <td />
                     <td style={{ padding: '12px', textAlign: 'right', fontSize: '18px', color: '#4CAF50' }}>
                       {payrollData.total_net.toFixed(2)} Birr
                     </td>

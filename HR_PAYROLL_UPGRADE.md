@@ -81,8 +81,24 @@ PGPASSWORD=... psql -h localhost -U <user> -d <db> -v ON_ERROR_STOP=1 --single-t
 - Issues list now shows the deduction amount using the same mark mapping + `ALL` fallback.
 - UI: modal reworded to “Does this staff have a reason?” with **Yes — Done (no deduction)** / **No — Apply deduction**.
 
-## Next (requirements 5–7)
-Tips & Credit tabs + debt plans, payroll persist/Done/export, new report page.
+## Requirement 5 - Tips & Credit (done, IQRA)
+- **Tips** tab: admin-editable type list, amount, reason, Ethiopian date, staff optional; each tip is written to `public.expenses` (`category=Tips`, `source=tips`, reference id) as APPROVED (not in the approval queue); delete removes the tip + linked expense.
+- **Credit** tab: staff, amount, reason, date; creates `hr_staff_credits` + expense (`category=Staff Credit`, `source=credit`); shows repaid/remaining/status/plan; cancel/delete rules; warns when the staff is stopped.
+- **Debt plans**: remaining / months (last month takes the remainder), schedule preview, one active plan per credit, stop keeps the balance; payroll adds the month's plan amount as **Debt**.
+
+## Requirement 6 - Payroll Done / lock / exports (done, IQRA)
+- `hr_payroll_runs` + `hr_payroll_items` persist each month.
+- **Done** locks the month, stores the items, finalizes debt repayments and updates credit balances **in one transaction**; a locked month is returned from storage.
+- **Unlock** (admin, reason + audit) reverses that run's repayments and reopens the month.
+- Negative net: deductions are capped at `hr_payroll_settings.max_deduction_percent` (default 100) and the row is flagged (`over_cap`).
+- Exports: **Excel, PDF, Word (.docx)**.
+- Verified: tax 1000 + attendance 200 + debt 300 on gross 10500 -> net 9000; Done -> credit 300/REPAYING, plan 600, item DEDUCTED, 1 repayment; second Done -> 409; Unlock -> credit 0/OPEN, plan 900, item PENDING, repayments 0.
+
+## Requirement 7 - Report page (done, IQRA)
+- HR Reports now has **Payroll Detail (month)**, **Tips & Credit** and **Stopped Staff**, with Ethiopian month/year filters.
+- Payroll detail: base, allowances, tax, debt, attendance, other, net, credit balance, tips, stopped flag.
+- Tips & Credit: tips total/count, credits given/repaid/outstanding, recovered this month, money out.
+- Exports: Excel and PDF.
 
 ## Behaviour changes to be aware of
 - `/api/staff` and `/api/staff/data/...` no longer return password fields (any UI relying on them will get `undefined`).
