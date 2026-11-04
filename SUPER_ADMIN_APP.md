@@ -1,12 +1,12 @@
 # IQRA Super Admin app (APK)
 
-App name: **IQRA Super Admin** · Package: `com.skoolific.superadmin` · Version 1.0.2 (code 3)
+App name: **IQRA Super Admin** · Package: `com.skoolific.superadmin` · Version 1.0.3 (code 4)
 Firebase project: **iqra-staff1** (Android app `com.skoolific.superadmin` registered)
 
 ## APK location
 ```
-SERVER: /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.0.2.apk
-URL   : https://iqra.skoolific.com/apps/iqra/super-admin/android/iqra-super-admin-v1.0.2.apk
+SERVER: /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.0.3.apk
+URL   : https://iqra.skoolific.com/apps/iqra/super-admin/android/iqra-super-admin-v1.0.3.apk
 ```
 Listed in `/var/www/app-downloads/versions.json` under `iqra/super-admin`.
 Previous build archived in `iqra/super-admin/android/archive/`.
@@ -33,7 +33,7 @@ Tabs: **Home, Students, Attendance, Marks, Faults, Finance, Settings**.
 cd /root/build/super-admin-app
 /opt/flutter/bin/flutter build apk --release
 cp build/app/outputs/flutter-apk/app-release.apk \
-   /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.0.2.apk
+   /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.0.3.apk
 ```
 `android/key.properties` uses the shared upload keystore.
 

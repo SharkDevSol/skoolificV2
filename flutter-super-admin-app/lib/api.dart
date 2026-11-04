@@ -7,6 +7,11 @@ class Api {
   static String? token;
   static String? username;
 
+  static Map<String, String> _headers() => {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      };
+
   static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     token = p.getString('sa_token');
@@ -47,18 +52,39 @@ class Api {
     await p.remove('sa_user');
   }
 
-  static Future<Map<String, dynamic>?> get(String path, {Map<String, String>? params}) async {
+  static Future<dynamic> getJson(String path, {Map<String, String>? params}) async {
     try {
       final uri = Uri.parse('$base$path').replace(queryParameters: params);
-      final r = await http.get(uri, headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      });
-      if (r.statusCode == 200) {
-        final j = jsonDecode(r.body);
-        return (j['data'] ?? j) as Map<String, dynamic>;
-      }
+      final r = await http.get(uri, headers: _headers()).timeout(const Duration(seconds: 90));
+      if (r.statusCode == 200) return jsonDecode(r.body);
       return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> get(String path, {Map<String, String>? params}) async {
+    final j = await getJson(path, params: params);
+    if (j is Map<String, dynamic>) {
+      final d = j['data'];
+      return d is Map<String, dynamic> ? d : j;
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> put(String path, Map<String, dynamic> body) async {
+    try {
+      final r = await http.put(Uri.parse('$base$path'), headers: _headers(), body: jsonEncode(body)).timeout(const Duration(seconds: 60));
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> post(String path, [Map<String, dynamic>? body]) async {
+    try {
+      final r = await http.post(Uri.parse('$base$path'), headers: _headers(), body: jsonEncode(body ?? {})).timeout(const Duration(seconds: 120));
+      return jsonDecode(r.body) as Map<String, dynamic>;
     } catch (_) {
       return null;
     }
@@ -68,10 +94,7 @@ class Api {
     try {
       await http.post(
         Uri.parse('$base/super-admin/register-device'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+        headers: _headers(),
         body: jsonEncode({'fcm_token': fcmToken, 'platform': 'android'}),
       );
     } catch (_) {}

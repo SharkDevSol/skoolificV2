@@ -139,6 +139,19 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   final Map<String, Map<String, dynamic>?> _reports = {};
   final Map<String, DateTime> _cachedAt = {};
 
+  // Settings state
+  List<Map<String, dynamic>> _branchAdmins = [];
+  final Map<String, TextEditingController> _baUser = {};
+  final Map<String, TextEditingController> _baPass = {};
+  final _accCurrent = TextEditingController();
+  final _accUser = TextEditingController();
+  final _accPass = TextEditingController();
+  final _dailyRecipients = TextEditingController();
+  bool _dailyEnabled = true;
+  int _dailyHour = 8;
+  String? _settingsMsg;
+  bool _settingsLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -151,6 +164,16 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     _tabController.dispose();
+    _accCurrent.dispose();
+    _accUser.dispose();
+    _accPass.dispose();
+    _dailyRecipients.dispose();
+    for (final c in _baUser.values) {
+      c.dispose();
+    }
+    for (final c in _baPass.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -193,7 +216,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   Future<void> _ensureTab(int index, {bool force = false}) async {
     final keys = _keysFor(index);
-    if (keys.isEmpty) return;
+    if (keys.isEmpty) {
+      if (index == 6) await _loadSettings();
+      return;
+    }
     final now = DateTime.now();
     final stale = keys.where((k) {
       final at = _cachedAt[_cacheKey(k)];
@@ -221,6 +247,89 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Map<String, dynamic>? _report(String name) => _reports[_cacheKey(name)];
+
+  Future<void> _loadSettings() async {
+    setState(() => _settingsLoading = true);
+    final ba = await Api.getJson('/super-admin/branch-admins');
+    final daily = await Api.getJson('/super-admin/daily-report/settings');
+    if (!mounted) return;
+    setState(() {
+      if (ba is Map && ba['data'] is List) {
+        _branchAdmins = (ba['data'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        for (final b in _branchAdmins) {
+          final code = '${b['branchCode']}';
+          _baUser.putIfAbsent(code, () => TextEditingController(text: '${b['username'] ?? ''}'));
+          _baPass.putIfAbsent(code, () => TextEditingController());
+        }
+      }
+      if (daily is Map && daily['data'] is Map) {
+        final d = Map<String, dynamic>.from(daily['data'] as Map);
+        _dailyEnabled = d['daily_report_enabled'] != false;
+        _dailyHour = (d['send_hour'] as num?)?.toInt() ?? 8;
+        _dailyRecipients.text = (d['recipients'] ?? '').toString();
+      }
+      _settingsLoading = false;
+    });
+  }
+
+  Future<void> _saveAccount() async {
+    if (_accCurrent.text.trim().isEmpty) {
+      setState(() => _settingsMsg = 'Enter your current password');
+      return;
+    }
+    final body = <String, dynamic>{'currentPassword': _accCurrent.text};
+    if (_accUser.text.trim().isNotEmpty) body['newUsername'] = _accUser.text.trim();
+    if (_accPass.text.isNotEmpty) body['newPassword'] = _accPass.text;
+    final r = await Api.put('/super-admin/account', body);
+    if (!mounted) return;
+    setState(() {
+      _settingsMsg = (r?['success'] == true) ? 'Account updated' : (r?['error'] ?? 'Update failed').toString();
+      if (r?['success'] == true) {
+        _accCurrent.clear();
+        _accUser.clear();
+        _accPass.clear();
+      }
+    });
+  }
+
+  Future<void> _saveBranchAdmin(String code) async {
+    final user = _baUser[code]?.text.trim() ?? '';
+    final pass = _baPass[code]?.text ?? '';
+    if (user.isEmpty && pass.isEmpty) {
+      setState(() => _settingsMsg = 'Enter a new username or password for ' + code);
+      return;
+    }
+    final body = <String, dynamic>{};
+    if (user.isNotEmpty) body['username'] = user;
+    if (pass.isNotEmpty) body['newPassword'] = pass;
+    final r = await Api.put('/super-admin/branch-admins/' + code, body);
+    if (!mounted) return;
+    setState(() {
+      _settingsMsg = (r?['success'] == true) ? (r?['message'] ?? code + ' updated').toString() : (r?['error'] ?? 'Update failed').toString();
+      if (r?['success'] == true) _baPass[code]?.clear();
+    });
+  }
+
+  Future<void> _saveDaily() async {
+    final r = await Api.put('/super-admin/daily-report/settings', {
+      'daily_report_enabled': _dailyEnabled,
+      'recipients': _dailyRecipients.text.trim(),
+      'send_hour': _dailyHour,
+    });
+    if (!mounted) return;
+    setState(() => _settingsMsg = (r?['success'] == true) ? 'Daily report settings saved' : (r?['error'] ?? 'Save failed').toString());
+  }
+
+  Future<void> _sendDailyNow() async {
+    setState(() => _settingsMsg = 'Sending...');
+    final r = await Api.post('/super-admin/daily-report/send');
+    if (!mounted) return;
+    final d = r?['data'];
+    final sent = d is Map && d['sent'] == true;
+    setState(() => _settingsMsg = sent
+        ? 'Daily report sent' + (d['push'] != null && d['push']['sent'] != null ? ' (push: ' + d['push']['sent'] + ')' : '')
+        : 'Not sent: ${(d is Map ? (d['reason'] ?? d['status']) : null) ?? 'unknown'}');
+  }
 
   void _changeBranch(String? value) {
     if (value == null || value == _branch) return;
@@ -584,29 +693,102 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (_settingsMsg != null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: const Color(0xFFE3F2FD), borderRadius: BorderRadius.circular(8)),
+            child: Text(_settingsMsg!, style: const TextStyle(color: kBlue, fontSize: 12)),
+          ),
         Card(
-          child: Column(
-            children: [
-              ListTile(leading: const Icon(Icons.person_outline, color: kBlue), title: const Text('Signed in as'), subtitle: Text(Api.username ?? '-')),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.account_tree_outlined, color: kBlue),
-                title: const Text('Branch filter'),
-                subtitle: Text(_branch == 'ALL' ? 'All branches (IQRA2 – IQRA5)' : _branch),
-                trailing: DropdownButton<String>(
-                  value: _branch,
-                  underline: const SizedBox(),
-                  items: _branchOptions.map((b) => DropdownMenuItem(value: b, child: Text(b == 'ALL' ? 'ALL' : b))).toList(),
-                  onChanged: _changeBranch,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Account', style: TextStyle(fontWeight: FontWeight.bold, color: kBlue)),
+                const SizedBox(height: 10),
+                TextField(controller: _accCurrent, obscureText: true, decoration: const InputDecoration(labelText: 'Current password', border: OutlineInputBorder(), isDense: true)),
+                const SizedBox(height: 8),
+                TextField(controller: _accUser, decoration: InputDecoration(labelText: 'New username (${Api.username ?? ''})', border: const OutlineInputBorder(), isDense: true)),
+                const SizedBox(height: 8),
+                TextField(controller: _accPass, obscureText: true, decoration: const InputDecoration(labelText: 'New password', border: OutlineInputBorder(), isDense: true)),
+                const SizedBox(height: 10),
+                SizedBox(width: double.infinity, child: FilledButton(onPressed: _saveAccount, child: const Text('Save account'))),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Branch Admin Accounts (IQRA2 – IQRA5)', style: TextStyle(fontWeight: FontWeight.bold, color: kBlue)),
+                const SizedBox(height: 4),
+                const Text('Change the username / password of each branch admin page.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                if (_settingsLoading) const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+                ..._branchAdmins.map((b) {
+                  final code = '${b['branchCode']}';
+                  final name = '${b['branchName'] ?? code}';
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 6),
+                        Row(children: [
+                          Expanded(child: TextField(controller: _baUser[code], decoration: InputDecoration(labelText: 'Username', border: const OutlineInputBorder(), isDense: true))),
+                          const SizedBox(width: 8),
+                          Expanded(child: TextField(controller: _baPass[code], obscureText: true, decoration: const InputDecoration(labelText: 'New password', border: OutlineInputBorder(), isDense: true))),
+                          const SizedBox(width: 8),
+                          IconButton(onPressed: () => _saveBranchAdmin(code), icon: const Icon(Icons.save, color: kBlue)),
+                        ]),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Daily Report Notification', style: TextStyle(fontWeight: FontWeight.bold, color: kBlue)),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Send every day'),
+                  subtitle: const Text('Push to this app at the chosen hour (email when SMTP is configured).'),
+                  value: _dailyEnabled,
+                  onChanged: (v) => setState(() => _dailyEnabled = v),
                 ),
-              ),
-              const Divider(height: 1),
-              const ListTile(
-                leading: Icon(Icons.notifications_active_outlined, color: kGold),
-                title: Text('Daily report notification'),
-                subtitle: Text('A push notification is sent every day at 08:00 with the latest totals.'),
-              ),
-            ],
+                TextField(controller: _dailyRecipients, decoration: const InputDecoration(labelText: 'Email recipients (comma separated)', border: OutlineInputBorder(), isDense: true)),
+                const SizedBox(height: 8),
+                Row(children: [
+                  const Text('Hour: '),
+                  DropdownButton<int>(
+                    value: _dailyHour,
+                    items: List.generate(24, (i) => DropdownMenuItem(value: i, child: Text(i.toString().padLeft(2, '0') + ':00'))),
+                    onChanged: (v) => setState(() => _dailyHour = v ?? 8),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(child: FilledButton(onPressed: _saveDaily, child: const Text('Save'))),
+                  const SizedBox(width: 8),
+                  Expanded(child: OutlinedButton(onPressed: _sendDailyNow, child: const Text('Send now'))),
+                ]),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 16),
@@ -620,7 +802,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           ),
         ),
         const SizedBox(height: 12),
-        const Center(child: Text('IQRA Super Admin · 1.0.1', style: TextStyle(color: Colors.black38, fontSize: 12))),
+        const Center(child: Text('IQRA Super Admin · 1.0.2', style: TextStyle(color: Colors.black38, fontSize: 12))),
       ],
     );
   }
