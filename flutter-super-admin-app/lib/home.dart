@@ -91,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    const Text('Skoolific Super Admin', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kBlue)),
+                    const Text('IQRA Super Admin', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kBlue)),
                     const SizedBox(height: 4),
                     const Text('IQRA branches 2 – 5', style: TextStyle(color: Colors.grey)),
                     const SizedBox(height: 24),
