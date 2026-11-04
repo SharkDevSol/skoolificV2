@@ -2,6 +2,7 @@
 // Aggregates the same numbers the Super Admin home shows and e-mails them once
 // a day (default 08:00) to the configured recipients.
 const path = require('path');
+const fs = require('fs');
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 const axios = require('axios');
