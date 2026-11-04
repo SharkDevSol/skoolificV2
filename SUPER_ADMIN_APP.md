@@ -1,43 +1,36 @@
 # IQRA Super Admin app (APK)
 
-App name: **IQRA Super Admin** · Package: `com.skoolific.superadmin` · Version 1.0.3 (code 4)
+App name: **IQRA Super Admin** · Package: `com.skoolific.superadmin` · Version 1.1.0 (code 5)
 Firebase project: **iqra-staff1** (Android app `com.skoolific.superadmin` registered)
+
+## Approach
+The app **opens the real web page** `https://iqra.skoolific.com/super-admin` in a native
+WebView shell — so the design, tabs and data are exactly the same as the website
+(Home, Students, Attendance, Marks, Faults, Finance, Settings), with nothing missing.
+It keeps the IQRA Super Admin name, IQRA icon, and the daily push notification:
+after login inside the app, the token is read from the page and this device is
+registered for the 08:00 push.
 
 ## APK location
 ```
-SERVER: /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.0.3.apk
-URL   : https://iqra.skoolific.com/apps/iqra/super-admin/android/iqra-super-admin-v1.0.3.apk
+SERVER: /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.1.0.apk
+URL   : https://iqra.skoolific.com/apps/iqra/super-admin/android/iqra-super-admin-v1.1.0.apk
 ```
 Listed in `/var/www/app-downloads/versions.json` under `iqra/super-admin`.
-Previous build archived in `iqra/super-admin/android/archive/`.
+Older builds in `iqra/super-admin/android/archive/`.
 
-## Features (same content as the web /super-admin)
-Tabs: **Home, Students, Attendance, Marks, Faults, Finance, Settings**.
-- Home: total students (boys/girls), attendance rate, collected, pending, faults, per-branch cards.
-- Students: per-branch totals + class breakdown.
-- Attendance: rate, records, present/absent/late/permission + per branch.
-- Marks: average score, graded students, subjects, per branch.
-- Faults: totals per branch/class.
-- Finance: expected, collected, pending, collection rate + per branch.
-- Settings: branch filter (ALL, IQRA2–5), signed-in user, daily notification info, logout.
-- **Only IQRA2–5** — IQRA1 (demo) is excluded by the backend.
-- **Daily push at 08:00** with the latest totals (FCM via iqra-staff1).
-
-## Speed
-- Each tab loads **only its own report** (lazy), not all reports at startup.
-- Results are cached per branch for 3 minutes; pull-to-refresh forces a reload.
-- Requests run in parallel per tab.
-
-## Rebuild
+## Build
 ```bash
 cd /root/build/super-admin-app
 /opt/flutter/bin/flutter build apk --release
 cp build/app/outputs/flutter-apk/app-release.apk \
-   /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.0.3.apk
+   /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.1.0.apk
 ```
-`android/key.properties` uses the shared upload keystore.
 
 ## History
 - 1.0.0: first build (crashed on open).
 - 1.0.1: fixed `MainActivity` package, renamed to IQRA Super Admin, IQRA icon.
-- 1.0.2: full web parity (all tabs) + per-tab lazy loading/cache.
+- 1.0.2: native tabs (partial parity).
+- 1.0.3: native tabs + settings.
+- 1.1.0: **WebView of the real /super-admin page** — 100% parity with the web design/data,
+  plus daily push registration.
