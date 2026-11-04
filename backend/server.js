@@ -28,6 +28,7 @@ require('dotenv').config();
 
 // Database initialization
 const { initializeDatabase } = require('./config/initDatabase');
+const { startDailyReportScheduler } = require('./services/dailyReport');
 
 // Security middleware imports
 const { securityHeaders, httpsRedirect, preventParamPollution, xssProtection, suspiciousActivityLogger } = require('./middleware/security');
@@ -737,6 +738,7 @@ const attendanceSystemInitializer = require('./services/attendanceSystemInitiali
     console.log(`  http://localhost:${PORT}/api/dashboard/stats`);
   console.log(`  http://localhost:${PORT}/api/dashboard/recent-faults`);
   console.log(`  http://localhost:${PORT}/api/dashboard/top-offenders`);
+  try { startDailyReportScheduler(); } catch (e) { console.log('[daily-report] scheduler not started:', e.message); }
   
   console.log('\n🤖 Machine Webhook Ready:');
   console.log(`   Listening for AI06 machine at: http://10.22.134.159:${PORT}/api/machine-webhook`);

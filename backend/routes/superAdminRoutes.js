@@ -9,6 +9,7 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const dbManager = require('../services/DatabaseConnectionManager');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const { JWT_SECRET } = require('../middleware/jwtValidator');
+const dailyReport = require('../services/dailyReport');
 
 const DB_NAME = process.env.DB_NAME || 'iqrab1';
 const DB_USER = process.env.DB_USER || 'iqra';
@@ -497,7 +498,9 @@ router.get('/report/marks', authenticateToken, authorizeRoles('super_admin'), as
                   maxScore: parseFloat(rows[0].total),
                   topStudents: rows.slice(0, 3).map(r => ({
                     name: r.student_name,
+                    studentName: r.student_name,
                     total: parseFloat(r.total),
+                    score: parseFloat(r.total),
                     test1: parseFloat(r.test_1 || 0),
                     mid: parseFloat(r.mid || 0),
                     final: parseFloat(r.final || 0)
@@ -530,23 +533,40 @@ router.get('/report/marks', authenticateToken, authorizeRoles('super_admin'), as
 
           const studentsRanked = Object.values(studentMap)
             .map(st => ({
-              ...st,
+              name: st.name,
+              studentName: st.name,
+              gender: st.gender,
               totalScore: Math.round(st.totalScore * 10) / 10,
-              avgScore: st.subjectCount > 0 ? Math.round((st.totalScore / st.subjectCount) * 10) / 10 : 0
+              avgScore: st.subjectCount > 0 ? Math.round((st.totalScore / st.subjectCount) * 10) / 10 : 0,
+              subjectCount: st.subjectCount,
+              subjects: Object.entries(st.subjects || {}).map(([subject, score]) => ({ subject, score }))
             }))
             .sort((a, b) => b.totalScore - a.totalScore);
 
           if (studentsRanked.length > 0) {
             totalBranchGradedStudents += studentsRanked.length;
+            const top10 = studentsRanked.slice(0, 10).map((st, i) => ({ ...st, rank: i + 1 }));
+            const lowest10 = [...studentsRanked].reverse().slice(0, 10).map((st, i) => ({ ...st, rank: studentsRanked.length - i }));
+            const classTotalScore = studentsRanked.reduce((sum, s) => sum + s.totalScore, 0);
+            const classAvg = studentsRanked.length > 0 && topBySubject.length > 0
+              ? Math.round((classTotalScore / (studentsRanked.length * topBySubject.length)) * 10) / 10
+              : (studentsRanked[0]?.avgScore || 0);
+
             classSummaries.push({
               className,
               totalGradedStudents: studentsRanked.length,
+              studentCount: studentsRanked.length,
               subjectsCount: topBySubject.length,
+              subjectCount: topBySubject.length,
               highestTotalMark: studentsRanked[0]?.totalScore || 0,
               lowestTotalMark: studentsRanked[studentsRanked.length - 1]?.totalScore || 0,
-              topStudents: studentsRanked.slice(0, 10).map((st, i) => ({ ...st, rank: i + 1 })), // Top 10 "Big Mark" students in class
-              lowestStudents: [...studentsRanked].reverse().slice(0, 10).map((st, i) => ({ ...st, rank: studentsRanked.length - i })), // Lowest 10 students
-              topBySubject
+              classAvgScore: classAvg,
+              avgScore: classAvg,
+              topStudents: top10,
+              bigMarkStudents: top10,
+              lowestStudents: lowest10,
+              topBySubject,
+              subjectTopScorers: topBySubject
             });
           }
         }
@@ -1439,6 +1459,112 @@ router.get('/branches', authenticateToken, authorizeRoles('super_admin'), async 
   } catch (error) {
     console.error('Error fetching branches:', error);
     res.status(500).json({ error: 'Failed to fetch branches' });
+  }
+});
+
+// ---- BRANCH ADMIN ACCOUNTS (IQRA2-5) ----
+// Lets a super admin (e.g. khalif) change the login username/password of the
+// admin page for each branch without opening that branch's app.
+router.get('/branch-admins', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  try {
+    const branches = await dbManager.getAllBranches();
+    const allowed = branches.filter((b) => ALLOWED_BRANCHES.includes(String(b.branch_code).toUpperCase()));
+    const data = [];
+    for (const b of allowed) {
+      const entry = { branchCode: b.branch_code, branchName: b.branch_name || b.branch_code, username: null, name: null };
+      const pool = await getPoolSafe(b);
+      if (!pool) { entry.error = 'Branch database unavailable'; data.push(entry); continue; }
+      try {
+        const r = await pool.query('SELECT id, username, name FROM admin_users ORDER BY id LIMIT 1');
+        if (r.rows[0]) { entry.username = r.rows[0].username; entry.name = r.rows[0].name; }
+        else entry.error = 'No admin account in this branch';
+      } catch (e) { entry.error = e.message; }
+      data.push(entry);
+    }
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Branch admins list error:', error);
+    res.status(500).json({ error: 'Failed to load branch admins' });
+  }
+});
+
+router.put('/branch-admins/:branchCode', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  try {
+    const code = String(req.params.branchCode || '').toUpperCase();
+    if (!ALLOWED_BRANCHES.includes(code)) {
+      return res.status(400).json({ error: 'Branch not allowed' });
+    }
+    const branches = await dbManager.getAllBranches();
+    const branch = branches.find((b) => String(b.branch_code).toUpperCase() === code);
+    if (!branch) return res.status(404).json({ error: 'Branch not found' });
+    const pool = await getPoolSafe(branch);
+    if (!pool) return res.status(400).json({ error: 'Branch database unavailable' });
+
+    const { username, newPassword } = req.body || {};
+    const row = (await pool.query('SELECT id FROM admin_users ORDER BY id LIMIT 1')).rows[0];
+    if (!row) return res.status(404).json({ error: 'No admin account found for this branch' });
+
+    const updates = [];
+    const values = [];
+    if (username && String(username).trim()) {
+      const uname = String(username).trim();
+      const dup = await pool.query('SELECT id FROM admin_users WHERE LOWER(username) = LOWER($1) AND id <> $2', [uname, row.id]);
+      if (dup.rows.length > 0) return res.status(400).json({ error: 'Username already exists in this branch' });
+      updates.push('username = $' + (values.length + 1));
+      values.push(uname);
+    }
+    if (newPassword) {
+      if (String(newPassword).length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+      const hash = await bcrypt.hash(String(newPassword), 10);
+      updates.push('password_hash = $' + (values.length + 1));
+      values.push(hash);
+    }
+    if (updates.length === 0) return res.status(400).json({ error: 'Nothing to change' });
+
+    values.push(row.id);
+    await pool.query('UPDATE admin_users SET ' + updates.join(', ') + ' WHERE id = $' + values.length, values);
+    res.json({ success: true, message: code + ' admin updated successfully' });
+  } catch (error) {
+    console.error('Branch admin update error:', error);
+    res.status(500).json({ error: 'Failed to update branch admin', details: error.message });
+  }
+});
+
+// ---- DAILY REPORT NOTIFICATIONS ----
+router.get('/daily-report/settings', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  try {
+    const data = await dailyReport.getSettings();
+    res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load daily report settings', details: e.message });
+  }
+});
+
+router.put('/daily-report/settings', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  try {
+    const { daily_report_enabled, recipients, send_hour } = req.body || {};
+    const data = await dailyReport.updateSettings({ daily_report_enabled, recipients, send_hour });
+    res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to save daily report settings', details: e.message });
+  }
+});
+
+router.get('/daily-report/preview', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  try {
+    const data = await dailyReport.buildSummary();
+    res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to build the daily summary', details: e.message });
+  }
+});
+
+router.post('/daily-report/send', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  try {
+    const result = await dailyReport.sendDailyReport({ force: true });
+    res.json({ success: true, data: result });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to send the daily report', details: e.message });
   }
 });
 

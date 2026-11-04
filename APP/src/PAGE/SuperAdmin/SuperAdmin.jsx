@@ -683,6 +683,16 @@ const SuperAdmin = () => {
   const [accForm, setAccForm] = useState({ currentPassword: '', newUsername: '', newPassword: '', confirmPassword: '' });
   const [accMsg, setAccMsg] = useState('');
   const [accError, setAccError] = useState('');
+  const [branchAdmins, setBranchAdmins] = useState([]);
+  const [branchAdminForms, setBranchAdminForms] = useState({});
+  const [branchAdminMsg, setBranchAdminMsg] = useState('');
+  const [branchAdminError, setBranchAdminError] = useState('');
+  const [branchAdminLoading, setBranchAdminLoading] = useState(false);
+  const [dailySettings, setDailySettings] = useState(null);
+  const [dailySummary, setDailySummary] = useState(null);
+  const [dailyMsg, setDailyMsg] = useState('');
+  const [dailyError, setDailyError] = useState('');
+  const [dailyLoading, setDailyLoading] = useState(false);
   const [accLoading, setAccLoading] = useState(false);
 
   useEffect(() => {
@@ -716,70 +726,51 @@ const SuperAdmin = () => {
     setIsLoggedIn(false);
   };
 
-  const loadAll = useCallback(async () => {
+  const loadData = useCallback(async (keys = ['branches', 'students', 'attendance', 'finance', 'faults']) => {
     setLoading(true);
     setError('');
     try {
       const b = branch === 'ALL' ? 'ALL' : branch;
-      const results = await Promise.allSettled([
-        api.get('/super-admin/branches', { timeout: 60000 }),
-        api.get('/super-admin/report/students', { timeout: 90000, params: { branchCode: b } }),
-        api.get('/super-admin/report/attendance', { timeout: 90000, params: {
-          branchCode: b,
-          viewMode: attViewMode,
-          year: attYear || undefined,
-          month: attMonth || undefined,
-          week: attViewMode === 'week' ? (attWeek || undefined) : undefined,
-          day: attViewMode === 'date' ? (attDay || undefined) : undefined
-        }}),
-        api.get('/super-admin/report/marks', { timeout: 90000, params: {
-          branchCode: b, academic_year: mkYear || undefined, term: mkTerm || undefined
-        }}),
-        api.get('/super-admin/report/faults', { timeout: 90000, params: {
-          branchCode: b, year: faultYear || undefined, month: faultMonth || undefined
-        }}),
-        api.get('/super-admin/report/finance', { timeout: 90000, params: {
-          branchCode: b, month: finMonth || undefined
-        }}),
-        api.get('/super-admin/report/registrations', { timeout: 120000, params: {
-          branchCode: b, from: regFrom || undefined, to: regTo || undefined
-        }})
-      ]);
+      const tasks = [];
+      const idx = {};
+      const add = (key, promise) => { idx[key] = tasks.length; tasks.push(promise); };
 
-      const [branchesRes, stuRes, attRes, mkRes, fltRes, finRes, regRes] = results;
+      if (keys.includes('branches')) add('branches', api.get('/super-admin/branches', { timeout: 60000 }));
+      if (keys.includes('students')) add('students', api.get('/super-admin/report/students', { timeout: 90000, params: { branchCode: b } }));
+      if (keys.includes('attendance')) add('attendance', api.get('/super-admin/report/attendance', { timeout: 90000, params: {
+        branchCode: b, viewMode: attViewMode, year: attYear || undefined, month: attMonth || undefined,
+        week: attViewMode === 'week' ? (attWeek || undefined) : undefined,
+        day: attViewMode === 'date' ? (attDay || undefined) : undefined,
+      } }));
+      if (keys.includes('marks')) add('marks', api.get('/super-admin/report/marks', { timeout: 90000, params: { branchCode: b, academic_year: mkYear || undefined, term: mkTerm || undefined } }));
+      if (keys.includes('faults')) add('faults', api.get('/super-admin/report/faults', { timeout: 90000, params: { branchCode: b, year: faultYear || undefined, month: faultMonth || undefined } }));
+      if (keys.includes('finance')) add('finance', api.get('/super-admin/report/finance', { timeout: 90000, params: { branchCode: b, month: finMonth || undefined } }));
+      if (keys.includes('registrations')) add('registrations', api.get('/super-admin/report/registrations', { timeout: 120000, params: { branchCode: b, from: regFrom || undefined, to: regTo || undefined } }));
 
-      if (branchesRes.status === 'fulfilled' && branchesRes.value?.data?.branches) {
+      const results = await Promise.allSettled(tasks);
+      const ok = (key) => {
+        const i = idx[key];
+        if (i === undefined) return null;
+        const r = results[i];
+        return r && r.status === 'fulfilled' ? r.value : null;
+      };
+
+      const branchesRes = ok('branches');
+      if (branchesRes?.data?.branches) {
         const ALLOWED = ['IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
-        const all = branchesRes.value.data.branches;
+        const all = branchesRes.data.branches;
         const matched = all.filter((x) => ALLOWED.includes(String(x.branch_code).toUpperCase()));
-        setBranches(
-          (matched.length > 0 ? matched : all).map((x) => ({ code: x.branch_code, name: x.branch_name }))
-        );
+        setBranches((matched.length > 0 ? matched : all).map((x) => ({ code: x.branch_code, name: x.branch_name })));
       }
-      if (stuRes.status === 'fulfilled' && stuRes.value?.data?.data) {
-        setStudents(stuRes.value.data.data);
-      }
-      if (attRes.status === 'fulfilled' && attRes.value?.data?.data) {
-        setAttendance(attRes.value.data.data);
-      }
-      if (mkRes.status === 'fulfilled' && mkRes.value?.data?.data) {
-        setMarks(mkRes.value.data.data);
-      }
-      if (fltRes.status === 'fulfilled' && fltRes.value?.data?.data) {
-        setFaults(fltRes.value.data.data);
-      }
-      if (finRes.status === 'fulfilled' && finRes.value?.data?.data) {
-        setFinance(finRes.value.data.data);
-      }
-      if (regRes.status === 'fulfilled' && regRes.value?.data?.data) {
-        setRegistrations(regRes.value.data.data);
-      }
+      const stu = ok('students'); if (stu?.data?.data) setStudents(stu.data.data);
+      const att = ok('attendance'); if (att?.data?.data) setAttendance(att.data.data);
+      const mk = ok('marks'); if (mk?.data?.data) setMarks(mk.data.data);
+      const flt = ok('faults'); if (flt?.data?.data) setFaults(flt.data.data);
+      const fin = ok('finance'); if (fin?.data?.data) setFinance(fin.data.data);
+      const reg = ok('registrations'); if (reg?.data?.data) setRegistrations(reg.data.data);
 
-      // Check if all failed with 401
-      const is401 = results.some(r => r.status === 'rejected' && r.reason?.response?.status === 401);
-      if (is401) {
-        handleLogout();
-      }
+      const is401 = results.some((r) => r.status === 'rejected' && r.reason?.response?.status === 401);
+      if (is401) handleLogout();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load reports');
       if (err.response?.status === 401) handleLogout();
@@ -788,9 +779,131 @@ const SuperAdmin = () => {
     }
   }, [branch, attViewMode, attYear, attMonth, attWeek, attDay, mkYear, mkTerm, faultYear, faultMonth, finMonth, regFrom, regTo]);
 
+  // Load only what the active tab needs (the old code loaded every report on
+  // every filter change, which made the app slow).
+  const loadAll = useCallback(async () => {
+    const keysByTab = {
+      home: ['branches', 'students', 'attendance', 'finance', 'faults'],
+      students: ['branches', 'students', 'registrations'],
+      attendance: ['attendance'],
+      marks: ['marks'],
+      faults: ['faults'],
+      finance: ['finance'],
+      sms: [],
+      settings: [],
+    };
+    await loadData(keysByTab[tab] || ['branches']);
+  }, [loadData, tab]);
+
   useEffect(() => {
     if (isLoggedIn) loadAll();
   }, [isLoggedIn, loadAll]);
+
+  const loadBranchAdmins = useCallback(async () => {
+    try {
+      setBranchAdminError('');
+      const res = await api.get('/super-admin/branch-admins', { timeout: 40000 });
+      if (res.data?.success) {
+        setBranchAdmins(res.data.data || []);
+        const forms = {};
+        for (const b of res.data.data || []) forms[b.branchCode] = { username: b.username || '', password: '' };
+        setBranchAdminForms(forms);
+      }
+    } catch (e) {
+      setBranchAdminError(e.response?.data?.error || 'Failed to load branch admins');
+    }
+  }, []);
+
+  const loadDailyReport = useCallback(async () => {
+    try {
+      setDailyError('');
+      const res = await api.get('/super-admin/daily-report/settings', { timeout: 30000 });
+      if (res.data?.success) setDailySettings(res.data.data);
+    } catch (e) {
+      setDailyError(e.response?.data?.error || 'Failed to load daily report settings');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isLoggedIn && tab === 'settings') {
+      loadBranchAdmins();
+      loadDailyReport();
+    }
+  }, [isLoggedIn, tab, loadBranchAdmins, loadDailyReport]);
+
+  const saveDailySettings = async (patch = {}) => {
+    setDailyLoading(true);
+    setDailyMsg('');
+    setDailyError('');
+    try {
+      const base = dailySettings || {};
+      const body = { ...base, ...patch };
+      const res = await api.put('/super-admin/daily-report/settings', {
+        daily_report_enabled: body.daily_report_enabled !== false,
+        recipients: body.recipients || '',
+        send_hour: body.send_hour == null ? 8 : body.send_hour
+      });
+      if (res.data?.success) {
+        setDailySettings(res.data.data);
+        setDailyMsg('Daily report settings saved');
+      }
+    } catch (e) {
+      setDailyError(e.response?.data?.error || 'Save failed');
+    } finally {
+      setDailyLoading(false);
+    }
+  };
+
+  const previewDaily = async () => {
+    setDailyLoading(true);
+    setDailyError('');
+    try {
+      const res = await api.get('/super-admin/daily-report/preview', { timeout: 120000 });
+      if (res.data?.success) setDailySummary(res.data.data);
+    } catch (e) {
+      setDailyError(e.response?.data?.error || 'Preview failed');
+    } finally {
+      setDailyLoading(false);
+    }
+  };
+
+  const sendDailyNow = async () => {
+    setDailyLoading(true);
+    setDailyMsg('');
+    setDailyError('');
+    try {
+      const res = await api.post('/super-admin/daily-report/send', {}, { timeout: 120000 });
+      const d = res.data?.data || {};
+      if (d.sent) setDailyMsg('Daily report sent to ' + (d.recipients || []).join(', '));
+      else setDailyError('Not sent: ' + (d.reason || d.error || d.status || 'unknown'));
+      if (d.summary) setDailySummary(d.summary);
+    } catch (e) {
+      setDailyError(e.response?.data?.error || 'Send failed');
+    } finally {
+      setDailyLoading(false);
+    }
+  };
+
+  const handleBranchAdminSave = async (code) => {
+    const f = branchAdminForms[code] || {};
+    if (!f.username && !f.password) { setBranchAdminError('Enter a new username or password'); return; }
+    if (f.password && String(f.password).length < 4) { setBranchAdminError('Password must be at least 4 characters'); return; }
+    setBranchAdminLoading(true);
+    setBranchAdminMsg('');
+    setBranchAdminError('');
+    try {
+      const res = await api.put('/super-admin/branch-admins/' + code, {
+        username: f.username || undefined,
+        newPassword: f.password || undefined
+      });
+      setBranchAdminMsg(res.data?.message || (code + ' admin updated'));
+      await loadBranchAdmins();
+    } catch (e) {
+      setBranchAdminError(e.response?.data?.error || 'Update failed');
+    } finally {
+      setBranchAdminLoading(false);
+    }
+  };
 
   const handleAccountSave = async (e) => {
     e.preventDefault();
@@ -1359,7 +1472,7 @@ const SuperAdmin = () => {
               <select value={marksClassFilter} onChange={(e) => setMarksClassFilter(e.target.value)}>
                 <option value="ALL">All Classes</option>
                 {Array.from(new Set(
-                  filteredBranches.flatMap(b => (b.classes || []).map(c => c.className))
+                  filteredBranches.flatMap(b => (b.classes || []).map(c => c.className).filter(Boolean))
                 )).sort().map(cls => (
                   <option key={cls} value={cls}>{cls}</option>
                 ))}
@@ -1392,13 +1505,13 @@ const SuperAdmin = () => {
         {filteredBranches.map(b => {
           let classesList = (b.classes || []);
           if (marksClassFilter !== 'ALL') {
-            classesList = classesList.filter(c => c.className.toUpperCase() === marksClassFilter.toUpperCase());
+            classesList = classesList.filter(c => (c.className || '').toUpperCase() === marksClassFilter.toUpperCase());
           }
           if (marksSearch) {
             const q = marksSearch.toLowerCase();
             classesList = classesList.filter(c => {
-              const matchClass = c.className.toLowerCase().includes(q);
-              const matchStudent = (c.bigMarkStudents || []).some(s => s.studentName.toLowerCase().includes(q));
+              const matchClass = (c.className || '').toLowerCase().includes(q);
+              const matchStudent = (c.bigMarkStudents || c.topStudents || []).some(s => ((s.studentName || s.name || '')).toLowerCase().includes(q));
               return matchClass || matchStudent;
             });
           }
@@ -1408,154 +1521,164 @@ const SuperAdmin = () => {
               <div className={styles.cardTitle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                 <span>{b.branchName} — Term {m?.term || mkTerm}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>
-                  {b.gradedStudents} Graded Students · {b.subjectsCount} Subjects · Branch Avg: <b>{b.avgScore}</b>
+                  {b.gradedStudents || b.totalGradedStudents || 0} Graded Students · {b.subjectsCount || 0} Subjects · Branch Avg: <b>{b.avgScore || b.avgPct || 0}</b>
                 </span>
               </div>
 
               {classesList.length > 0 ? (
-                classesList.map(c => (
-                  <div key={c.className} style={{ marginTop: 14, marginBottom: 14, padding: '14px', background: 'var(--inputBg)', borderRadius: 10, border: '1px solid var(--line)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
-                        🏫 Class {c.className}
-                      </span>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span className={`${styles.badgePill} ${styles.badgeOld}`}>{c.studentCount || c.totalGradedStudents} Students</span>
-                        <span className={`${styles.badgePill} ${styles.badgeNew}`}>{c.subjectCount || c.subjectsCount} Subjects</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#107c41' }}>Class Avg: {c.classAvgScore || c.avgScore}</span>
-                        {c.highestTotalMark !== undefined && (
-                          <span className={`${styles.badgePill} ${styles.badgeNew}`} style={{ background: '#dcfce7', color: '#15803d' }}>
-                            🏆 High Mark: {c.highestTotalMark} pts
-                          </span>
-                        )}
-                        {c.lowestTotalMark !== undefined && (
-                          <span className={`${styles.badgePill} ${styles.badgeRed}`} style={{ background: '#fee2e2', color: '#991b1b' }}>
-                            🔻 Low Mark: {c.lowestTotalMark} pts
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* High vs Low Rank Toggle */}
-                    <div className={styles.pillTabRow} style={{ margin: '8px 0 10px 0' }}>
-                      <button
-                        type="button"
-                        className={`${styles.pillTabBtn} ${marksRankView === 'highest' ? styles.pillTabBtnActive : ''}`}
-                        onClick={() => setMarksRankView('highest')}
-                      >
-                        🏆 Highest Rank ("Big Mark" Students)
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.pillTabBtn} ${marksRankView === 'lowest' ? styles.pillTabBtnActive : ''}`}
-                        onClick={() => setMarksRankView('lowest')}
-                      >
-                        🔻 Lowest Rank ("Lowest Mark" Students)
-                      </button>
-                    </div>
-
-                    {(() => {
-                      const displayStudents = marksRankView === 'highest'
-                        ? (c.bigMarkStudents || c.topStudents || [])
-                        : (c.lowestStudents || []);
-
-                      return displayStudents && displayStudents.length > 0 ? (
-                        <div className={styles.tableScroll}>
-                          <table className={styles.tableDetailed}>
-                            <thead>
-                              <tr>
-                                <th style={{ width: 40 }}>Rank</th>
-                                <th>Student Name</th>
-                                <th>Total Score</th>
-                                <th>Average</th>
-                                <th>Subject Scores Breakdown</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {displayStudents.map((st) => (
-                              <tr key={st.rank}>
-                                <td>
-                                  <span style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: 24,
-                                    height: 24,
-                                    borderRadius: '50%',
-                                    fontWeight: 700,
-                                    fontSize: 11,
-                                    background: st.rank === 1 ? '#ffd700' : st.rank === 2 ? '#c0c0c0' : st.rank === 3 ? '#cd7f32' : 'var(--card)',
-                                    color: st.rank <= 3 ? '#000' : 'var(--text)'
-                                  }}>
-                                    {st.rank}
-                                  </span>
-                                </td>
-                                <td style={{ fontWeight: 600 }}>{st.studentName}</td>
-                                <td><b style={{ color: '#107c41' }}>{fmt(st.totalScore)}</b></td>
-                                <td><b>{st.avgScore}</b></td>
-                                <td>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxWidth: 650 }}>
-                                    {(st.subjects || []).map((sub, sIdx) => (
-                                      <span
-                                        key={sIdx}
-                                        className={`${styles.subjectBadge} ${sub.score >= 90 ? styles.subjectBadgeHigh : ''}`}
-                                        title={`${sub.subject}: ${sub.score}`}
-                                      >
-                                        <b>{sub.subject}:</b> {sub.score}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '6px 0' }}>
-                        No ranked students found for this view.
-                      </div>
-                    );
-                    })()}
-
-                    {/* Subject Top Scorers */}
-                    {c.subjectTopScorers && c.subjectTopScorers.length > 0 && (
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-                          📚 Highest Scorer by Subject
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
-                          {c.subjectTopScorers.map((sub, subIdx) => {
-                            const top = (sub.topStudents || [])[0];
-                            return (
-                              <div key={subIdx} style={{
-                                padding: '8px 10px',
-                                background: 'var(--card)',
-                                border: '1px solid var(--line)',
-                                borderRadius: 8,
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                              }}>
-                                <div>
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
-                                    {sub.subject}
-                                  </div>
-                                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
-                                    {top?.studentName || '—'}
-                                  </div>
-                                </div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#107c41' }}>
-                                  {top?.score !== undefined ? top.score : '—'}
-                                </div>
-                              </div>
-                            );
-                          })}
+                classesList.map(c => {
+                  const subjectList = c.subjectTopScorers || c.topBySubject || [];
+                  return (
+                    <div key={c.className} style={{ marginTop: 14, marginBottom: 14, padding: '14px', background: 'var(--inputBg)', borderRadius: 10, border: '1px solid var(--line)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
+                          🏫 Class {c.className}
+                        </span>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span className={`${styles.badgePill} ${styles.badgeOld}`}>{c.studentCount || c.totalGradedStudents || 0} Students</span>
+                          <span className={`${styles.badgePill} ${styles.badgeNew}`}>{c.subjectCount || c.subjectsCount || 0} Subjects</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#107c41' }}>Class Avg: {c.classAvgScore || c.avgScore || 0}</span>
+                          {c.highestTotalMark !== undefined && (
+                            <span className={`${styles.badgePill} ${styles.badgeNew}`} style={{ background: '#dcfce7', color: '#15803d' }}>
+                              🏆 High Mark: {c.highestTotalMark} pts
+                            </span>
+                          )}
+                          {c.lowestTotalMark !== undefined && (
+                            <span className={`${styles.badgePill} ${styles.badgeRed}`} style={{ background: '#fee2e2', color: '#991b1b' }}>
+                              🔻 Low Mark: {c.lowestTotalMark} pts
+                            </span>
+                          )}
                         </div>
                       </div>
-                    )}
-                  </div>
-                ))
+
+                      {/* High vs Low Rank Toggle */}
+                      <div className={styles.pillTabRow} style={{ margin: '8px 0 10px 0' }}>
+                        <button
+                          type="button"
+                          className={`${styles.pillTabBtn} ${marksRankView === 'highest' ? styles.pillTabBtnActive : ''}`}
+                          onClick={() => setMarksRankView('highest')}
+                        >
+                          🏆 Highest Rank ("Big Mark" Students)
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.pillTabBtn} ${marksRankView === 'lowest' ? styles.pillTabBtnActive : ''}`}
+                          onClick={() => setMarksRankView('lowest')}
+                        >
+                          🔻 Lowest Rank ("Lowest Mark" Students)
+                        </button>
+                      </div>
+
+                      {(() => {
+                        const displayStudents = marksRankView === 'highest'
+                          ? (c.bigMarkStudents || c.topStudents || [])
+                          : (c.lowestStudents || []);
+
+                        return displayStudents && displayStudents.length > 0 ? (
+                          <div className={styles.tableScroll}>
+                            <table className={styles.tableDetailed}>
+                              <thead>
+                                <tr>
+                                  <th style={{ width: 40 }}>Rank</th>
+                                  <th>Student Name</th>
+                                  <th>Total Score</th>
+                                  <th>Average</th>
+                                  <th>Subject Scores Breakdown</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {displayStudents.map((st, stIdx) => {
+                                  const sName = st.studentName || st.name || 'Student';
+                                  const subjectsArr = Array.isArray(st.subjects)
+                                    ? st.subjects
+                                    : Object.entries(st.subjects || {}).map(([subject, score]) => ({ subject, score }));
+
+                                  return (
+                                    <tr key={st.rank ? `${st.rank}-${stIdx}` : stIdx}>
+                                      <td>
+                                        <span style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          width: 24,
+                                          height: 24,
+                                          borderRadius: '50%',
+                                          fontWeight: 700,
+                                          fontSize: 11,
+                                          background: st.rank === 1 ? '#ffd700' : st.rank === 2 ? '#c0c0c0' : st.rank === 3 ? '#cd7f32' : 'var(--card)',
+                                          color: st.rank <= 3 ? '#000' : 'var(--text)'
+                                        }}>
+                                          {st.rank || (stIdx + 1)}
+                                        </span>
+                                      </td>
+                                      <td style={{ fontWeight: 600 }}>{sName}</td>
+                                      <td><b style={{ color: '#107c41' }}>{fmt(st.totalScore || 0)}</b></td>
+                                      <td><b>{st.avgScore || 0}</b></td>
+                                      <td>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxWidth: 650 }}>
+                                          {subjectsArr.map((sub, sIdx) => (
+                                            <span
+                                              key={sIdx}
+                                              className={`${styles.subjectBadge} ${Number(sub.score) >= 90 ? styles.subjectBadgeHigh : ''}`}
+                                              title={`${sub.subject}: ${sub.score}`}
+                                            >
+                                              <b>{sub.subject}:</b> {sub.score}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '6px 0' }}>
+                            No ranked students found for this view.
+                          </div>
+                        );
+                      })()}
+
+                      {/* Subject Top Scorers */}
+                      {subjectList.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                            📚 Highest Scorer by Subject
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+                            {subjectList.map((sub, subIdx) => {
+                              const top = (sub.topStudents || [])[0];
+                              return (
+                                <div key={subIdx} style={{
+                                  padding: '8px 10px',
+                                  background: 'var(--card)',
+                                  border: '1px solid var(--line)',
+                                  borderRadius: 8,
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center'
+                                }}>
+                                  <div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                                      {sub.subject}
+                                    </div>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+                                      {top?.studentName || top?.name || '—'}
+                                    </div>
+                                  </div>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: '#107c41' }}>
+                                    {top?.score !== undefined ? top.score : (top?.total !== undefined ? top.total : '—')}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               ) : (
                 <div className={styles.empty}>No class mark sheets found matching the current filter.</div>
               )}
@@ -2255,6 +2378,100 @@ const SuperAdmin = () => {
                 {accLoading ? t('saving') : t('save')}
               </button>
             </form>
+          </div>
+        </div>
+
+        <div className={styles.card}>
+          <div className={styles.settingGroup}>
+            <h3 className={styles.settingGroupTitle}><FiKey /> Branch Admin Accounts (IQRA2 – IQRA5)</h3>
+            <div className={styles.toggleDesc} style={{ marginBottom: 10 }}>
+              Change the username or password used to log in to each branch admin page.
+            </div>
+            {branchAdminMsg && <div className={styles.successBox}>{branchAdminMsg}</div>}
+            {branchAdminError && <div className={styles.errorBox}>{branchAdminError}</div>}
+            {branchAdmins.length === 0 ? (
+              <div className={styles.empty}>Loading...</div>
+            ) : branchAdmins.map((b) => (
+              <div key={b.branchCode} style={{ padding: '12px 0', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                  {b.branchCode} — {b.branchName} {b.name ? '(' + b.name + ')' : ''}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input
+                    className={styles.settingsInput}
+                    placeholder={'New username (current: ' + (b.username || '—') + ')'}
+                    value={(branchAdminForms[b.branchCode] || {}).username || ''}
+                    onChange={(e) => setBranchAdminForms((f) => ({ ...f, [b.branchCode]: { ...(f[b.branchCode] || {}), username: e.target.value } }))}
+                    style={{ flex: 1, minWidth: 170 }}
+                  />
+                  <input
+                    className={styles.settingsInput}
+                    type="password"
+                    placeholder="New password"
+                    value={(branchAdminForms[b.branchCode] || {}).password || ''}
+                    onChange={(e) => setBranchAdminForms((f) => ({ ...f, [b.branchCode]: { ...(f[b.branchCode] || {}), password: e.target.value } }))}
+                    style={{ flex: 1, minWidth: 170 }}
+                  />
+                  <button type="button" className={styles.saveBtn} disabled={branchAdminLoading} onClick={() => handleBranchAdminSave(b.branchCode)}>
+                    {branchAdminLoading ? t('saving') : t('save')}
+                  </button>
+                </div>
+                {b.error ? <div className={styles.errorBox} style={{ marginTop: 6 }}>{b.error}</div> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.card}>
+          <div className={styles.settingGroup}>
+            <h3 className={styles.settingGroupTitle}><FiMessageSquare /> Daily Report Notification</h3>
+            <div className={styles.toggleDesc} style={{ marginBottom: 10 }}>
+              Sends a daily email with today's totals (students, new registrations, attendance, fees, faults).
+            </div>
+            {dailyMsg && <div className={styles.successBox}>{dailyMsg}</div>}
+            {dailyError && <div className={styles.errorBox}>{dailyError}</div>}
+            {!dailySettings ? (
+              <div className={styles.empty}>Loading...</div>
+            ) : (
+              <>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={dailySettings.daily_report_enabled !== false}
+                    onChange={(e) => saveDailySettings({ daily_report_enabled: e.target.checked })}
+                  />
+                  Send the daily report automatically
+                </label>
+                <input
+                  className={styles.settingsInput}
+                  placeholder="Recipients (comma separated emails)"
+                  value={dailySettings.recipients || ''}
+                  onChange={(e) => setDailySettings({ ...dailySettings, recipients: e.target.value })}
+                />
+                <input
+                  className={styles.settingsInput}
+                  type="number"
+                  min="0"
+                  max="23"
+                  placeholder="Send hour (0-23, server time)"
+                  value={dailySettings.send_hour == null ? 8 : dailySettings.send_hour}
+                  onChange={(e) => setDailySettings({ ...dailySettings, send_hour: parseInt(e.target.value) || 0 })}
+                />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                  <button type="button" className={styles.saveBtn} disabled={dailyLoading} onClick={() => saveDailySettings()}>Save</button>
+                  <button type="button" className={styles.saveBtn} disabled={dailyLoading} onClick={previewDaily}>Preview today</button>
+                  <button type="button" className={styles.saveBtn} disabled={dailyLoading} onClick={sendDailyNow}>Send now</button>
+                </div>
+                <div className={styles.toggleDesc} style={{ marginTop: 8 }}>
+                  Recipients in use: {((dailySettings.resolvedRecipients || []).join(', ')) || 'none — add emails above'}
+                </div>
+                {dailySummary && (
+                  <div className={styles.toggleDesc} style={{ marginTop: 8 }}>
+                    Today: {dailySummary.students} students · {dailySummary.newRegistrations} new registrations · attendance {dailySummary.attendanceRate}% · collected {dailySummary.collected} Birr · pending {dailySummary.pending} Birr · faults {dailySummary.faults}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
 
