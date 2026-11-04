@@ -6,6 +6,7 @@ const kBlue = Color(0xFF1F3B73);
 const kGold = Color(0xFFF7941E);
 const kGreen = Color(0xFF107C41);
 const kRed = Color(0xFFB21E23);
+const kPurple = Color(0xFF6A1B9A);
 
 String fmt(num? n) {
   final v = (n ?? 0).toDouble();
@@ -22,13 +23,12 @@ String fmt(num? n) {
 
 String birr(num? n) => fmt(n) + ' Birr';
 
-List<Map<String, dynamic>> byBranch(Map<String, dynamic>? d) {
-  final b = d?['byBranch'];
-  if (b is List) {
-    return b.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-  }
+List<Map<String, dynamic>> listOf(dynamic v) {
+  if (v is List) return v.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   return [];
 }
+
+List<Map<String, dynamic>> byBranchOf(Map<String, dynamic>? d) => listOf(d?['byBranch']);
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -55,9 +55,7 @@ class _LoginPageState extends State<LoginPage> {
     final err = await Api.login(_user.text.trim(), _pass.text);
     if (!mounted) return;
     if (err == null) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomePage()),
-      );
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomePage()));
     } else {
       setState(() {
         _error = err;
@@ -86,27 +84,16 @@ class _LoginPageState extends State<LoginPage> {
                       width: 68,
                       height: 68,
                       decoration: const BoxDecoration(color: kBlue, shape: BoxShape.circle),
-                      child: const Center(
-                        child: Text('I', style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold)),
-                      ),
+                      child: const Center(child: Text('I', style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold))),
                     ),
                     const SizedBox(height: 16),
                     const Text('IQRA Super Admin', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kBlue)),
                     const SizedBox(height: 4),
                     const Text('IQRA branches 2 – 5', style: TextStyle(color: Colors.grey)),
                     const SizedBox(height: 24),
-                    TextField(
-                      controller: _user,
-                      decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder()),
-                      textInputAction: TextInputAction.next,
-                    ),
+                    TextField(controller: _user, decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder()), textInputAction: TextInputAction.next),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: _pass,
-                      obscureText: true,
-                      decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
-                      onSubmitted: (_) => _submit(),
-                    ),
+                    TextField(controller: _pass, obscureText: true, decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()), onSubmitted: (_) => _submit()),
                     if (_error != null) ...[
                       const SizedBox(height: 12),
                       Text(_error!, style: const TextStyle(color: kRed)),
@@ -141,22 +128,36 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  int _tab = 0;
-  String _branch = 'ALL';
-  bool _loading = true;
-  Map<String, dynamic>? _students;
-  Map<String, dynamic>? _attendance;
-  Map<String, dynamic>? _finance;
-  Map<String, dynamic>? _faults;
+class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
+  static const List<String> _branchOptions = ['ALL', 'IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
+  static const List<String> _tabNames = ['Home', 'Students', 'Attendance', 'Marks', 'Faults', 'Finance', 'Settings'];
 
-  static const List<String> _branches = ['ALL', 'IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
+  late final TabController _tabController;
+  String _branch = 'ALL';
+  bool _loading = false;
+  String? _error;
+  final Map<String, Map<String, dynamic>?> _reports = {};
+  final Map<String, DateTime> _cachedAt = {};
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: _tabNames.length, vsync: this);
+    _tabController.addListener(_onTabChanged);
     _initPush();
-    _load();
+    _ensureTab(0);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    _ensureTab(_tabController.index);
+    setState(() {});
   }
 
   Future<void> _initPush() async {
@@ -168,83 +169,131 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {}
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  // Which reports each tab needs (lazy: only the active tab is fetched).
+  List<String> _keysFor(int index) {
+    switch (index) {
+      case 0:
+        return ['students', 'attendance', 'finance', 'faults'];
+      case 1:
+        return ['students'];
+      case 2:
+        return ['attendance'];
+      case 3:
+        return ['marks'];
+      case 4:
+        return ['faults'];
+      case 5:
+        return ['finance'];
+      default:
+        return [];
+    }
+  }
+
+  String _cacheKey(String name) => '$name|$_branch';
+
+  Future<void> _ensureTab(int index, {bool force = false}) async {
+    final keys = _keysFor(index);
+    if (keys.isEmpty) return;
+    final now = DateTime.now();
+    final stale = keys.where((k) {
+      final at = _cachedAt[_cacheKey(k)];
+      return force || at == null || now.difference(at).inSeconds > 180;
+    }).toList();
+    if (stale.isEmpty) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     final params = {'branchCode': _branch};
-    final res = await Future.wait<Map<String, dynamic>?>([
-      Api.get('/super-admin/report/students', params: params),
-      Api.get('/super-admin/report/attendance', params: params),
-      Api.get('/super-admin/report/finance', params: params),
-      Api.get('/super-admin/report/faults', params: params),
-    ]);
+    final results = await Future.wait(stale.map((key) => Api.get('/super-admin/report/$key', params: params)));
     if (!mounted) return;
     setState(() {
-      _students = res[0];
-      _attendance = res[1];
-      _finance = res[2];
-      _faults = res[3];
+      for (int i = 0; i < stale.length; i++) {
+        if (results[i] != null) {
+          _reports[_cacheKey(stale[i])] = results[i];
+          _cachedAt[_cacheKey(stale[i])] = DateTime.now();
+        }
+      }
       _loading = false;
+      if (results.every((r) => r == null)) _error = 'Could not load data. Check your connection.';
     });
   }
+
+  Map<String, dynamic>? _report(String name) => _reports[_cacheKey(name)];
+
+  void _changeBranch(String? value) {
+    if (value == null || value == _branch) return;
+    setState(() {
+      _branch = value;
+      _reports.clear();
+      _cachedAt.clear();
+    });
+    _ensureTab(_tabController.index, force: true);
+  }
+
+  Future<void> _refresh() => _ensureTab(_tabController.index, force: true);
 
   Future<void> _logout() async {
     await Api.logout();
     if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-      (route) => false,
-    );
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginPage()), (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final titles = ['Dashboard', 'Students', 'Finance', 'Settings'];
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[_tab], style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('IQRA Super Admin', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           PopupMenuButton<String>(
             initialValue: _branch,
-            onSelected: (v) {
-              setState(() => _branch = v);
-              _load();
-            },
-            itemBuilder: (_) => _branches
-                .map((b) => PopupMenuItem(value: b, child: Text(b == 'ALL' ? 'All branches' : b)))
-                .toList(),
+            onSelected: _changeBranch,
+            itemBuilder: (_) => _branchOptions.map((b) => PopupMenuItem(value: b, child: Text(b == 'ALL' ? 'All branches' : b))).toList(),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  const Icon(Icons.account_tree_outlined, color: Colors.white, size: 18),
-                  const SizedBox(width: 6),
-                  Text(_branch, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                ],
-              ),
+              child: Row(children: [
+                const Icon(Icons.account_tree_outlined, color: Colors.white, size: 18),
+                const SizedBox(width: 6),
+                Text(_branch, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              ]),
             ),
           ),
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          indicatorColor: kGold,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: _tabNames.map((n) => Tab(text: n)).toList(),
+        ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : IndexedStack(
-              index: _tab,
+      body: Column(
+        children: [
+          if (_loading) const LinearProgressIndicator(minHeight: 2),
+          if (_error != null)
+            Container(
+              width: double.infinity,
+              color: const Color(0xFFFFEBEE),
+              padding: const EdgeInsets.all(8),
+              child: Text(_error!, style: const TextStyle(color: kRed, fontSize: 12)),
+            ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
               children: [
-                _dashboard(),
-                _studentsTab(),
-                _financeTab(),
-                _settingsTab(),
+                _homeView(),
+                _studentsView(),
+                _attendanceView(),
+                _marksView(),
+                _faultsView(),
+                _financeView(),
+                _settingsView(),
               ],
             ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Students'),
-          NavigationDestination(icon: Icon(Icons.payments_outlined), selectedIcon: Icon(Icons.payments), label: 'Finance'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
+          ),
         ],
       ),
     );
@@ -281,78 +330,132 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _dashboard() {
-    final stuBranches = byBranch(_students);
-    final attByCode = {for (final b in byBranch(_attendance)) b['branchCode']: b};
-    final finByCode = {for (final b in byBranch(_finance)) b['branchCode']: b};
+  Widget _grid(List<Widget> cards) {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 2.4,
+      children: cards,
+    );
+  }
+
+  Widget _sectionTitle(String title) => Padding(
+        padding: const EdgeInsets.only(top: 20, bottom: 10),
+        child: Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: kBlue)),
+      );
+
+  Widget _branchTile(String name, String subtitle, String trailing, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+      child: Row(
+        children: [
+          CircleAvatar(backgroundColor: color.withValues(alpha: 0.1), child: Text(name.isNotEmpty ? name.substring(0, 1) : '?', style: TextStyle(color: color, fontWeight: FontWeight.bold))),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 2),
+              Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            ]),
+          ),
+          Text(trailing, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _empty(String message) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(message, style: const TextStyle(color: Colors.black45)),
+        ),
+      );
+
+  // ---------------- HOME ----------------
+  Widget _homeView() {
+    final students = _report('students');
+    final attendance = _report('attendance');
+    final finance = _report('finance');
+    final faults = _report('faults');
+    if (students == null && attendance == null && finance == null && faults == null) {
+      return _empty('Loading dashboard...');
+    }
+    final stuBranches = byBranchOf(students);
+    final attByCode = {for (final b in byBranchOf(attendance)) b['branchCode']: b};
+    final finByCode = {for (final b in byBranchOf(finance)) b['branchCode']: b};
 
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: _refresh,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Container(
             padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [kBlue, Color(0xFF2F5AA8)]),
-              borderRadius: BorderRadius.circular(20),
-            ),
+            decoration: BoxDecoration(gradient: const LinearGradient(colors: [kBlue, Color(0xFF2F5AA8)]), borderRadius: BorderRadius.circular(20)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Total Students', style: TextStyle(color: Colors.white70, fontSize: 14)),
                 const SizedBox(height: 6),
-                Text(fmt(_students?['grandTotal']), style: const TextStyle(color: Colors.white, fontSize: 38, fontWeight: FontWeight.bold)),
+                Text(fmt(students?['grandTotal']), style: const TextStyle(color: Colors.white, fontSize: 38, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                Text(
-                  '${fmt(_students?['grandMale'])} boys · ${fmt(_students?['grandFemale'])} girls · ${stuBranches.length} branches',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
+                Text('${fmt(students?['grandMale'])} boys · ${fmt(students?['grandFemale'])} girls · ${stuBranches.length} branches', style: const TextStyle(color: Colors.white70, fontSize: 13)),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 2.4,
-            children: [
-              _statCard('Attendance', '${fmt(_attendance?['grandRate'])}%', kGreen, Icons.check_circle_outline),
-              _statCard('Collected', birr(_finance?['grandCollected']), kGold, Icons.payments_outlined),
-              _statCard('Pending', birr(_finance?['grandPending']), kRed, Icons.money_off),
-              _statCard('Faults', fmt(_faults?['grandTotal']), const Color(0xFF6A1B9A), Icons.warning_amber_outlined),
-            ],
-          ),
-          const SizedBox(height: 20),
-          const Text('By branch', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: kBlue)),
-          const SizedBox(height: 10),
+          _grid([
+            _statCard('Attendance', '${fmt(attendance?['grandRate'])}%', kGreen, Icons.check_circle_outline),
+            _statCard('Collected', birr(finance?['grandCollected']), kGold, Icons.payments_outlined),
+            _statCard('Pending', birr(finance?['grandPending']), kRed, Icons.money_off),
+            _statCard('Faults', fmt(faults?['grandTotal']), kPurple, Icons.warning_amber_outlined),
+          ]),
+          _sectionTitle('By branch'),
           ...stuBranches.map((b) {
-            final code = b['branchCode'];
-            final att = attByCode[code];
-            final fin = finByCode[code];
-            return Container(
+            final att = attByCode[b['branchCode']];
+            final fin = finByCode[b['branchCode']];
+            return _branchTile(
+              '${b['branchName'] ?? b['branchCode']}',
+              '${fmt(b['total'])} students · ${fmt(att?['rate'])}% · ${birr(fin?['collected'])}',
+              fmt(b['total']),
+              kBlue,
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- STUDENTS ----------------
+  Widget _studentsView() {
+    final students = _report('students');
+    if (students == null) return _empty('Loading students...');
+    final branches = byBranchOf(students);
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _statCard('All students', fmt(students['grandTotal']), kBlue, Icons.people_outline),
+          const SizedBox(height: 10),
+          _statCard('Boys / Girls', '${fmt(students['grandMale'])} / ${fmt(students['grandFemale'])}', kGreen, Icons.wc),
+          const SizedBox(height: 12),
+          ...branches.map((b) {
+            final classes = listOf(b['classes']);
+            return Card(
               margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
-              child: Row(
-                children: [
-                  CircleAvatar(backgroundColor: kBlue.withValues(alpha: 0.1), child: Text('${b['branchName'] ?? code}'.substring(0, 1), style: const TextStyle(color: kBlue, fontWeight: FontWeight.bold))),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${b['branchName'] ?? code}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 2),
-                        Text('${fmt(b['total'])} students · ${fmt(att?['rate'])}% · ${birr(fin?['collected'])}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                      ],
-                    ),
-                  ),
-                  Text(fmt(b['total']), style: const TextStyle(fontWeight: FontWeight.bold, color: kBlue)),
-                ],
+              child: ExpansionTile(
+                leading: CircleAvatar(backgroundColor: kBlue.withValues(alpha: 0.1), child: Text('${b['branchName'] ?? b['branchCode']}'.substring(0, 1), style: const TextStyle(color: kBlue, fontWeight: FontWeight.bold))),
+                title: Text('${b['branchName'] ?? b['branchCode']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('${fmt(b['total'])} students · ${fmt(b['male'])} boys · ${fmt(b['female'])} girls'),
+                children: classes.map((c) {
+                  return ListTile(dense: true, title: Text('${c['className']}'), trailing: Text(fmt(c['students']), style: const TextStyle(fontWeight: FontWeight.bold)));
+                }).toList(),
               ),
             );
           }),
@@ -361,71 +464,130 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _studentsTab() {
-    final branches = byBranch(_students);
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _statCard('All students', fmt(_students?['grandTotal']), kBlue, Icons.people_outline),
-        const SizedBox(height: 12),
-        ...branches.map((b) {
-          final classes = (b['classes'] as List? ?? []);
-          return Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ExpansionTile(
-              leading: CircleAvatar(backgroundColor: kBlue.withValues(alpha: 0.1), child: Text('${b['branchName'] ?? b['branchCode']}'.substring(0, 1), style: const TextStyle(color: kBlue, fontWeight: FontWeight.bold))),
-              title: Text('${b['branchName'] ?? b['branchCode']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('${fmt(b['total'])} students · ${fmt(b['male'])} boys · ${fmt(b['female'])} girls'),
-              children: classes.map<Widget>((c) {
-                final cm = Map<String, dynamic>.from(c as Map);
-                return ListTile(
-                  dense: true,
-                  title: Text('${cm['className']}'),
-                  trailing: Text('${fmt(cm['students'])}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                );
-              }).toList(),
-            ),
-          );
-        }),
-      ],
+  // ---------------- ATTENDANCE ----------------
+  Widget _attendanceView() {
+    final attendance = _report('attendance');
+    if (attendance == null) return _empty('Loading attendance...');
+    final branches = byBranchOf(attendance);
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _grid([
+            _statCard('Rate', '${fmt(attendance['grandRate'])}%', kGreen, Icons.percent),
+            _statCard('Records', fmt(attendance['grandTotal']), kBlue, Icons.list_alt),
+            _statCard('Present', fmt(attendance['grandPresent']), kGreen, Icons.check),
+            _statCard('Absent', fmt(attendance['grandAbsent']), kRed, Icons.close),
+            _statCard('Late', fmt(attendance['grandLate']), kGold, Icons.schedule),
+            _statCard('Permission', fmt(attendance['grandPermission']), kPurple, Icons.verified_outlined),
+          ]),
+          _sectionTitle('By branch'),
+          ...branches.map((b) => _branchTile(
+                '${b['branchName'] ?? b['branchCode']}',
+                '${fmt(b['present'])} present · ${fmt(b['absent'])} absent · ${fmt(b['late'])} late',
+                '${fmt(b['rate'])}%',
+                kGreen,
+              )),
+        ],
+      ),
     );
   }
 
-  Widget _financeTab() {
-    final branches = byBranch(_finance);
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _statCard('Expected', birr(_finance?['grandExpected']), kBlue, Icons.account_balance_wallet_outlined),
-        const SizedBox(height: 10),
-        _statCard('Collected', birr(_finance?['grandCollected']), kGreen, Icons.savings_outlined),
-        const SizedBox(height: 10),
-        _statCard('Pending', birr(_finance?['grandPending']), kRed, Icons.money_off),
-        const SizedBox(height: 16),
-        ...branches.map((b) => Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
+  // ---------------- MARKS ----------------
+  Widget _marksView() {
+    final marks = _report('marks');
+    if (marks == null) return _empty('Loading marks...');
+    final branches = byBranchOf(marks);
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _grid([
+            _statCard('Avg score', fmt(marks['grandAvgScore']), kBlue, Icons.grading),
+            _statCard('Graded students', fmt(marks['grandGradedStudents']), kGreen, Icons.people_outline),
+            _statCard('Subjects', fmt(marks['grandSubjectsCount']), kGold, Icons.menu_book_outlined),
+            _statCard('Term', '${marks['term'] ?? '-'}', kPurple, Icons.event_note),
+          ]),
+          _sectionTitle('By branch'),
+          ...branches.map((b) => _branchTile(
+                '${b['branchName'] ?? b['branchCode']}',
+                '${fmt(b['totalGradedStudents'])} graded · ${fmt(b['subjectsCount'])} subjects',
+                fmt(b['avgScore']),
+                kBlue,
+              )),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- FAULTS ----------------
+  Widget _faultsView() {
+    final faults = _report('faults');
+    if (faults == null) return _empty('Loading faults...');
+    final branches = byBranchOf(faults);
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _statCard('Total faults', fmt(faults['grandTotal']), kPurple, Icons.warning_amber_outlined),
+          const SizedBox(height: 12),
+          ...branches.map((b) {
+            final classes = listOf(b['classes']);
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ExpansionTile(
+                leading: CircleAvatar(backgroundColor: kPurple.withValues(alpha: 0.1), child: Icon(Icons.warning_amber_outlined, color: kPurple, size: 20)),
                 title: Text('${b['branchName'] ?? b['branchCode']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('Collected ${birr(b['collected'])} · Pending ${birr(b['pending'])}'),
-                trailing: Text(birr(b['collected']), style: const TextStyle(color: kGreen, fontWeight: FontWeight.bold)),
+                subtitle: Text('${fmt(b['total'])} faults'),
+                children: classes.map((c) => ListTile(dense: true, title: Text('${c['className']}'), trailing: Text(fmt(c['faults']), style: const TextStyle(fontWeight: FontWeight.bold)))).toList(),
               ),
-            )),
-      ],
+            );
+          }),
+        ],
+      ),
     );
   }
 
-  Widget _settingsTab() {
+  // ---------------- FINANCE ----------------
+  Widget _financeView() {
+    final finance = _report('finance');
+    if (finance == null) return _empty('Loading finance...');
+    final branches = byBranchOf(finance);
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _grid([
+            _statCard('Expected', birr(finance['grandExpected']), kBlue, Icons.account_balance_wallet_outlined),
+            _statCard('Collected', birr(finance['grandCollected']), kGreen, Icons.savings_outlined),
+            _statCard('Pending', birr(finance['grandPending']), kRed, Icons.money_off),
+            _statCard('Collection rate', '${fmt(finance['grandRate'])}%', kGold, Icons.percent),
+          ]),
+          _sectionTitle('By branch'),
+          ...branches.map((b) => _branchTile(
+                '${b['branchName'] ?? b['branchCode']}',
+                'Collected ${birr(b['collected'])} · Pending ${birr(b['pending'])}',
+                birr(b['collected']),
+                kGreen,
+              )),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- SETTINGS ----------------
+  Widget _settingsView() {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
           child: Column(
             children: [
-              ListTile(
-                leading: const Icon(Icons.person_outline, color: kBlue),
-                title: const Text('Signed in as'),
-                subtitle: Text(Api.username ?? '-'),
-              ),
+              ListTile(leading: const Icon(Icons.person_outline, color: kBlue), title: const Text('Signed in as'), subtitle: Text(Api.username ?? '-')),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.account_tree_outlined, color: kBlue),
@@ -434,19 +596,15 @@ class _HomePageState extends State<HomePage> {
                 trailing: DropdownButton<String>(
                   value: _branch,
                   underline: const SizedBox(),
-                  items: _branches.map((b) => DropdownMenuItem(value: b, child: Text(b == 'ALL' ? 'ALL' : b))).toList(),
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() => _branch = v);
-                    _load();
-                  },
+                  items: _branchOptions.map((b) => DropdownMenuItem(value: b, child: Text(b == 'ALL' ? 'ALL' : b))).toList(),
+                  onChanged: _changeBranch,
                 ),
               ),
               const Divider(height: 1),
               const ListTile(
                 leading: Icon(Icons.notifications_active_outlined, color: kGold),
                 title: Text('Daily report notification'),
-                subtitle: Text('You receive a push notification every day at 08:00 with the latest totals.'),
+                subtitle: Text('A push notification is sent every day at 08:00 with the latest totals.'),
               ),
             ],
           ),
@@ -462,7 +620,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         const SizedBox(height: 12),
-        const Center(child: Text('Skoolific Super Admin · 1.0.0', style: TextStyle(color: Colors.black38, fontSize: 12))),
+        const Center(child: Text('IQRA Super Admin · 1.0.1', style: TextStyle(color: Colors.black38, fontSize: 12))),
       ],
     );
   }
