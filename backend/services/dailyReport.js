@@ -138,6 +138,53 @@ async function resolveRecipients(db, settings) {
   return [];
 }
 
+async function sendSuperAdminPush(db, summary) {
+  try {
+    const saPath = path.join(__dirname, '../firebase-service-account-staff.json');
+    if (!fs.existsSync(saPath)) return { sent: 0, reason: 'no firebase service account' };
+    const sa = JSON.parse(fs.readFileSync(saPath, 'utf8'));
+    const rows = (await db.query('SELECT fcm_token FROM super_admin_devices WHERE active = TRUE')).rows;
+    if (!rows.length) return { sent: 0, reason: 'no registered devices' };
+
+    const now = Math.floor(Date.now() / 1000);
+    const assertion = jwt.sign({
+      iss: sa.client_email,
+      scope: 'https://www.googleapis.com/auth/firebase.messaging',
+      aud: 'https://oauth2.googleapis.com/token',
+      iat: now,
+      exp: now + 3600,
+    }, sa.private_key, { algorithm: 'RS256' });
+    const tr = await axios.post('https://oauth2.googleapis.com/token',
+      'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=' + encodeURIComponent(assertion),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    const accessToken = tr.data.access_token;
+
+    const body = 'Students ' + summary.students + ' · New ' + summary.newRegistrations +
+      ' · Attendance ' + summary.attendanceRate + '% · Pending ' + Number(summary.pending).toLocaleString() + ' Birr';
+
+    let sent = 0;
+    for (const row of rows) {
+      try {
+        await axios.post('https://fcm.googleapis.com/v1/projects/' + sa.project_id + '/messages:send', {
+          message: {
+            token: row.fcm_token,
+            notification: { title: 'Skoolific Daily Report', body },
+            data: { type: 'daily_report', date: String(summary.date) },
+            android: {
+              priority: 'high',
+              notification: { channel_id: 'skoolific_alerts', sound: 'default', default_sound: true },
+            },
+          },
+        }, { headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' } });
+        sent++;
+      } catch (_) {}
+    }
+    return { sent };
+  } catch (e) {
+    return { sent: 0, error: e.message };
+  }
+}
+
 async function sendDailyReport({ force = false } = {}) {
   const db = masterPool();
   try {
@@ -152,48 +199,57 @@ async function sendDailyReport({ force = false } = {}) {
     }
 
     const recipients = await resolveRecipients(db, settings);
-    if (!recipients.length) return { sent: false, reason: 'no recipients configured' };
-
     const summary = await buildSummary();
 
     const smtpUser = String(process.env.SMTP_USER || '');
     const smtpPlaceholder = !smtpUser || /your-email|example\.com|changeme|your_email/i.test(smtpUser);
-    if (!process.env.SMTP_HOST || smtpPlaceholder || !process.env.SMTP_PASS) {
-      return { sent: false, reason: 'SMTP is not configured (set real SMTP_USER / SMTP_PASS in .env)', summary, recipients };
-    }
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    });
+    const smtpConfigured = !!(process.env.SMTP_HOST && !smtpPlaceholder && process.env.SMTP_PASS);
 
-    let status = 'sent';
+    let status = (smtpConfigured && recipients.length) ? 'sent' : 'skipped';
     let errorMessage = null;
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_USER,
-        to: recipients.join(','),
-        subject: 'Skoolific Daily Report — ' + today,
-        text: emailText(summary),
-        html: emailHtml(summary),
+
+    if (smtpConfigured && recipients.length) {
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: false,
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
       });
-    } catch (e) {
-      status = 'failed';
-      errorMessage = e.message;
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_USER,
+          to: recipients.join(','),
+          subject: 'Skoolific Daily Report - ' + today,
+          text: emailText(summary),
+          html: emailHtml(summary),
+        });
+      } catch (e) {
+        status = 'failed';
+        errorMessage = e.message;
+      }
+      await db.query(
+        `INSERT INTO notifications_log (user_type, notification_type, channel, title, message, status, error_message, metadata)
+         VALUES ('super_admin', 'daily_report', 'email', $1, $2, $3, $4, $5)`,
+        ['Skoolific Daily Report - ' + today, emailText(summary), status, errorMessage, JSON.stringify(summary)]
+      ).catch(() => {});
     }
 
-    await db.query(
-      `INSERT INTO notifications_log (user_type, notification_type, channel, title, message, status, error_message, metadata)
-       VALUES ('super_admin', 'daily_report', 'email', $1, $2, $3, $4, $5)`,
-      ['Skoolific Daily Report — ' + today, emailText(summary), status, errorMessage, JSON.stringify(summary)]
-    ).catch(() => {});
+    // Push notification to the Super Admin app (works even if email is not set up)
+    let push = { sent: 0 };
+    try { push = await sendSuperAdminPush(db, summary); } catch (e) { push = { sent: 0, error: e.message }; }
+    if (push.sent > 0) {
+      await db.query(
+        `INSERT INTO notifications_log (user_type, notification_type, channel, title, message, status, metadata)
+         VALUES ('super_admin', 'daily_report', 'push', $1, $2, 'sent', $3)`,
+        ['Skoolific Daily Report - ' + today, emailText(summary), JSON.stringify(summary)]
+      ).catch(() => {});
+    }
 
-    if (status === 'sent') {
+    if (status === 'sent' || push.sent > 0) {
       await db.query('UPDATE super_admin_settings SET last_sent_date = CURRENT_DATE, updated_at = NOW() WHERE id = 1');
     }
 
-    return { sent: status === 'sent', status, recipients, summary, error: errorMessage };
+    return { sent: status === 'sent' || push.sent > 0, status, recipients, summary, error: errorMessage, push };
   } catch (e) {
     return { sent: false, reason: e.message };
   } finally {

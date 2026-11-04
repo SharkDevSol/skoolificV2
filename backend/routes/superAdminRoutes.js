@@ -1530,6 +1530,41 @@ router.put('/branch-admins/:branchCode', authenticateToken, authorizeRoles('supe
   }
 });
 
+// ---- SUPER ADMIN APP DEVICE REGISTRATION (push notifications) ----
+router.post('/register-device', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  const pool = getMasterPool();
+  try {
+    const { fcm_token, platform } = req.body || {};
+    if (!fcm_token) return res.status(400).json({ error: 'fcm_token is required' });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS super_admin_devices (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100),
+        fcm_token TEXT NOT NULL UNIQUE,
+        platform VARCHAR(20) DEFAULT 'android',
+        active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(
+      `INSERT INTO super_admin_devices (username, fcm_token, platform)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (fcm_token) DO UPDATE SET
+         active = TRUE,
+         username = EXCLUDED.username,
+         platform = EXCLUDED.platform,
+         updated_at = NOW()`,
+      [req.user && req.user.username ? req.user.username : null, fcm_token, platform || 'android']
+    );
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to register device', details: error.message });
+  } finally {
+    await pool.end().catch(() => {});
+  }
+});
+
 // ---- DAILY REPORT NOTIFICATIONS ----
 router.get('/daily-report/settings', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
   try {

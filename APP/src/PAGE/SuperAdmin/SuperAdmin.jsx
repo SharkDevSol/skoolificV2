@@ -760,7 +760,7 @@ const SuperAdmin = () => {
         const ALLOWED = ['IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
         const all = branchesRes.data.branches;
         const matched = all.filter((x) => ALLOWED.includes(String(x.branch_code).toUpperCase()));
-        setBranches((matched.length > 0 ? matched : all).map((x) => ({ code: x.branch_code, name: x.branch_name })));
+        setBranches(matched.map((x) => ({ code: x.branch_code, name: x.branch_name })));
       }
       const stu = ok('students'); if (stu?.data?.data) setStudents(stu.data.data);
       const att = ok('attendance'); if (att?.data?.data) setAttendance(att.data.data);
