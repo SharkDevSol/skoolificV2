@@ -1,6 +1,6 @@
 # IQRA Super Admin app (APK)
 
-App name: **IQRA Super Admin** · Package: `com.skoolific.superadmin` · Version 1.1.0 (code 5)
+App name: **IQRA Super Admin** · Package: `com.skoolific.superadmin` · Version 1.1.1 (code 6)
 Firebase project: **iqra-staff1** (Android app `com.skoolific.superadmin` registered)
 
 ## Approach
@@ -13,8 +13,8 @@ registered for the 08:00 push.
 
 ## APK location
 ```
-SERVER: /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.1.0.apk
-URL   : https://iqra.skoolific.com/apps/iqra/super-admin/android/iqra-super-admin-v1.1.0.apk
+SERVER: /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.1.1.apk
+URL   : https://iqra.skoolific.com/apps/iqra/super-admin/android/iqra-super-admin-v1.1.1.apk
 ```
 Listed in `/var/www/app-downloads/versions.json` under `iqra/super-admin`.
 Older builds in `iqra/super-admin/android/archive/`.
@@ -24,7 +24,7 @@ Older builds in `iqra/super-admin/android/archive/`.
 cd /root/build/super-admin-app
 /opt/flutter/bin/flutter build apk --release
 cp build/app/outputs/flutter-apk/app-release.apk \
-   /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.1.0.apk
+   /var/www/app-downloads/iqra/super-admin/android/iqra-super-admin-v1.1.1.apk
 ```
 
 ## History
@@ -32,5 +32,5 @@ cp build/app/outputs/flutter-apk/app-release.apk \
 - 1.0.1: fixed `MainActivity` package, renamed to IQRA Super Admin, IQRA icon.
 - 1.0.2: native tabs (partial parity).
 - 1.0.3: native tabs + settings.
-- 1.1.0: **WebView of the real /super-admin page** — 100% parity with the web design/data,
+- 1.1.1: PDF exports via native share sheet; dark/light, nav, logout and mobile sizing fixed on the web page.\n- 1.1.0: **WebView of the real /super-admin page** — 100% parity with the web design/data,
   plus daily push registration.

@@ -184,6 +184,21 @@ const LANGS = [
   { code: 'ar', labelKey: 'arabic' }
 ];
 
+// Save a jsPDF document: inside the mobile app hand it to the native share
+// sheet (WebView cannot download); in a browser use the normal download.
+const savePdfWithBridge = (doc, fileName) => {
+  try {
+    const dataUri = doc.output('datauristring');
+    const base64 = String(dataUri).split(',')[1];
+    if (base64 && typeof window !== 'undefined' && window.SuperAdminBridge && window.SuperAdminBridge.postMessage) {
+      window.SuperAdminBridge.postMessage(JSON.stringify({ type: 'pdf', name: fileName, data: base64 }));
+      return true;
+    }
+  } catch (e) {}
+  doc.save(fileName);
+  return false;
+};
+
 const TABS = [
   { key: 'home', labelKey: 'home', icon: FiHome, short: 'Home' },
   { key: 'students', labelKey: 'students', icon: FiUsers, short: 'Stud' },
@@ -609,7 +624,7 @@ const exportFinancePdf = (f, branchFilter) => {
   }
 
   const timeStamp = now.toISOString().replace(/[-:T]/g, '').substring(0, 14);
-  doc.save(`Iqra_Monthly_Payment_Report_${timeStamp}.pdf`);
+  savePdfWithBridge(doc, `Iqra_Monthly_Payment_Report_${timeStamp}.pdf`);
 };
 
 const SuperAdmin = () => {
@@ -701,6 +716,14 @@ const SuperAdmin = () => {
 
   useEffect(() => {
     localStorage.setItem('superAdminTheme', dark ? 'dark' : 'light');
+    try {
+      const bg = dark ? '#0f0a09' : '#f2f3f5';
+      document.documentElement.style.background = bg;
+      document.body.style.background = bg;
+      document.body.style.colorScheme = dark ? 'dark' : 'light';
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', dark ? '#170f0d' : '#8b1a1a');
+    } catch (_) {}
   }, [dark]);
 
   const handleLogin = async (e) => {
@@ -1745,7 +1768,7 @@ const SuperAdmin = () => {
     const f = finance;
     const byClass = f?.byClass || [];
     const maxExpected = Math.max(1, ...byClass.map((c) => c.expected || 0));
-    const rate = f?.grandExpected > 0 ? Math.round((f.grandCollected / f.grandExpected) * 100) : 0;
+    const rate = f?.grandExpected > 0 ? Math.round(((f?.grandCollectedUnlocked || f?.grandCollected) / f.grandExpected) * 100) : 0;
     const branchesList = activeBranches(f);
 
     // Collect all locked month prepayments
@@ -1921,6 +1944,22 @@ const SuperAdmin = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                 <span style={{ color: 'var(--muted)' }}>Outstanding Due:</span>
                 <b style={{ color: '#b91c1c' }}>{birr(f?.grandPendingUnlocked || f?.grandPending)}</b>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--inputBg)', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', marginBottom: 8 }}>All Months & Advance Summary</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Grand Cash Collected:</span>
+                <b style={{ color: '#15803d' }}>{birr(f?.grandCollected)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--muted)' }}>Advance Prepayments:</span>
+                <b style={{ color: '#b45309' }}>{birr(f?.grandAdvance)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: 'var(--muted)' }}>Full Year Pending:</span>
+                <b style={{ color: '#b91c1c' }}>{birr(f?.grandPendingAll)}</b>
               </div>
             </div>
           </div>
@@ -2533,7 +2572,7 @@ const SuperAdmin = () => {
     : branches.find((b) => b.code === branch)?.name || branch;
 
   return (
-    <div className={styles.wrap}>
+    <div className={`${styles.wrap} ${dark ? styles.wrapDark : ''}`}>
       <div className={`${styles.app} ${dark ? styles.appDark : ''}`}>
         <div className={styles.header}>
           <div className={styles.headerTop}>
@@ -2543,7 +2582,7 @@ const SuperAdmin = () => {
               <p className={styles.subtitle}>{currentBranchName}</p>
             </div>
             <button className={styles.logoutBtn} onClick={handleLogout} title={t('logout')}>
-              <FiLogOut size={12} />
+              <FiLogOut size={20} />
             </button>
           </div>
           <BranchSelector />

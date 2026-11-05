@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'api.dart';
 
 const kBlue = Color(0xFF1F3B73);
@@ -99,8 +103,28 @@ class _SuperAdminWebState extends State<SuperAdminWeb> {
   }
 
   Future<void> _onJsMessage(JavaScriptMessage message) async {
-    final token = message.message.trim();
-    if (token.isEmpty || token == Api.token) return;
+    final raw = message.message.trim();
+    if (raw.isEmpty) return;
+
+    // PDF downloaded from the web page -> open the native share/save sheet.
+    if (raw.startsWith('{')) {
+      try {
+        final j = jsonDecode(raw);
+        if (j is Map && j['type'] == 'pdf') {
+          final name = (j['name'] ?? 'report.pdf').toString().replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+          final bytes = base64Decode((j['data'] ?? '').toString());
+          final dir = await getTemporaryDirectory();
+          final file = File('${dir.path}/$name');
+          await file.writeAsBytes(bytes, flush: true);
+          await Share.shareXFiles([XFile(file.path)]);
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // Otherwise this is the super admin session token.
+    final token = raw;
+    if (token == Api.token) return;
     Api.token = token;
     try {
       final t = await FirebaseMessaging.instance.getToken();
