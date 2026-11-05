@@ -3,7 +3,7 @@ import api from '../../utils/api';
 import {
   FiHome, FiUsers, FiCheckCircle, FiClipboard, FiAlertTriangle, FiDollarSign, FiSettings,
   FiLogOut, FiChevronDown, FiCheck, FiMoon, FiGlobe, FiKey, FiUser, FiMessageSquare,
-  FiDownload, FiFileText
+  FiDownload, FiFileText, FiRefreshCw, FiPlus
 } from 'react-icons/fi';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -630,13 +630,15 @@ const exportFinancePdf = (f, branchFilter) => {
 const SuperAdmin = () => {
   const [lang, setLang] = useState(localStorage.getItem('superAdminLang') || 'en');
   const [dark, setDark] = useState(localStorage.getItem('superAdminTheme') === 'dark');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [remember, setRemember] = useState(localStorage.getItem('superAdminRemember') !== 'false');
   const t = (key) => I18N[lang]?.[key] || I18N.en[key] || key;
   // FIX: hide the Finance tab from the 'abdi' account (per-user menu)
   const loggedInUser = localStorage.getItem('superAdminUser') || '';
   const visibleTabs = TABS.filter(tb => !(loggedInUser === 'abdi' && tb.key === 'finance'));
 
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('superAdminToken'));
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginForm, setLoginForm] = useState({ username: localStorage.getItem('superAdminRememberUser') || '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -734,6 +736,13 @@ const SuperAdmin = () => {
       const res = await api.post('/super-admin/login', loginForm);
       localStorage.setItem('superAdminToken', res.data.token);
       localStorage.setItem('superAdminUser', res.data?.user?.username || loginForm.username);
+      if (remember) {
+        localStorage.setItem('superAdminRememberUser', loginForm.username);
+        localStorage.setItem('superAdminRemember', 'true');
+      } else {
+        localStorage.removeItem('superAdminRememberUser');
+        localStorage.setItem('superAdminRemember', 'false');
+      }
       setIsLoggedIn(true);
     } catch (err) {
       // stay on the super-admin page — never redirect to the admin login
@@ -982,6 +991,10 @@ const SuperAdmin = () => {
               onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
               required
             />
+            <label className={styles.rememberRow}>
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              <span>Remember me</span>
+            </label>
             <button type="submit" className={styles.loginBtn} disabled={loginLoading}>
               {loginLoading ? t('signingIn') : t('signIn')}
             </button>
@@ -2552,6 +2565,11 @@ const SuperAdmin = () => {
             </div>
           </div>
         </div>
+        <div className={styles.card} style={{ padding: 12 }}>
+          <button type="button" className={styles.logoutRow} onClick={handleLogout}>
+            <FiLogOut size={18} /> {t('logout')}
+          </button>
+        </div>
       </>
     );
   };
@@ -2581,8 +2599,8 @@ const SuperAdmin = () => {
               <h1 className={styles.title}>{t('appName')}</h1>
               <p className={styles.subtitle}>{currentBranchName}</p>
             </div>
-            <button className={styles.logoutBtn} onClick={handleLogout} title={t('logout')}>
-              <FiLogOut size={20} />
+            <button className={styles.iconBtn} onClick={() => loadAll()} title="Refresh">
+              <FiRefreshCw size={20} />
             </button>
           </div>
           <BranchSelector />
@@ -2597,21 +2615,53 @@ const SuperAdmin = () => {
           )}
         </div>
 
-        <div className={styles.nav}>
-          {visibleTabs.map((tb) => {
-            const Icon = tb.icon;
-            return (
-              <button
-                key={tb.key}
-                className={`${styles.navItem} ${tab === tb.key ? styles.navItemActive : ''}`}
-                onClick={() => setTab(tb.key)}
-              >
-                <Icon />
-                <span>{tb.short}</span>
-              </button>
-            );
-          })}
+        <div className={styles.floatNav}>
+          <div className={styles.floatNavInner}>
+            {visibleTabs.filter((tb) => ['home', 'students', 'finance'].includes(tb.key)).map((tb) => {
+              const Icon = tb.icon;
+              return (
+                <button
+                  key={tb.key}
+                  className={`${styles.floatItem} ${tab === tb.key ? styles.floatItemActive : ''}`}
+                  onClick={() => { setTab(tb.key); setMoreOpen(false); }}
+                >
+                  <Icon />
+                  <span>{tb.short}</span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className={`${styles.floatAdd} ${['attendance', 'marks', 'faults', 'sms', 'settings'].includes(tab) ? styles.floatAddActive : ''}`}
+              onClick={() => setMoreOpen((o) => !o)}
+              aria-label="More tabs"
+            >
+              <FiPlus />
+            </button>
+          </div>
         </div>
+
+        {moreOpen && (
+          <>
+            <div className={styles.floatSheetBackdrop} onClick={() => setMoreOpen(false)} />
+            <div className={styles.floatSheet}>
+              {visibleTabs.filter((tb) => ['attendance', 'marks', 'faults', 'sms', 'settings'].includes(tb.key)).map((tb) => {
+                const Icon = tb.icon;
+                return (
+                  <button
+                    key={tb.key}
+                    type="button"
+                    className={styles.floatSheetItem}
+                    onClick={() => { setTab(tb.key); setMoreOpen(false); }}
+                  >
+                    <Icon />
+                    <span>{tb.short}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
