@@ -37,11 +37,15 @@ const branchAxios = (() => {
   return inst;
 })();
 // class names must be sane (filters DB garbage like '<' from old rows)
-const saneClass = (c) => typeof c === 'string' && c.trim().length >= 2 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
+const saneClass = (c) => typeof c === 'string' && c.trim().length >= 1 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
 
 import styles from '../Finance/PaymentManagement.module.css';
+import { dedupeStaff } from '../../utils/staffList';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const AttendanceTimeSettings = () => {
   const [settings, setSettings] = useState(null);
@@ -144,7 +148,7 @@ const AttendanceTimeSettings = () => {
             );
             
             const staffWithMeta = (dataResponse.data?.data || []).map(staff => ({
-              id: staff.id || staff.staff_id || staff.global_staff_id,
+              id: staff.global_staff_id || staff.staff_id || staff.id,
               name: staff.full_name || staff.name,
               staffType,
               className
@@ -157,7 +161,10 @@ const AttendanceTimeSettings = () => {
         }
       }
       
-      setStaffList(allStaff);
+      const unique = dedupeStaff(allStaff).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''))
+      );
+      setStaffList(unique);
     } catch (error) {
       console.error('Error fetching staff:', error);
     } finally {

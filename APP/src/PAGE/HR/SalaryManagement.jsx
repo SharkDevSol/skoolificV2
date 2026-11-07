@@ -38,7 +38,7 @@ const branchAxios = (() => {
   return inst;
 })();
 // class names must be sane (filters DB garbage like '<' from old rows)
-const saneClass = (c) => typeof c === 'string' && c.trim().length >= 2 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
+const saneClass = (c) => typeof c === 'string' && c.trim().length >= 1 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
 
 import { Plus, RefreshCw } from 'lucide-react';
 import styles from './SalaryManagement.module.css';
@@ -49,8 +49,12 @@ import EditSalaryModal from './components/EditSalaryModal';
 import TipsTab from './components/TipsTab';
 import CreditTab from './components/CreditTab';
 import { getCurrentEthiopianMonth } from '../../utils/ethiopianCalendar';
+import { dedupeStaff } from '../../utils/staffList';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const SalaryManagement = () => {
   const { t } = useTranslation();
@@ -124,6 +128,9 @@ const SalaryManagement = () => {
         }
       }
       
+      allStaffMembers = dedupeStaff(allStaffMembers).sort((a, b) =>
+        String(a.fullName || '').localeCompare(String(b.fullName || ''))
+      );
       setAllStaff(allStaffMembers);
     } catch (err) {
       setError('Failed to fetch staff members');

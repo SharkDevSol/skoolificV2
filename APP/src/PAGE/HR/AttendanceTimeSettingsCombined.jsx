@@ -2,8 +2,12 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from '../Finance/PaymentManagement.module.css';
 import StaffSpecificTimeTab from './components/StaffSpecificTimeTab';
+import { dedupeStaff } from '../../utils/staffList';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const AttendanceTimeSettingsCombined = () => {
   const [activeTab, setActiveTab] = useState('global'); // 'global', 'shifts', 'staff-assignment', 'staff-specific'
@@ -258,7 +262,10 @@ const AttendanceTimeSettingsCombined = () => {
         }
       }
 
-      setStaff(allStaff);
+      const unique = dedupeStaff(allStaff).sort((x, y) =>
+        String(x.name || '').localeCompare(String(y.name || ''))
+      );
+      setStaff(unique);
     } catch (error) {
       console.error('Error fetching staff:', error);
     }

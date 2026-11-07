@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from '../Finance/PaymentManagement.module.css';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const StaffSpecificTiming = () => {
   const [staff, setStaff] = useState([]);

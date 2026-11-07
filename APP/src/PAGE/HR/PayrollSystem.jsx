@@ -3,7 +3,10 @@ import axios from 'axios';
 import styles from '../Finance/PaymentManagement.module.css';
 import { getCurrentEthiopianMonth } from '../../utils/ethiopianCalendar';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const PayrollSystem = () => {
   const [payrollData, setPayrollData] = useState(null);

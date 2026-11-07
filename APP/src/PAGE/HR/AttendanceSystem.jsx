@@ -38,15 +38,19 @@ const branchAxios = (() => {
   return inst;
 })();
 // class names must be sane (filters DB garbage like '<' from old rows)
-const saneClass = (c) => typeof c === 'string' && c.trim().length >= 2 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
+const saneClass = (c) => typeof c === 'string' && c.trim().length >= 1 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
 
 import { FiCalendar, FiUsers, FiClock, FiTrendingUp, FiX, FiTrash2 } from 'react-icons/fi';
 import styles from './AttendanceSystem.module.css';
 import Button from '../../COMPONENTS/Button/Button';
 import Card from '../../COMPONENTS/Card/Card';
 import { getCurrentEthiopianMonth, getEthiopianMonthName, ethiopianToGregorian } from '../../utils/ethiopianCalendar';
+import { dedupeStaff } from '../../utils/staffList';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const ethiopianMonths = [
   'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
@@ -182,10 +186,13 @@ const TeacherAttendance = () => {
         }
       }
       
-      setStaff(allStaff);
-      console.log('👥 Loaded staff:', allStaff.length, 'members');
-      if (allStaff.length > 0) {
-        console.log('📄 All staff IDs:', allStaff.map(s => ({ 
+      const uniqueStaff = dedupeStaff(allStaff).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''))
+      );
+      setStaff(uniqueStaff);
+      console.log('Loaded staff:', uniqueStaff.length, 'members');
+      if (uniqueStaff.length > 0) {
+        console.log('All staff IDs:', uniqueStaff.map(s => ({ 
           id: s.id, 
           name: s.name,
           machineId: s.machineId

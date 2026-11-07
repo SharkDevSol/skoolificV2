@@ -38,7 +38,7 @@ const branchAxios = (() => {
   return inst;
 })();
 // class names must be sane (filters DB garbage like '<' from old rows)
-const saneClass = (c) => typeof c === 'string' && c.trim().length >= 2 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
+const saneClass = (c) => typeof c === 'string' && c.trim().length >= 1 && /^[A-Za-z0-9 _()-]+$/.test(c.trim());
 
 import { Plus } from 'lucide-react';
 import styles from './LeaveManagement.module.css';
@@ -49,8 +49,12 @@ import Select from '../../COMPONENTS/Select/Select';
 import Input from '../../COMPONENTS/Input/Input';
 import Table from '../../COMPONENTS/Table/Table';
 import Badge from '../../COMPONENTS/Badge/Badge';
+import { dedupeStaff } from '../../utils/staffList';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const LeaveManagement = () => {
   const { t } = useTranslation();
@@ -132,6 +136,9 @@ const LeaveManagement = () => {
         }
       }
 
+      allStaff = dedupeStaff(allStaff).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''))
+      );
       setStaffList(allStaff);
       console.log('✅ Loaded staff for leave:', allStaff.length, 'members');
       console.log('📋 Staff list:', allStaff);

@@ -7,7 +7,10 @@ import Card from '../../COMPONENTS/Card/Card';
 import Button from '../../COMPONENTS/Button/Button';
 import Badge from '../../COMPONENTS/Badge/Badge';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL =
+  (typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin + '/api'
+    : (import.meta.env.VITE_API_URL || '/api'));
 
 const AttendanceDeductionSettings = () => {
   const { t } = useTranslation();
