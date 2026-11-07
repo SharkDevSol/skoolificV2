@@ -101,7 +101,7 @@ const SalaryManagement = () => {
           for (const className of (classesResponse.data || []).filter(saneClass)) {
             try {
               const dataResponse = await branchAxios.get(
-                `${API_URL}/staff/data/${staffType}/${className}`
+                `${API_URL}/staff/data/${staffType}/${className}?includeInactive=true`
               );
               const staffData = dataResponse.data.data || [];
               
@@ -115,6 +115,7 @@ const SalaryManagement = () => {
                 phone: staff.phone || '',
                 staffType: staffType,
                 role: staff.role || staff.position || staffType,
+                isActive: staff.is_active !== false,
                 profilePhotoUrl: staff.image_staff || null
               }));
               
@@ -343,6 +344,11 @@ const SalaryManagement = () => {
                           </td>
                           <td>
                             <strong>{staff.fullName}</strong>
+                            {!staff.isActive && (
+                              <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#b21e23' }}>
+                                INACTIVE
+                              </span>
+                            )}
                             <br />
                             <small className={styles.subText}>ID: {staff.employeeNumber}</small>
                           </td>
