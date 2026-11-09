@@ -88,3 +88,13 @@ coverage/
 *.tmp
 *.temp
 .cache/
+
+# Temporary scratch files and artifacts
+*.tgz
+*.tar.gz
+*.pdf
+check_sms.js
+find_aisha.*
+test_*.js
+oneco-deploy/
+

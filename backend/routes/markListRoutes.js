@@ -86,6 +86,149 @@ const getActiveStudentsWhereClause = async (client, className) => {
   return hasIsActive ? 'WHERE is_active = TRUE OR is_active IS NULL' : '';
 };
 
+// Helper to resolve form configuration with intelligent multi-stage fallback
+// Handles section suffixes (g4a -> g4, kg2b -> kg2), missing terms, sibling sections, or table column synthesis
+const resolveFormConfig = async (clientOrPool, schemaName, className, termNumber, tableName = null) => {
+  if (!className) return null;
+  const rawClass = String(className).trim().toLowerCase();
+  const termNum = parseInt(termNumber, 10) || 1;
+
+  const match = rawClass.match(/^([a-z]*?\d+)[a-z]*$/i);
+  const baseGrade = match ? match[1].toLowerCase() : rawClass;
+
+  try {
+    // 1. Exact match (case-insensitive)
+    let res = await clientOrPool.query(
+      `SELECT * FROM ${schemaName}.form_config WHERE LOWER(class_name) = LOWER($1) AND term_number = $2 LIMIT 1`,
+      [rawClass, termNum]
+    );
+    if (res.rows.length > 0) return res.rows[0];
+
+    // 2. Base grade match (e.g. 'g4a' -> 'g4', 'kg2c' -> 'kg2')
+    if (baseGrade !== rawClass) {
+      res = await clientOrPool.query(
+        `SELECT * FROM ${schemaName}.form_config WHERE LOWER(class_name) = LOWER($1) AND term_number = $2 LIMIT 1`,
+        [baseGrade, termNum]
+      );
+      if (res.rows.length > 0) {
+        const found = res.rows[0];
+        try {
+          await clientOrPool.query(`
+            INSERT INTO ${schemaName}.form_config (class_name, term_number, mark_components, pass_threshold)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (class_name, term_number) DO NOTHING
+          `, [rawClass, termNum, JSON.stringify(found.mark_components), found.pass_threshold || 50]);
+        } catch (_) {}
+        return found;
+      }
+    }
+
+    // 3. Sibling section of same grade in this term (e.g. g4b for g4a)
+    res = await clientOrPool.query(
+      `SELECT * FROM ${schemaName}.form_config 
+       WHERE LOWER(class_name) LIKE LOWER($1) || '%' AND term_number = $2 
+       ORDER BY class_name ASC LIMIT 1`,
+      [baseGrade, termNum]
+    );
+    if (res.rows.length > 0) {
+      const found = res.rows[0];
+      try {
+        await clientOrPool.query(`
+          INSERT INTO ${schemaName}.form_config (class_name, term_number, mark_components, pass_threshold)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (class_name, term_number) DO NOTHING
+        `, [rawClass, termNum, JSON.stringify(found.mark_components), found.pass_threshold || 50]);
+      } catch (_) {}
+      return found;
+    }
+
+    // 4. Any term for this class or base grade
+    res = await clientOrPool.query(
+      `SELECT * FROM ${schemaName}.form_config 
+       WHERE (LOWER(class_name) = LOWER($1) OR LOWER(class_name) = LOWER($2))
+       ORDER BY term_number ASC LIMIT 1`,
+      [rawClass, baseGrade]
+    );
+    if (res.rows.length > 0) {
+      const found = res.rows[0];
+      try {
+        await clientOrPool.query(`
+          INSERT INTO ${schemaName}.form_config (class_name, term_number, mark_components, pass_threshold)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (class_name, term_number) DO NOTHING
+        `, [rawClass, termNum, JSON.stringify(found.mark_components), found.pass_threshold || 50]);
+      } catch (_) {}
+      return found;
+    }
+
+    // 5. Any config in this subject's form_config table
+    res = await clientOrPool.query(
+      `SELECT * FROM ${schemaName}.form_config ORDER BY term_number ASC, class_name ASC LIMIT 1`
+    );
+    if (res.rows.length > 0) {
+      const found = res.rows[0];
+      try {
+        await clientOrPool.query(`
+          INSERT INTO ${schemaName}.form_config (class_name, term_number, mark_components, pass_threshold)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (class_name, term_number) DO NOTHING
+        `, [rawClass, termNum, JSON.stringify(found.mark_components), found.pass_threshold || 50]);
+      } catch (_) {}
+      return found;
+    }
+
+    // 6. Synthesize from table columns if mark table exists
+    const targetTable = tableName || `${rawClass}_term_${termNum}`;
+    const colRes = await clientOrPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_schema = $1 AND table_name = $2
+    `, [schemaName, targetTable]);
+
+    if (colRes.rows.length > 0) {
+      const ignoredCols = new Set([
+        'id', 'student_name', 'student_id', 'age', 'gender', 'total', 
+        'rank', 'pass_status', 'created_at', 'updated_at', 'school_id', 'class_id',
+        'is_locked', 'locked_at', 'locked_by'
+      ]);
+      const compCols = colRes.rows
+        .map(r => r.column_name)
+        .filter(c => !ignoredCols.has(c.toLowerCase()));
+
+      if (compCols.length > 0) {
+        const perPiece = Math.floor(100 / compCols.length);
+        const remainder = 100 - (perPiece * compCols.length);
+        const synthComponents = compCols.map((c, idx) => ({
+          name: c,
+          percentage: perPiece + (idx === compCols.length - 1 ? remainder : 0)
+        }));
+
+        const synthConfig = {
+          class_name: rawClass,
+          term_number: termNum,
+          mark_components: synthComponents,
+          pass_threshold: 50.00,
+          is_locked: false
+        };
+
+        try {
+          await clientOrPool.query(`
+            INSERT INTO ${schemaName}.form_config (class_name, term_number, mark_components, pass_threshold)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (class_name, term_number) DO NOTHING
+          `, [rawClass, termNum, JSON.stringify(synthComponents), 50.00]);
+        } catch (_) {}
+
+        return synthConfig;
+      }
+    }
+  } catch (err) {
+    console.error(`[resolveFormConfig] Error in ${schemaName}:`, err.message);
+  }
+
+  return null;
+};
+
 // Initialize subjects_of_school_schema and required tables
 const initializeSubjectsSchema = async () => {
   try {
@@ -812,13 +955,8 @@ const handleGetMarkList = async (req, res) => {
       `SELECT * FROM ${schemaName}.${tableName} ORDER BY student_name`
     );
 
-    // Get form configuration
-    const configResult = await client.query(
-      `SELECT * FROM ${schemaName}.form_config WHERE LOWER(class_name) = LOWER($1) AND term_number = $2`,
-      [tableClassName, termNumber]
-    );
-
-    const formConfig = configResult.rows[0] || null;
+    // Get form configuration with fallback
+    const formConfig = await resolveFormConfig(client, schemaName, tableClassName, termNumber, tableName);
 
     // Build response strictly from uniqueActiveStudents so deleted students or
     // duplicate rows never appear, and attach class_id + school_id from the
@@ -909,20 +1047,11 @@ router.put('/update-marks', async (req, res) => {
     const schemaName = getSubjectSchemaName(subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
-    // Get form configuration to validate marks
-    const configResult = await client.query(
-      `SELECT * FROM ${schemaName}.form_config WHERE class_name = $1 AND term_number = $2`,
-      [className, termNumber]
-    );
-    
-    if (configResult.rows.length === 0) {
-      throw new Error('Form configuration not found');
-    }
-    
-    const config = configResult.rows[0];
+    // Get form configuration with fallback
+    const config = await resolveFormConfig(client, schemaName, className, termNumber, tableName);
     
     // V2 Enhancement: Check if marks are locked
-    if (config.is_locked === true) {
+    if (config && config.is_locked === true) {
       return res.status(403).json({ 
         error: 'Mark list is locked',
         message: `This mark list was locked by ${config.locked_by} on ${config.locked_at}. Contact an administrator to unlock it.`,
@@ -931,7 +1060,21 @@ router.put('/update-marks', async (req, res) => {
       });
     }
     
-    const markComponents = config.mark_components;
+    let markComponents = (config && Array.isArray(config.mark_components)) ? config.mark_components : [];
+    if (markComponents.length === 0 && marks && Object.keys(marks).length > 0) {
+      const keys = Object.keys(marks);
+      const perPiece = Math.floor(100 / keys.length);
+      markComponents = keys.map((k, idx) => ({
+        name: k,
+        percentage: idx === keys.length - 1 ? (100 - perPiece * (keys.length - 1)) : perPiece
+      }));
+    }
+
+    if (markComponents.length === 0) {
+      throw new Error(`Form configuration not found for class ${className} term ${termNumber}`);
+    }
+
+    const passThreshold = config && config.pass_threshold ? parseFloat(config.pass_threshold) : 50.00;
     
     // Build update query
     const updateColumns = [];
@@ -956,7 +1099,7 @@ router.put('/update-marks', async (req, res) => {
     total = Math.min(total, 100);
     
     // Determine pass status
-    const passStatus = total >= config.pass_threshold ? 'Pass' : 'Fail';
+    const passStatus = total >= passThreshold ? 'Pass' : 'Fail';
     
     updateColumns.push(`total = $${updateValues.length + 1}`);
     updateValues.push(total);
@@ -1298,18 +1441,14 @@ router.post('/calculate-totals', async (req, res) => {
     const schemaName = getSubjectSchemaName(subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
-    // Get form configuration
-    const configResult = await client.query(
-      `SELECT * FROM ${schemaName}.form_config WHERE class_name = $1 AND term_number = $2`,
-      [className, termNumber]
-    );
+    // Get form configuration with fallback
+    const config = await resolveFormConfig(client, schemaName, className, termNumber, tableName);
     
-    if (configResult.rows.length === 0) {
+    if (!config) {
       throw new Error('Form configuration not found');
     }
     
-    const config = configResult.rows[0];
-    const markComponents = config.mark_components;
+    const markComponents = config.mark_components || [];
     
     // Get all students
     const studentsResult = await client.query(`SELECT id FROM ${schemaName}.${tableName}`);
@@ -1765,20 +1904,11 @@ router.post('/bulk-update-marks', async (req, res) => {
     const schemaName = getSubjectSchemaName(subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
-    // Get form configuration
-    const configResult = await client.query(
-      `SELECT * FROM ${schemaName}.form_config WHERE class_name = $1 AND term_number = $2`,
-      [className, termNumber]
-    );
-    
-    if (configResult.rows.length === 0) {
-      throw new Error('Form configuration not found');
-    }
-    
-    const config = configResult.rows[0];
+    // Get form configuration with multi-stage fallback
+    const config = await resolveFormConfig(client, schemaName, className, termNumber, tableName);
     
     // Honor admin locks (parity with PUT /update-marks)
-    if (config.is_locked === true) {
+    if (config && config.is_locked === true) {
       await client.query('ROLLBACK');
       return res.status(403).json({ 
         error: 'Mark list is locked',
@@ -1788,7 +1918,28 @@ router.post('/bulk-update-marks', async (req, res) => {
       });
     }
     
-    const markComponents = config.mark_components;
+    let markComponents = (config && Array.isArray(config.mark_components)) ? config.mark_components : [];
+
+    // Fallback: If config is still missing or has empty components, dynamically detect components from marksData
+    if (markComponents.length === 0 && marksData.length > 0) {
+      const sampleItem = marksData.find(s => s && s.marks && Object.keys(s.marks).length > 0);
+      if (sampleItem) {
+        const detectedKeys = Object.keys(sampleItem.marks);
+        if (detectedKeys.length > 0) {
+          const perPiece = Math.floor(100 / detectedKeys.length);
+          markComponents = detectedKeys.map((k, idx) => ({
+            name: k,
+            percentage: idx === detectedKeys.length - 1 ? (100 - perPiece * (detectedKeys.length - 1)) : perPiece
+          }));
+        }
+      }
+    }
+
+    if (markComponents.length === 0) {
+      throw new Error(`Unable to determine mark components for class ${className} term ${termNumber}`);
+    }
+
+    const passThreshold = config && config.pass_threshold ? parseFloat(config.pass_threshold) : 50.00;
     
     let updatedCount = 0;
     const notifyList = [];
@@ -1861,7 +2012,7 @@ router.post('/bulk-update-marks', async (req, res) => {
       total = Math.min(total, 100);
       
       // Determine pass status
-      const passStatus = total >= config.pass_threshold ? 'Pass' : 'Fail';
+      const passStatus = total >= passThreshold ? 'Pass' : 'Fail';
       
       updateColumns.push(`total = $${updateValues.length + 1}`);
       updateValues.push(total);
@@ -2598,23 +2749,15 @@ const handleGetLockStatus = async (req, res) => {
   const client = await db.connect();
   try {
     const schemaName = getSubjectSchemaName(subjectName);
+    const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
-    // Get lock status from form_config
-    const result = await client.query(`
-      SELECT is_locked, locked_at, locked_by
-      FROM ${schemaName}.form_config
-      WHERE class_name = $1 AND term_number = $2
-    `, [className.toLowerCase(), termNumber]);
+    // Get lock status from form_config with fallback
+    const config = await resolveFormConfig(client, schemaName, className, termNumber, tableName);
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Mark list configuration not found' });
-    }
-    
-    const config = result.rows[0];
     res.json({
-      isLocked: config.is_locked || false,
-      lockedAt: config.locked_at,
-      lockedBy: config.locked_by
+      isLocked: config ? (config.is_locked === true) : false,
+      lockedAt: config ? config.locked_at : null,
+      lockedBy: config ? config.locked_by : null
     });
   } catch (error) {
     console.error('Error checking lock status:', error);

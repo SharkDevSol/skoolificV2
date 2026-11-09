@@ -63,6 +63,14 @@ const validateBranchCode = async (req, res, next) => {
       });
     }
 
+    // Special handling for ALL branches (Super Finance / Super Admin)
+    if (String(branchCode).toUpperCase() === 'ALL') {
+      req.branchCode = 'ALL';
+      req.isAllBranches = true;
+      req.branchPool = dbManager ? dbManager.masterPool : require('../config/db');
+      return next();
+    }
+
     // Get database pool for this branch
     try {
       const pool = await dbManager.getPool(branchCode);

@@ -233,12 +233,24 @@
   background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
 }
 
+.cardPaidUnlocked {
+  background: linear-gradient(135deg, #0ba360 0%, #3cba92 100%);
+}
+
 .cardPaid {
   background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
 }
 
+.cardAdvance {
+  background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+}
+
 .cardPending {
   background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+}
+
+.cardPendingAll {
+  background: linear-gradient(135deg, #b91d73 0%, #f953c6 100%);
 }
 
 .cardRate {

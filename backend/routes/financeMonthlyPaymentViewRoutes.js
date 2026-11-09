@@ -4,6 +4,435 @@ const { branchPrisma: prisma } = require('../services/BranchPrismaService');
 const { applyLateFeesAutomatically } = require('../services/autoLateFeeService');
 const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 const ethiopianCalendar = require('../utils/ethiopianCalendar');
+const dbManager = require('../services/DatabaseConnectionManager');
+
+const ETH_MONTH_NAMES = [
+  'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
+  'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
+];
+
+async function handleAllBranchesOverview(req, res) {
+  try {
+    const currentEthiopianMonth = getServerEthiopianMonth();
+    const REPORT_MONTH_LIMIT = 10;
+    const branches = await dbManager.getAllBranches();
+    const allowed = ['IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
+    const target = branches.filter(b => allowed.includes(String(b.branch_code).toUpperCase()));
+
+    const branchResults = [];
+    let globalMaxPaidMonth = currentEthiopianMonth;
+    const allStudentInfo = new Map();
+
+    for (const b of target) {
+      const pool = await dbManager.getPool(b.branch_code);
+      if (!pool) continue;
+
+      // 1. Fee structures
+      const fsRes = await pool.query(`
+        SELECT fs.id, fs."gradeLevel", fs.name, fs.description,
+               fsi.description as item_desc, fsi."feeCategory", fsi.amount
+        FROM school_comms."FeeStructure" fs
+        LEFT JOIN school_comms."FeeStructureItem" fsi ON fs.id = fsi."feeStructureId"
+        ORDER BY fs."gradeLevel"
+      `);
+      const feeMap = new Map();
+      for (const row of fsRes.rows) {
+        const g = row.gradeLevel;
+        if (!feeMap.has(g)) {
+          let descObj = {};
+          try { descObj = JSON.parse(row.description || '{}'); } catch(e){}
+          feeMap.set(g, {
+            monthlyFee: parseFloat(row.amount || 0),
+            oldRegFee: descObj.oldRegistrationFee || null,
+            newRegFee: descObj.newRegistrationFee || null
+          });
+        }
+      }
+
+      // 2. Class tables
+      const classTablesRes = await pool.query(`
+        SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema' ORDER BY table_name;
+      `);
+      const classNames = classTablesRes.rows.map(r => r.table_name);
+
+      // 3. Invoices
+      const invRes = await pool.query(`
+        SELECT id, "invoiceNumber", "studentId", "feeStructureId",
+               "totalAmount", "netAmount", "paidAmount", status, metadata
+        FROM school_comms."Invoice"
+      `);
+
+      const studentInvoices = new Map();
+      let maxPaidMonth = currentEthiopianMonth;
+
+      for (const inv of invRes.rows) {
+        const sid = String(inv.studentId).toLowerCase();
+        if (!studentInvoices.has(sid)) studentInvoices.set(sid, []);
+        const m = (inv.metadata && inv.metadata.monthNumber) ? Number(inv.metadata.monthNumber) : 0;
+        const net = parseFloat(inv.netAmount || 0);
+        const paid = parseFloat(inv.paidAmount || 0);
+        studentInvoices.get(sid).push({
+          ...inv,
+          netAmount: net,
+          paidAmount: paid,
+          monthNumber: m
+        });
+        if (paid > 0 && m > maxPaidMonth && m <= REPORT_MONTH_LIMIT) {
+          maxPaidMonth = m;
+        }
+      }
+
+      if (maxPaidMonth > globalMaxPaidMonth) globalMaxPaidMonth = maxPaidMonth;
+
+      let bTotalStudents = 0, bPayingStudents = 0, bFreeStudents = 0;
+      let bUnlockedExpected = 0, bUnlockedPaid = 0, bUnlockedPending = 0;
+      let bAdvancePaid = 0, bAdvanceCount = 0;
+      let bFreeRegPaid = 0;
+      let bFullYearPending = 0;
+      let bUnpaidStudentsCount = 0;
+
+      const branchClasses = [];
+      const branchMonthMap = new Map();
+
+      for (const className of classNames) {
+        const colRes = await pool.query(`
+          SELECT column_name FROM information_schema.columns 
+          WHERE table_schema = 'classes_schema' AND table_name = $1;
+        `, [className]);
+        const cols = new Set(colRes.rows.map(r => r.column_name));
+        const hasIsActive = cols.has('is_active');
+        const hasIsFree = cols.has('is_free');
+
+        const stRes = await pool.query(`
+          SELECT school_id, class_id, student_name
+                 ${hasIsFree ? ', is_free' : ''}
+          FROM classes_schema."${className}"
+          ${hasIsActive ? 'WHERE is_active = TRUE OR is_active IS NULL' : ''}
+          ORDER BY student_name;
+        `);
+
+        const students = stRes.rows;
+        if (students.length === 0) continue;
+
+        let cTotal = students.length;
+        let cFree = 0;
+        let cUnlockedExp = 0, cUnlockedPaid = 0, cUnlockedPending = 0;
+        let cAdvancePaid = 0, cAdvanceCount = 0;
+        let cFreeRegPaid = 0;
+        let cFullYearPending = 0;
+
+        for (const st of students) {
+          bTotalStudents++;
+          const isFree = hasIsFree && st.is_free === true;
+          if (isFree) {
+            bFreeStudents++;
+            cFree++;
+          } else {
+            bPayingStudents++;
+          }
+
+          const sIdPadded = String(st.school_id).padStart(4, '0');
+          const cIdPadded = String(st.class_id).padStart(12, '0');
+          const sid = `00000000-0000-0000-${sIdPadded}-${cIdPadded}`.toLowerCase();
+          allStudentInfo.set(sid, { name: st.student_name, class: className, branch: b.branch_name });
+
+          const invoices = studentInvoices.get(sid) || [];
+          let studentHasUnlockedUnpaid = false;
+
+          for (const inv of invoices) {
+            const m = inv.monthNumber;
+            const net = inv.netAmount;
+            const paid = inv.paidAmount;
+            const pending = Math.max(net - paid, 0);
+
+            if (isFree) {
+              if (m === 1 && paid > 0) {
+                cFreeRegPaid += paid;
+                bFreeRegPaid += paid;
+              }
+              continue;
+            }
+
+            if (m >= 1 && m <= currentEthiopianMonth) {
+              cUnlockedExp += net;
+              bUnlockedExpected += net;
+              cUnlockedPaid += paid;
+              bUnlockedPaid += paid;
+              cUnlockedPending += pending;
+              bUnlockedPending += pending;
+              if (pending > 0) studentHasUnlockedUnpaid = true;
+            } else if (m > currentEthiopianMonth) {
+              if (paid > 0) {
+                cAdvancePaid += paid;
+                bAdvancePaid += paid;
+                cAdvanceCount++;
+                bAdvanceCount++;
+              }
+            }
+
+            if (m >= 1 && m <= REPORT_MONTH_LIMIT) {
+              cFullYearPending += pending;
+              bFullYearPending += pending;
+
+              if (!branchMonthMap.has(m)) {
+                branchMonthMap.set(m, { monthNumber: m, expected: 0, paid: 0, pending: 0, invoices: 0, paidInvoices: 0, paidStudents: [], unpaidStudents: [] });
+              }
+              const me = branchMonthMap.get(m);
+              me.expected += net;
+              me.paid += paid;
+              me.pending += pending;
+              me.invoices++;
+              if (inv.status === 'PAID') me.paidInvoices++;
+              if (paid > 0) me.paidStudents.push({ name: st.student_name, class: `${className} (${b.branch_code})`, amount: paid });
+              if (pending > 0) me.unpaidStudents.push({ name: st.student_name, class: `${className} (${b.branch_code})`, pending });
+            }
+          }
+
+          if (!isFree && studentHasUnlockedUnpaid) {
+            bUnpaidStudentsCount++;
+          }
+        }
+
+        const feeInfo = feeMap.get(className) || { monthlyFee: 0 };
+        branchClasses.push({
+          className: `${className} (${b.branch_code})`,
+          rawClassName: className,
+          branchCode: b.branch_code,
+          branchName: b.branch_name,
+          monthlyFee: feeInfo.monthlyFee,
+          totalStudents: cTotal,
+          payingStudents: cTotal - cFree,
+          freeStudents: cFree,
+          freeRegPaid: Math.round(cFreeRegPaid * 100) / 100,
+          unlockedTotalAmount: Math.round(cUnlockedExp * 100) / 100,
+          unlockedTotalPaid: Math.round(cUnlockedPaid * 100) / 100,
+          unlockedTotalPending: Math.round(cUnlockedPending * 100) / 100,
+          advanceTotalPaid: Math.round(cAdvancePaid * 100) / 100,
+          advancePaymentsCount: cAdvanceCount,
+          totalCollected: Math.round((cUnlockedPaid + cAdvancePaid + cFreeRegPaid) * 100) / 100,
+          totalPendingAll: Math.round(cFullYearPending * 100) / 100
+        });
+      }
+
+      let bToday = 0;
+      try {
+        const todayRes = await pool.query(`
+          SELECT amount FROM school_comms."Payment"
+          WHERE status = 'COMPLETED' AND "paymentDate" >= CURRENT_DATE
+        `);
+        bToday = todayRes.rows.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+      } catch (_) {}
+
+      const bTotalCollected = bUnlockedPaid + bAdvancePaid + bFreeRegPaid;
+
+      branchResults.push({
+        branchCode: b.branch_code,
+        branchName: b.branch_name,
+        totalStudents: bTotalStudents,
+        payingStudents: bPayingStudents,
+        freeStudents: bFreeStudents,
+        freeRegPaid: Math.round(bFreeRegPaid * 100) / 100,
+        unlockedTotalAmount: Math.round(bUnlockedExpected * 100) / 100,
+        unlockedTotalPaid: Math.round(bUnlockedPaid * 100) / 100,
+        unlockedTotalPending: Math.round(bUnlockedPending * 100) / 100,
+        advanceTotalPaid: Math.round(bAdvancePaid * 100) / 100,
+        advancePaymentsCount: bAdvanceCount,
+        totalCollected: Math.round(bTotalCollected * 100) / 100,
+        totalPendingAll: Math.round(bFullYearPending * 100) / 100,
+        unpaidUnlockedStudents: bUnpaidStudentsCount,
+        todayCollected: bToday,
+        rate: bUnlockedExpected > 0 ? Math.round((bUnlockedPaid / bUnlockedExpected) * 1000) / 10 : 0,
+        classes: branchClasses,
+        monthMap: branchMonthMap,
+        maxPaidMonth
+      });
+    }
+
+    const reportMonth = Math.min(Math.max(globalMaxPaidMonth, currentEthiopianMonth), REPORT_MONTH_LIMIT);
+
+    const summary = {
+      totalClasses: branchResults.reduce((s, b) => s + b.classes.length, 0),
+      totalStudents: branchResults.reduce((s, b) => s + b.totalStudents, 0),
+      payingStudents: branchResults.reduce((s, b) => s + b.payingStudents, 0),
+      freeStudents: branchResults.reduce((s, b) => s + b.freeStudents, 0),
+      freeRegPaid: branchResults.reduce((s, b) => s + b.freeRegPaid, 0),
+      unlockedTotalAmount: branchResults.reduce((s, b) => s + b.unlockedTotalAmount, 0),
+      unlockedTotalPaid: branchResults.reduce((s, b) => s + b.unlockedTotalPaid, 0),
+      unlockedTotalPending: branchResults.reduce((s, b) => s + b.unlockedTotalPending, 0),
+      advanceTotalPaid: branchResults.reduce((s, b) => s + b.advanceTotalPaid, 0),
+      advancePaymentsCount: branchResults.reduce((s, b) => s + b.advancePaymentsCount, 0),
+      totalCollected: branchResults.reduce((s, b) => s + b.totalCollected, 0),
+      totalPendingAll: branchResults.reduce((s, b) => s + b.totalPendingAll, 0),
+      totalPending: branchResults.reduce((s, b) => s + b.unlockedTotalPending, 0),
+      todayCollected: branchResults.reduce((s, b) => s + b.todayCollected, 0),
+      unpaidUnlockedStudents: branchResults.reduce((s, b) => s + b.unpaidUnlockedStudents, 0)
+    };
+
+    const combinedMonthly = [];
+    for (let m = 1; m <= reportMonth; m++) {
+      let exp = 0, paid = 0, pend = 0, invs = 0, paidInvs = 0;
+      const paidSt = [], unpaidSt = [];
+      for (const br of branchResults) {
+        const row = br.monthMap.get(m);
+        if (row) {
+          exp += row.expected;
+          paid += row.paid;
+          pend += row.pending;
+          invs += row.invoices;
+          paidInvs += row.paidInvoices;
+          paidSt.push(...row.paidStudents);
+          unpaidSt.push(...row.unpaidStudents);
+        }
+      }
+      combinedMonthly.push({
+        monthNumber: m,
+        expected: Math.round(exp * 100) / 100,
+        paid: Math.round(paid * 100) / 100,
+        pending: Math.round(pend * 100) / 100,
+        invoices: invs,
+        paidInvoices: paidInvs,
+        rate: exp > 0 ? Math.round((paid / exp) * 1000) / 10 : 0,
+        paidStudents: paidSt,
+        unpaidStudents: unpaidSt
+      });
+    }
+    summary.monthlyBreakdown = combinedMonthly;
+
+    const allClasses = [];
+    for (const br of branchResults) {
+      allClasses.push(...br.classes);
+    }
+
+    const byBranch = branchResults.map(b => ({
+      branchCode: b.branchCode,
+      branchName: b.branchName,
+      totalStudents: b.totalStudents,
+      payingStudents: b.payingStudents,
+      freeStudents: b.freeStudents,
+      freeRegPaid: b.freeRegPaid,
+      unlockedTotalAmount: b.unlockedTotalAmount,
+      unlockedTotalPaid: b.unlockedTotalPaid,
+      unlockedTotalPending: b.unlockedTotalPending,
+      advanceTotalPaid: b.advanceTotalPaid,
+      totalCollected: b.totalCollected,
+      totalPendingAll: b.totalPendingAll,
+      unpaidUnlockedStudents: b.unpaidUnlockedStudents,
+      rate: b.rate
+    }));
+
+    return res.json({
+      summary,
+      classes: allClasses,
+      byBranch,
+      reportMonth,
+      currentEthiopianMonth,
+      isAllBranches: true
+    });
+  } catch (error) {
+    console.error('ERROR in all branches overview endpoint:', error);
+    return res.status(500).json({ error: 'SYSTEM_ERROR', message: 'Failed to fetch all branches overview', details: error.message });
+  }
+}
+
+async function handleAllBranchesUnpaidStudents(req, res) {
+  try {
+    const currentEthiopianMonth = getServerEthiopianMonth();
+    const branches = await dbManager.getAllBranches();
+    const allowed = ['IQRA2', 'IQRA3', 'IQRA4', 'IQRA5'];
+    const target = branches.filter(b => allowed.includes(String(b.branch_code).toUpperCase()));
+
+    const allUnpaid = [];
+    let grandCreditTotal = 0;
+
+    for (const b of target) {
+      const pool = await dbManager.getPool(b.branch_code);
+      if (!pool) continue;
+
+      const invRes = await pool.query(`
+        SELECT id, "invoiceNumber", "studentId", "totalAmount", "netAmount", "paidAmount", status, metadata
+        FROM school_comms."Invoice"
+      `);
+      const studentInvoices = new Map();
+      for (const inv of invRes.rows) {
+        const sid = String(inv.studentId).toLowerCase();
+        if (!studentInvoices.has(sid)) studentInvoices.set(sid, []);
+        const m = (inv.metadata && inv.metadata.monthNumber) ? Number(inv.metadata.monthNumber) : 0;
+        studentInvoices.get(sid).push({
+          ...inv,
+          netAmount: parseFloat(inv.netAmount || 0),
+          paidAmount: parseFloat(inv.paidAmount || 0),
+          monthNumber: m
+        });
+      }
+
+      const classTablesRes = await pool.query(`
+        SELECT table_name FROM information_schema.tables WHERE table_schema = 'classes_schema';
+      `);
+
+      for (const row of classTablesRes.rows) {
+        const className = row.table_name;
+        const colRes = await pool.query(`
+          SELECT column_name FROM information_schema.columns 
+          WHERE table_schema = 'classes_schema' AND table_name = $1;
+        `, [className]);
+        const cols = new Set(colRes.rows.map(r => r.column_name));
+        const hasIsActive = cols.has('is_active');
+        const hasIsFree = cols.has('is_free');
+
+        const stRes = await pool.query(`
+          SELECT school_id, class_id, student_name
+                 ${hasIsFree ? ', is_free' : ''}
+          FROM classes_schema."${className}"
+          ${hasIsActive ? 'WHERE is_active = TRUE OR is_active IS NULL' : ''};
+        `);
+
+        for (const st of stRes.rows) {
+          if (hasIsFree && st.is_free === true) continue;
+          const sIdPadded = String(st.school_id).padStart(4, '0');
+          const cIdPadded = String(st.class_id).padStart(12, '0');
+          const sid = `00000000-0000-0000-${sIdPadded}-${cIdPadded}`.toLowerCase();
+          const invoices = studentInvoices.get(sid) || [];
+
+          const unpaidMonths = [];
+          let studentDue = 0;
+          for (const inv of invoices) {
+            if (inv.monthNumber >= 1 && inv.monthNumber <= currentEthiopianMonth) {
+              const pending = Math.max(inv.netAmount - inv.paidAmount, 0);
+              if (pending > 0) {
+                unpaidMonths.push(ETH_MONTH_NAMES[inv.monthNumber - 1] || `Month ${inv.monthNumber}`);
+                studentDue += pending;
+              }
+            }
+          }
+
+          if (unpaidMonths.length > 0) {
+            grandCreditTotal += studentDue;
+            allUnpaid.push({
+              studentId: sid,
+              name: st.student_name,
+              class: `${className} (${b.branch_code})`,
+              branch: b.branch_name,
+              branchCode: b.branch_code,
+              unpaidMonths,
+              unpaidMonthsCount: unpaidMonths.length,
+              totalDue: Math.round(studentDue * 100) / 100
+            });
+          }
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      students: allUnpaid,
+      creditTotal: Math.round(grandCreditTotal * 100) / 100,
+      totalCount: allUnpaid.length
+    });
+  } catch (error) {
+    console.error('ERROR in all branches unpaid students:', error);
+    return res.status(500).json({ error: 'SYSTEM_ERROR', message: error.message });
+  }
+}
 
 /**
  * Current Ethiopian month number (1-13) computed SERVER-SIDE from the real date.
@@ -197,6 +626,11 @@ router.post('/invoice/:invoiceId/receipt-number', authenticateWithBranch, requir
  */
 router.get('/overview', authenticateWithBranch, requirePermission(FINANCE_PERMISSIONS.INVOICES_VIEW), async (req, res) => {
   try {
+    const isAll = String(req.branchCode || req.headers['x-branch-code'] || req.query.branchCode).toUpperCase() === 'ALL';
+    if (isAll) {
+      return await handleAllBranchesOverview(req, res);
+    }
+
     await applyLateFeesAutomatically();
     
     const currentEthiopianMonth = getServerEthiopianMonth();
@@ -431,20 +865,30 @@ router.get('/overview', authenticateWithBranch, requirePermission(FINANCE_PERMIS
         continue;
       }
 
-      // STEP 5: Calculate UNLOCKED amounts (paying students only, exclude free students)
-      // Unlocked invoices include months up to the current calendar month, PLUS any advance
-      // invoices that have received payments so advance collections are counted without
-      // penalizing unpaid future months.
+      // STEP 5: Calculate UNLOCKED amounts (paying students only, strictly months 1..currentEthiopianMonth)
       const unlockedInvoices = payingStudentInvoices.filter(inv => {
         const monthNumber = parseMonthNumber(inv.metadata);
-        return monthNumber <= currentEthiopianMonth || parseFloat(inv.paidAmount) > 0;
+        return monthNumber >= 1 && monthNumber <= currentEthiopianMonth;
       });
 
-      const unlockedTotalAmount = unlockedInvoices.reduce((sum, inv) => sum + parseFloat(inv.netAmount), 0);
-      const unlockedTotalPaid = unlockedInvoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount), 0);
-      const unlockedTotalPending = unlockedTotalAmount - unlockedTotalPaid;
+      const unlockedTotalAmount = unlockedInvoices.reduce((sum, inv) => sum + parseFloat(inv.netAmount || 0), 0);
+      const unlockedTotalPaid = unlockedInvoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount || 0), 0);
+      const unlockedTotalPending = unlockedInvoices.reduce((sum, inv) => sum + Math.max(parseFloat(inv.netAmount || 0) - parseFloat(inv.paidAmount || 0), 0), 0);
 
-      // STEP 5b: Build per-month breakdown for this class (months 1..reportMonth)
+      // STEP 5a: Calculate ADVANCE PREPAYMENTS (locked future months > currentEthiopianMonth)
+      const lockedInvoices = payingStudentInvoices.filter(inv => {
+        const monthNumber = parseMonthNumber(inv.metadata);
+        return monthNumber > currentEthiopianMonth;
+      });
+      const advanceTotalPaid = lockedInvoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount || 0), 0);
+      const advancePaymentsCount = lockedInvoices.filter(inv => parseFloat(inv.paidAmount || 0) > 0).length;
+
+      // STEP 5b: Full School Year totals (all months) for paying students
+      const fullYearTotalAmount = payingStudentInvoices.reduce((sum, inv) => sum + parseFloat(inv.netAmount || 0), 0);
+      const fullYearTotalPaid = payingStudentInvoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount || 0), 0);
+      const fullYearTotalPending = payingStudentInvoices.reduce((sum, inv) => sum + Math.max(parseFloat(inv.netAmount || 0) - parseFloat(inv.paidAmount || 0), 0), 0);
+
+      // STEP 5c: Build per-month breakdown for this class (months 1..reportMonth)
       // with the names of students who paid and students who still owe
       const studentNameMap = new Map();
       for (const st of activeStudents) {
@@ -508,12 +952,17 @@ router.get('/overview', authenticateWithBranch, requirePermission(FINANCE_PERMIS
         partialInvoices: payingStudentInvoices.filter(inv => inv.status === 'PARTIALLY_PAID').length,
         unpaidInvoices: unlockedInvoices.filter(inv => inv.status !== 'PAID').length,
         unpaidUnlockedStudents: getUnpaidUnlockedStudentsCount(payingStudentInvoices, currentEthiopianMonth),
-        totalAmount: payingStudentInvoices.reduce((sum, inv) => sum + parseFloat(inv.netAmount), 0),
-        totalPaid: payingStudentInvoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount), 0),
-        totalPending: payingStudentInvoices.reduce((sum, inv) => sum + parseFloat(inv.netAmount) - parseFloat(inv.paidAmount), 0),
+        totalAmount: fullYearTotalAmount,
+        totalPaid: fullYearTotalPaid,
+        totalPending: fullYearTotalPending,
         unlockedTotalAmount: unlockedTotalAmount,
         unlockedTotalPaid: unlockedTotalPaid,
         unlockedTotalPending: unlockedTotalPending,
+        advanceTotalPaid: advanceTotalPaid,
+        advancePaymentsCount: advancePaymentsCount,
+        fullYearTotalAmount: fullYearTotalAmount,
+        fullYearTotalPaid: fullYearTotalPaid,
+        fullYearTotalPending: fullYearTotalPending,
         monthlyBreakdown: monthlyBreakdown
       });
     }
@@ -565,11 +1014,19 @@ router.get('/overview', authenticateWithBranch, requirePermission(FINANCE_PERMIS
       freeRegPaid: classesData.reduce((sum, c) => sum + (c.freeRegPaid || 0), 0),
       freeRegPending: classesData.reduce((sum, c) => sum + (c.freeRegPending || 0), 0),
       freeRegPaidCount: classesData.reduce((sum, c) => sum + (c.freeRegPaidCount || 0), 0),
-      totalCollected: classesData.reduce((sum, c) => sum + c.totalPaid + (c.freeRegPaid || 0), 0),
-      totalPending: classesData.reduce((sum, c) => sum + c.totalPending + (c.freeRegPending || 0), 0),
+      // UNLOCKED MONTHS (months <= currentEthiopianMonth: Meskerem + Tikimt)
       unlockedTotalAmount: classesData.reduce((sum, c) => sum + c.unlockedTotalAmount, 0),
       unlockedTotalPaid: classesData.reduce((sum, c) => sum + c.unlockedTotalPaid, 0),
-      unlockedTotalPending: classesData.reduce((sum, c) => sum + c.unlockedTotalPending, 0)
+      unlockedTotalPending: classesData.reduce((sum, c) => sum + c.unlockedTotalPending, 0),
+      // ADVANCE PREPAYMENTS (locked future months > currentEthiopianMonth)
+      advanceTotalPaid: classesData.reduce((sum, c) => sum + (c.advanceTotalPaid || 0), 0),
+      advancePaymentsCount: classesData.reduce((sum, c) => sum + (c.advancePaymentsCount || 0), 0),
+      // ALL MONTHS / GRAND CASH COLLECTED: Unlocked Paid + Advance Paid + Free Reg Paid
+      totalCollected: classesData.reduce((sum, c) => sum + c.unlockedTotalPaid + (c.advanceTotalPaid || 0) + (c.freeRegPaid || 0), 0),
+      // ALL MONTHS / FULL YEAR PENDING
+      totalPendingAll: classesData.reduce((sum, c) => sum + (c.fullYearTotalPending || 0), 0),
+      // Currently overdue pending in unlocked months
+      totalPending: classesData.reduce((sum, c) => sum + c.unlockedTotalPending, 0)
     };
 
     // Aggregate per-month breakdown across all classes
@@ -1460,6 +1917,11 @@ router.get('/reports/multiple-monthly-payments', authenticateWithBranch, require
  */
 router.get('/unpaid-students', authenticateWithBranch, requirePermission(FINANCE_PERMISSIONS.INVOICES_VIEW), async (req, res) => {
   try {
+    const isAll = String(req.branchCode || req.headers['x-branch-code'] || req.query.branchCode).toUpperCase() === 'ALL';
+    if (isAll) {
+      return await handleAllBranchesUnpaidStudents(req, res);
+    }
+
     const currentEthiopianMonth = getServerEthiopianMonth();
 
     console.log('\n========================================');

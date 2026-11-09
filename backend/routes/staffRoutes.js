@@ -270,9 +270,72 @@ const initializeSchoolSchemaPoints = async () => {
     }
 
     console.log('School schema points teachers table initialized');
+    await mergeDuplicateTeacherForms(pool);
   } catch (e) {
     console.error('School schema points init error:', e);
     throw e;
+  }
+};
+
+const mergeDuplicateTeacherForms = async (targetPool) => {
+  const db = targetPool || pool;
+  try {
+    const tableRes = await db.query(`
+      SELECT table_name FROM information_schema.tables 
+      WHERE table_schema = 'staff_teachers' AND LOWER(table_name) IN ('teachers', 'teacher')
+      ORDER BY CASE WHEN table_name = 'teachers' THEN 1 ELSE 2 END
+      LIMIT 1
+    `);
+    if (tableRes.rows.length === 0) return;
+    const sTbl = tableRes.rows[0].table_name;
+
+    await db.query(`
+      ALTER TABLE staff_teachers."${sTbl}" ADD COLUMN IF NOT EXISTS staff_id INTEGER;
+      ALTER TABLE staff_teachers."${sTbl}" ADD COLUMN IF NOT EXISTS image_staff VARCHAR(255);
+      ALTER TABLE staff_teachers."${sTbl}" ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+      ALTER TABLE school_schema_points.teachers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+    `);
+
+    // Check if staff_teachers table has is_active column
+    const activeColCheck = await db.query(`
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema = 'staff_teachers' 
+        AND table_name = $1 
+        AND column_name = 'is_active'
+    `, [sTbl]);
+    const hasStaffIsActive = activeColCheck.rows.length > 0;
+    const activeSelect = hasStaffIsActive ? 'COALESCE(t.is_active, TRUE)' : 'TRUE';
+    const activeWhere = hasStaffIsActive ? 'WHERE (t.is_active IS NULL OR t.is_active = TRUE)' : '';
+
+    await db.query(`
+      INSERT INTO school_schema_points.teachers (
+        global_staff_id, teacher_name, role, staff_work_time, staff_enrollment_type, is_active
+      )
+      SELECT 
+        t.global_staff_id, 
+        t.name, 
+        COALESCE(t.role, 'Teacher'), 
+        COALESCE(t.staff_work_time, 'Full Time'), 
+        COALESCE(t.staff_enrollment_type, 'Permanent'),
+        ${activeSelect}
+      FROM staff_teachers."${sTbl}" t
+      ${activeWhere}
+        ${hasStaffIsActive ? 'AND' : 'WHERE'} NOT EXISTS (
+          SELECT 1 FROM school_schema_points.teachers pt 
+          WHERE pt.global_staff_id = t.global_staff_id 
+             OR LOWER(TRIM(pt.teacher_name)) = LOWER(TRIM(t.name))
+        )
+      ON CONFLICT (global_staff_id) DO UPDATE SET
+        teacher_name = EXCLUDED.teacher_name,
+        role = EXCLUDED.role,
+        staff_work_time = EXCLUDED.staff_work_time,
+        staff_enrollment_type = EXCLUDED.staff_enrollment_type,
+        is_active = EXCLUDED.is_active,
+        updated_at = CURRENT_TIMESTAMP;
+    `);
+    console.log(`✅ Synced staff_teachers."${sTbl}" to school_schema_points.teachers`);
+  } catch (err) {
+    console.error('mergeDuplicateTeacherForms error:', err.message);
   }
 };
 
@@ -305,8 +368,7 @@ const addTeacherToSchoolSchemaPoints = async (
     
     console.log(`Teacher ${teacherName} added to school_schema_points.teachers with work time: ${formattedWorkTime}`);
   } catch (e) {
-    console.error('addTeacherToSchoolSchemaPoints error:', e);
-    throw e;
+    console.warn('addTeacherToSchoolSchemaPoints warning:', e.message);
   }
 };
 

@@ -449,8 +449,8 @@ const AddStudentS = () => {
           // Send data to backend for bulk import
           const response = await api.post(`/students/bulk-import`, {
             className: selectedClass,
-            students: data
-          }, { timeout: 30000 });
+            students: data.map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, (v === 'NaN' || v === 'nan' || v === '#N/A' || v === 'N/A') ? '' : v])))
+          }, { timeout: 60000 });
           
           setShowSuccess(true);
           setPageError('');

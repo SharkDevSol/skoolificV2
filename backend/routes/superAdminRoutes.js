@@ -878,6 +878,7 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
         let bTotalAdvance = 0;
         let bM1Expected = 0, bM1Collected = 0;
         let bM2Expected = 0, bM2Collected = 0;
+        let bFreeRegPaidTotal = 0;
 
         for (const className of classNames) {
           const colRes = await pool.query(`
@@ -916,6 +917,7 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
 
           const feeInfo = feeMap.get(className) || { monthlyFee: 0, oldRegFee: 0, newRegFee: 0 };
 
+          let cFreeRegPaid = 0;
           for (const st of students) {
             bTotalStudents++;
             const sIdPadded = String(st.school_id).padStart(4, '0');
@@ -951,16 +953,24 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
 
             const m1Inv = invoices.find(inv => inv.monthNumber === 1);
             if (m1Inv) {
-              cM1Expected += m1Inv.netAmount;
-              cM1Collected += m1Inv.paidAmount;
-              if (m1Inv.status === 'PAID') cM1PaidCount++;
+              if (isFree) {
+                // Free students are exempt from monthly tuition; track their registration fee
+                cFreeRegPaid += parseFloat(m1Inv.paidAmount || 0);
+              } else {
+                cM1Expected += m1Inv.netAmount;
+                cM1Collected += m1Inv.paidAmount;
+                if (m1Inv.status === 'PAID') cM1PaidCount++;
+              }
             }
 
             const m2Inv = invoices.find(inv => inv.monthNumber === 2);
             if (m2Inv) {
-              cM2Expected += m2Inv.netAmount;
-              cM2Collected += m2Inv.paidAmount;
-              if (m2Inv.status === 'PAID') cM2PaidCount++;
+              if (!isFree) {
+                // Only paying students have expected monthly tuition
+                cM2Expected += m2Inv.netAmount;
+                cM2Collected += m2Inv.paidAmount;
+                if (m2Inv.status === 'PAID') cM2PaidCount++;
+              }
             }
 
             const studentUnpaidMonths = [];
@@ -968,17 +978,20 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
 
             for (const inv of invoices) {
               if (inv.monthNumber <= currentEthMonth) {
-                cExpectedUnlocked += inv.netAmount;
-                cCollectedUnlocked += inv.paidAmount;
-                const due = Math.max(inv.netAmount - inv.paidAmount, 0);
-                if (due > 0) {
-                  studentUnpaidMonths.push(ETH_MONTH_NAMES[inv.monthNumber - 1] || `Month ${inv.monthNumber}`);
-                  studentTotalDue += due;
-                  cTotalPendingUnlocked += due;
+                if (!isFree) {
+                  // Only paying students are billed for monthly tuition
+                  cExpectedUnlocked += inv.netAmount;
+                  cCollectedUnlocked += inv.paidAmount;
+                  const due = Math.max(inv.netAmount - inv.paidAmount, 0);
+                  if (due > 0) {
+                    studentUnpaidMonths.push(ETH_MONTH_NAMES[inv.monthNumber - 1] || `Month ${inv.monthNumber}`);
+                    studentTotalDue += due;
+                    cTotalPendingUnlocked += due;
+                  }
                 }
               }
 
-              if (inv.status !== 'PAID') {
+              if (!isFree && inv.status !== 'PAID') {
                 cTotalPendingAll += Math.max(inv.netAmount - inv.paidAmount, 0);
               }
 
@@ -1029,8 +1042,9 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
           bM1Collected += cM1Collected;
           bM2Expected += cM2Expected;
           bM2Collected += cM2Collected;
+          bFreeRegPaidTotal += cFreeRegPaid;
 
-          const cTotalCollected = cCollectedUnlocked + cAdvance;
+          const cTotalCollected = cCollectedUnlocked + cAdvance + cFreeRegPaid;
           const cRate = cExpectedUnlocked > 0 ? Math.round((cCollectedUnlocked / cExpectedUnlocked) * 100) : 0;
 
           branchClasses.push({
@@ -1063,7 +1077,7 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
           });
         }
 
-        const bTotalCollected = bCollectedUnlocked + bTotalAdvance;
+        const bTotalCollected = bCollectedUnlocked + bTotalAdvance + bFreeRegPaidTotal;
         const bRate = bExpectedUnlocked > 0 ? Math.round((bCollectedUnlocked / bExpectedUnlocked) * 100) : 0;
 
         return {

@@ -120,6 +120,7 @@ const FinanceReports = () => {
   const collectionRate = pct(summary.unlockedTotalPaid, summary.unlockedTotalAmount);
   const monthly = (summary.monthlyBreakdown || []).slice(0, reportMonths);
   const classes = overview.classes || [];
+  const byBranch = overview.byBranch || [];
 
   return (
     <div className={styles.container}>
@@ -180,21 +181,27 @@ const FinanceReports = () => {
       <div className={styles.totalBreakdown}>
         <div className={styles.totalRow}>
           <div className={styles.totalCell}>
-            <div className={styles.totalCellLabel}>{t('finance.reports.studentsPaid', 'Students paid (tuition)')}</div>
+            <div className={styles.totalCellLabel}>{t('finance.reports.unlockedPaidLabel', 'Unlocked Months Paid')}</div>
             <div className={styles.totalCellValue}>{fmt(summary.unlockedTotalPaid)}</div>
-            <div className={styles.totalCellUnit}>{t('finance.reports.birr')}</div>
+            <div className={styles.totalCellUnit}>Meskerem + Tikimt</div>
           </div>
           <div className={styles.totalOp}>+</div>
           <div className={styles.totalCell}>
-            <div className={styles.totalCellLabel}>{t('finance.reports.freeRegFee', 'Free students (reg. fee)')}</div>
+            <div className={styles.totalCellLabel}>{t('finance.reports.advancePaidLabel', 'Advance Prepayments')}</div>
+            <div className={styles.totalCellValue}>{fmt(summary.advanceTotalPaid)}</div>
+            <div className={styles.totalCellUnit}>Months 3–10 (Locked)</div>
+          </div>
+          <div className={styles.totalOp}>+</div>
+          <div className={styles.totalCell}>
+            <div className={styles.totalCellLabel}>{t('finance.reports.freeRegFee', 'Free Students (Reg. Fee)')}</div>
             <div className={styles.totalCellValue}>{fmt(summary.freeRegPaid)}</div>
-            <div className={styles.totalCellUnit}>{t('finance.reports.birr')}</div>
+            <div className={styles.totalCellUnit}>{summary.freeStudents || 19} Exempt Students</div>
           </div>
           <div className={styles.totalOp}>=</div>
           <div className={`${styles.totalCell} ${styles.totalCellGrand}`}>
-            <div className={styles.totalCellLabel}>{t('finance.reports.grandTotal', 'Grand Total Collected')}</div>
-            <div className={styles.totalCellValue}>{fmt((summary.unlockedTotalPaid || 0) + (summary.freeRegPaid || 0))}</div>
-            <div className={styles.totalCellUnit}>{t('finance.reports.birr')}</div>
+            <div className={styles.totalCellLabel}>{t('finance.reports.grandTotal', 'Grand Total Cash Collected')}</div>
+            <div className={styles.totalCellValue}>{fmt(summary.totalCollected)}</div>
+            <div className={styles.totalCellUnit}>{t('finance.reports.birr')} (All Collections)</div>
           </div>
         </div>
       </div>
@@ -233,34 +240,65 @@ const FinanceReports = () => {
         <div className={`${styles.statCard} ${styles.cardExpected}`}>
           <div className={styles.statIcon}>💰</div>
           <div className={styles.statContent}>
-            <div className={styles.statLabel}>{t('finance.reports.totalExpected')}</div>
-            <div className={styles.statValue}>{fmt((summary.unlockedTotalAmount || 0) + (summary.freeRegTotal || 0))}</div>
-            <div className={styles.statSubtext}>{t('finance.reports.schoolYearExpected', 'Full school year (Meskerem – Sene)')}</div>
+            <div className={styles.statLabel}>{t('finance.reports.totalExpectedUnlocked', 'Total Expected (Unlocked)')}</div>
+            <div className={styles.statValue}>{fmt(summary.unlockedTotalAmount || 0)}</div>
+            <div className={styles.statSubtext}>{t('finance.reports.unlockedMonthsSub', 'Meskerem – Tikimt (Due)')}</div>
           </div>
         </div>
         )}
 
-        {/* Total Paid card - hidden on /app/finance/reports */}
+        {/* Total Paid (Unlocked Months) */}
+        <div className={`${styles.statCard} ${styles.cardPaidUnlocked}`}>
+          <div className={styles.statIcon}>💵</div>
+          <div className={styles.statContent}>
+            <div className={styles.statLabel}>{t('finance.reports.totalPaidUnlocked', 'Total Paid (Unlocked)')}</div>
+            <div className={styles.statValue}>{fmt(summary.unlockedTotalPaid || 0)}</div>
+            <div className={styles.statSubtext}>{t('finance.reports.unlockedPaidSub', 'Meskerem & Tikimt collections')}</div>
+          </div>
+        </div>
+
+        {/* Total Pending (Unlocked Months) */}
+        <div className={`${styles.statCard} ${styles.cardPending}`}>
+          <div className={styles.statIcon}>⏳</div>
+          <div className={styles.statContent}>
+            <div className={styles.statLabel}>{t('finance.reports.totalPendingUnlocked', 'Total Pending (Unlocked)')}</div>
+            <div className={styles.statValue}>{fmt(summary.unlockedTotalPending || 0)}</div>
+            <div className={styles.statSubtext}>{t('finance.reports.birr')} · {t('finance.reports.currentlyOverdue', 'currently overdue')}</div>
+          </div>
+        </div>
+
+        {/* Advance Prepayments (Locked Months) */}
+        <div className={`${styles.statCard} ${styles.cardAdvance}`}>
+          <div className={styles.statIcon}>⭐</div>
+          <div className={styles.statContent}>
+            <div className={styles.statLabel}>{t('finance.reports.advancePrepayments', 'Advance Prepayments (Locked)')}</div>
+            <div className={styles.statValue}>{fmt(summary.advanceTotalPaid || 0)}</div>
+            <div className={styles.statSubtext}>{summary.advancePaymentsCount || 0} {t('finance.reports.advancePaymentsRecorded', 'payments (Months 3–10)')}</div>
+          </div>
+        </div>
+
+        {/* Total Paid card (All Months / Grand Cash) - hidden on /app/finance/reports */}
         {!isBranchFinance && (
         <div className={`${styles.statCard} ${styles.cardPaid}`}>
           <div className={styles.statIcon}>✓</div>
           <div className={styles.statContent}>
-            <div className={styles.statLabel}>{t('finance.reports.totalPaid')}</div>
-            <div className={styles.statValue}>{fmt((summary.unlockedTotalPaid || 0) + (summary.freeRegPaid || 0))}</div>
+            <div className={styles.statLabel}>{t('finance.reports.totalCollectedAll', 'Total Paid (All Months)')}</div>
+            <div className={styles.statValue}>{fmt(summary.totalCollected || 0)}</div>
             <div className={styles.statSubtext}>
               {t('finance.reports.birr')} &nbsp;·&nbsp;
-              {t('finance.reports.inclFree', 'incl. free reg fee')}: <strong>{fmt(summary.freeRegPaid)}</strong>
+              {t('finance.reports.inclFree', 'incl. advance & free reg')}: <strong>{fmt((summary.advanceTotalPaid || 0) + (summary.freeRegPaid || 0))}</strong>
             </div>
           </div>
         </div>
         )}
 
-        <div className={`${styles.statCard} ${styles.cardPending}`}>
-          <div className={styles.statIcon}>⏳</div>
+        {/* Total Pending (All Months / Full Year) */}
+        <div className={`${styles.statCard} ${styles.cardPendingAll}`}>
+          <div className={styles.statIcon}>📅</div>
           <div className={styles.statContent}>
-            <div className={styles.statLabel}>{t('finance.reports.totalPending')}</div>
-            <div className={styles.statValue}>{fmt((summary.unlockedTotalPending || 0) + (summary.freeRegPending || 0))}</div>
-            <div className={styles.statSubtext}>{t('finance.reports.birr')}</div>
+            <div className={styles.statLabel}>{t('finance.reports.totalPendingAll', 'Total Pending (All Months)')}</div>
+            <div className={styles.statValue}>{fmt(summary.totalPendingAll || 0)}</div>
+            <div className={styles.statSubtext}>{t('finance.reports.fullYearSchoolSub', 'Full school year (Meskerem – Sene)')}</div>
           </div>
         </div>
 
@@ -414,13 +452,47 @@ const FinanceReports = () => {
             </tbody>
             <tfoot>
               <tr>
-                <td>{t('finance.reports.total')}</td>
-                <td className={styles.amountRight}>{fmt(monthly.reduce((s, m) => s + num(m.expected), 0))}</td>
-                <td className={styles.amountPaid}>{fmt(monthly.reduce((s, m) => s + num(m.paid), 0))}</td>
-                <td className={styles.amountPending}>{fmt(monthly.reduce((s, m) => s + num(m.pending), 0))}</td>
+                <td><b>{t('finance.reports.subtotalTuition', 'Subtotal (Tuition - Paying Students)')}</b></td>
+                <td className={styles.amountRight}><b>{fmt(monthly.reduce((s, m) => s + num(m.expected), 0))}</b></td>
+                <td className={styles.amountPaid}><b>{fmt(monthly.reduce((s, m) => s + num(m.paid), 0))}</b></td>
+                <td className={styles.amountPending}><b>{fmt(monthly.reduce((s, m) => s + num(m.pending), 0))}</b></td>
                 <td className={styles.center}>
                   <span className={`${styles.rateBadge} ${collectionRate >= 70 ? styles.rateGood : collectionRate >= 40 ? styles.rateMid : styles.rateLow}`}>
-                    {collectionRate.toFixed(1)}%
+                    {pct(monthly.reduce((s, m) => s + num(m.paid), 0), monthly.reduce((s, m) => s + num(m.expected), 0)).toFixed(1)}%
+                  </span>
+                </td>
+              </tr>
+              {num(summary.freeRegPaid) > 0 && (
+                <tr style={{ background: 'rgba(245, 158, 11, 0.08)' }}>
+                  <td>
+                    <b>🎓 {t('finance.reports.freeRegFeeTitle', 'Free Students Registration Fee')}</b>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', marginLeft: 8 }}>
+                      ({summary.freeStudents} {t('finance.reports.exemptStudents', 'exempt students')})
+                    </span>
+                  </td>
+                  <td className={styles.amountRight}>{fmt(summary.freeRegTotal || summary.freeRegPaid)}</td>
+                  <td className={styles.amountPaid} style={{ color: '#10b981', fontWeight: 700 }}>+{fmt(summary.freeRegPaid)}</td>
+                  <td className={styles.amountPending}>{fmt((summary.freeRegTotal || 0) - (summary.freeRegPaid || 0))}</td>
+                  <td className={styles.center}>100%</td>
+                </tr>
+              )}
+              <tr style={{ background: 'rgba(16, 185, 129, 0.12)', fontWeight: 800 }}>
+                <td><b>💰 {t('finance.reports.grandTotalCash', 'GRAND TOTAL CASH COLLECTED')}</b></td>
+                <td className={styles.amountRight}>
+                  <b>{fmt(monthly.reduce((s, m) => s + num(m.expected), 0) + num(summary.freeRegTotal || summary.freeRegPaid))}</b>
+                </td>
+                <td className={styles.amountPaid} style={{ fontSize: '1.05em', color: '#059669' }}>
+                  <b>{fmt(monthly.reduce((s, m) => s + num(m.paid), 0) + num(summary.freeRegPaid))}</b>
+                </td>
+                <td className={styles.amountPending}>
+                  <b>{fmt(monthly.reduce((s, m) => s + num(m.pending), 0) + num((summary.freeRegTotal || 0) - (summary.freeRegPaid || 0)))}</b>
+                </td>
+                <td className={styles.center}>
+                  <span className={`${styles.rateBadge} ${styles.rateGood}`}>
+                    {pct(
+                      monthly.reduce((s, m) => s + num(m.paid), 0) + num(summary.freeRegPaid),
+                      monthly.reduce((s, m) => s + num(m.expected), 0) + num(summary.freeRegTotal || summary.freeRegPaid)
+                    ).toFixed(1)}%
                   </span>
                 </td>
               </tr>
@@ -428,6 +500,81 @@ const FinanceReports = () => {
           </table>
         </div>
       </div>
+
+      {/* Branch Breakdown (Visible when viewing All Branches) */}
+      {byBranch.length > 0 && (
+        <div className={styles.section}>
+          <div className={styles.sectionHead}>
+            <h2>🌐 {t('finance.reports.branchBreakdown', 'Branch-by-Branch Performance')}</h2>
+            <span className={styles.sectionTag}>{byBranch.length} {t('finance.reports.branches', 'branches')}</span>
+          </div>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>{t('finance.reports.branch', 'Branch')}</th>
+                  <th className={styles.center}>{t('finance.reports.totalStudentsTh', 'Total Students')}</th>
+                  <th className={styles.center}>{t('finance.reports.payingTh', 'Paying')}</th>
+                  <th className={styles.center}>{t('finance.reports.exemptTh', 'Exempt')}</th>
+                  <th className={styles.amountRight}>{t('finance.reports.totalExpected', 'Expected (Unlocked)')}</th>
+                  <th className={styles.amountRight}>{t('finance.reports.totalPaid', 'Collected (Unlocked)')}</th>
+                  <th className={styles.amountRight}>{t('finance.reports.advancePaid', 'Advance')}</th>
+                  <th className={styles.amountRight}>{t('finance.reports.freeRegTh', 'Free Reg')}</th>
+                  <th className={styles.amountRight}>{t('finance.reports.totalCash', 'Total Cash')}</th>
+                  <th className={styles.amountRight}>{t('finance.reports.totalPendingTh', 'Pending')}</th>
+                  <th className={styles.center}>{t('finance.reports.rateTh', 'Rate')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byBranch.map((b, idx) => {
+                  const brRate = pct(b.unlockedTotalPaid, b.unlockedTotalAmount);
+                  return (
+                    <tr key={idx}>
+                      <td className={styles.className}>
+                        <strong>{b.branchName || b.branchCode}</strong>{' '}
+                        <small style={{ color: '#64748b' }}>({b.branchCode})</small>
+                      </td>
+                      <td className={styles.center}>{b.totalStudents}</td>
+                      <td className={styles.center}>{b.payingStudents}</td>
+                      <td className={styles.center}>{b.freeStudents}</td>
+                      <td className={styles.amountRight}>{fmt(b.unlockedTotalAmount)}</td>
+                      <td className={styles.amountPaid}>{fmt(b.unlockedTotalPaid)}</td>
+                      <td className={styles.amountPaid}>{fmt(b.advanceTotalPaid)}</td>
+                      <td className={styles.amountPaid}>{fmt(b.freeRegPaid)}</td>
+                      <td className={styles.amountPaid}><strong>{fmt(b.totalCollected)}</strong></td>
+                      <td className={styles.amountPending}>{fmt(b.unlockedTotalPending)}</td>
+                      <td className={styles.center}>
+                        <span className={`${styles.rateBadge} ${brRate >= 70 ? styles.rateGood : brRate >= 40 ? styles.rateMid : styles.rateLow}`}>
+                          {brRate.toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>{t('finance.reports.total', 'Total (All Branches)')}</td>
+                  <td className={styles.center}>{summary.totalStudents}</td>
+                  <td className={styles.center}>{summary.payingStudents || 0}</td>
+                  <td className={styles.center}>{summary.freeStudents || 0}</td>
+                  <td className={styles.amountRight}>{fmt(summary.unlockedTotalAmount)}</td>
+                  <td className={styles.amountPaid}>{fmt(summary.unlockedTotalPaid)}</td>
+                  <td className={styles.amountPaid}>{fmt(summary.advanceTotalPaid)}</td>
+                  <td className={styles.amountPaid}>{fmt(summary.freeRegPaid)}</td>
+                  <td className={styles.amountPaid}><strong>{fmt(summary.totalCollected)}</strong></td>
+                  <td className={styles.amountPending}>{fmt(summary.unlockedTotalPending)}</td>
+                  <td className={styles.center}>
+                    <span className={`${styles.rateBadge} ${collectionRate >= 70 ? styles.rateGood : collectionRate >= 40 ? styles.rateMid : styles.rateLow}`}>
+                      {collectionRate.toFixed(1)}%
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Class Breakdown */}
       <div className={styles.section}>

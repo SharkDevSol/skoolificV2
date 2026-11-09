@@ -173,6 +173,10 @@ const SuperFinanceApp = () => {
 
   const handleBranchChange = (code) => {
     sessionStorage.setItem('branchCode', code);
+    const token = localStorage.getItem('authToken') || localStorage.getItem('superFinanceToken');
+    if (token) {
+      localStorage.setItem(`branch_${code}_authToken`, token);
+    }
     setBranchCodeState(code);
     setSidebarOpen(false);
   };
@@ -372,6 +376,7 @@ const SuperFinanceApp = () => {
               value={branchCode}
               onChange={(e) => handleBranchChange(e.target.value)}
             >
+              <option value="ALL">🌐 {t('superFinance.allBranches', 'All Branches')}</option>
               {branches.map((b) => (
                 <option key={b.branchCode} value={b.branchCode}>
                   {b.branchCode}{b.branchName && b.branchName !== b.branchCode ? ` — ${b.branchName}` : ''}

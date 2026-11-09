@@ -79,27 +79,90 @@ const ensureClassTeachersTable = async (db) => {
 // Also initialize default database on startup
 ensureClassTeachersTable(pool);
 
+// Helper to sync any missing staff from staff_teachers into school_schema_points.teachers
+const syncStaffToSchoolSchemaPoints = async (db) => {
+  try {
+    const staffTableRes = await db.query(`
+      SELECT table_schema, table_name FROM information_schema.tables 
+      WHERE table_schema = 'staff_teachers' AND LOWER(table_name) IN ('teachers', 'teacher')
+      ORDER BY CASE WHEN table_name = 'teachers' THEN 1 ELSE 2 END
+      LIMIT 1
+    `);
+    if (staffTableRes.rows.length === 0) return;
+    const staffTbl = staffTableRes.rows[0].table_name;
+
+    await db.query(`
+      ALTER TABLE school_schema_points.teachers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+    `);
+
+    // Check if staff_teachers table has is_active column
+    const activeColCheck = await db.query(`
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema = 'staff_teachers' 
+        AND table_name = $1 
+        AND column_name = 'is_active'
+    `, [staffTbl]);
+    const hasStaffIsActive = activeColCheck.rows.length > 0;
+    const activeSelect = hasStaffIsActive ? 'COALESCE(t.is_active, TRUE)' : 'TRUE';
+    const activeWhere = hasStaffIsActive ? 'AND (t.is_active IS NULL OR t.is_active = TRUE)' : '';
+
+    await db.query(`
+      INSERT INTO school_schema_points.teachers (
+        global_staff_id, teacher_name, role, staff_work_time, staff_enrollment_type, is_active
+      )
+      SELECT 
+        t.global_staff_id, 
+        t.name, 
+        COALESCE(t.role, 'Teacher'), 
+        COALESCE(t.staff_work_time, 'Full Time'), 
+        COALESCE(t.staff_enrollment_type, 'Permanent'),
+        ${activeSelect}
+      FROM staff_teachers."${staffTbl}" t
+      WHERE 1=1 ${activeWhere}
+        AND NOT EXISTS (
+          SELECT 1 FROM school_schema_points.teachers pt 
+          WHERE pt.global_staff_id = t.global_staff_id 
+             OR LOWER(TRIM(pt.teacher_name)) = LOWER(TRIM(t.name))
+        )
+      ON CONFLICT (global_staff_id) DO UPDATE SET
+        teacher_name = EXCLUDED.teacher_name,
+        role = EXCLUDED.role,
+        staff_work_time = EXCLUDED.staff_work_time,
+        staff_enrollment_type = EXCLUDED.staff_enrollment_type,
+        is_active = EXCLUDED.is_active,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+  } catch (err) {
+    console.warn('[ClassTeacher] Teacher auto-sync warning:', err.message);
+  }
+};
+
 // Helper to resolve teachers table (either school_schema_points.teachers or staff_teachers.teachers)
 const getTeachersTableQuery = async (db) => {
   const check = await db.query(`
-    SELECT table_schema FROM information_schema.tables 
-    WHERE table_name = 'teachers' 
-      AND table_schema IN ('school_schema_points', 'staff_teachers')
+    SELECT table_schema, table_name FROM information_schema.tables 
+    WHERE (table_schema = 'school_schema_points' AND table_name = 'teachers')
+       OR (table_schema = 'staff_teachers' AND LOWER(table_name) IN ('teachers', 'teacher'))
     ORDER BY CASE WHEN table_schema = 'school_schema_points' THEN 1 ELSE 2 END
     LIMIT 1
   `);
   if (check.rows.length > 0) {
     const schema = check.rows[0].table_schema;
+    const tableName = check.rows[0].table_name;
     if (schema === 'school_schema_points') {
       return {
         table: 'school_schema_points.teachers',
+        schema: 'school_schema_points',
+        tableName: 'teachers',
         nameCol: 'teacher_name',
         workTimeCol: 'staff_work_time',
         roleCol: 'role'
       };
     } else {
       return {
-        table: 'staff_teachers.teachers',
+        table: `staff_teachers."${tableName}"`,
+        schema: 'staff_teachers',
+        tableName: tableName,
         nameCol: 'name',
         workTimeCol: 'staff_work_time',
         roleCol: 'role'
@@ -115,6 +178,9 @@ router.get('/teachers', async (req, res) => {
     const db = await getDbPool(req);
     console.log('📥 GET /api/class-teacher/teachers - Fetching teachers...');
     
+    // Auto-sync missing teachers from staff_teachers
+    await syncStaffToSchoolSchemaPoints(db);
+
     const tableMeta = await getTeachersTableQuery(db);
     if (!tableMeta) {
       console.log('⚠️  Teachers table not found');
@@ -126,9 +192,9 @@ router.get('/teachers', async (req, res) => {
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_schema = $1 
-        AND table_name = 'teachers' 
+        AND table_name = $2 
         AND column_name = 'is_active'
-    `, [tableMeta.table.split('.')[0]]);
+    `, [tableMeta.schema, tableMeta.tableName]);
     
     const hasIsActive = columnCheck.rows.length > 0;
     

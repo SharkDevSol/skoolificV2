@@ -1095,11 +1095,32 @@ router.post('/bulk-import', async (req, res) => {
     // Group students by their class from Excel
     const studentsByClass = {};
     students.forEach((student, index) => {
-      const targetClass = student.class || className; // Use class from Excel, fallback to selected class
+      // Normalize raw row keys
+      const normalizedStudent = {};
+      Object.entries(student || {}).forEach(([k, v]) => {
+        const cleanKey = k.trim().toLowerCase().replace(/\s+/g, '_');
+        normalizedStudent[cleanKey] = v;
+      });
+
+      // Map common aliases
+      if (!normalizedStudent.student_name && (normalizedStudent.name || normalizedStudent.full_name || normalizedStudent.student)) {
+        normalizedStudent.student_name = normalizedStudent.name || normalizedStudent.full_name || normalizedStudent.student;
+      }
+      if (!normalizedStudent.guardian_name && (normalizedStudent.parent_name || normalizedStudent.father_name || normalizedStudent.guardian)) {
+        normalizedStudent.guardian_name = normalizedStudent.parent_name || normalizedStudent.father_name || normalizedStudent.guardian;
+      }
+      if (!normalizedStudent.guardian_phone && (normalizedStudent.phone || normalizedStudent.phone_number || normalizedStudent.parent_phone || normalizedStudent.guardian_mobile)) {
+        normalizedStudent.guardian_phone = normalizedStudent.phone || normalizedStudent.phone_number || normalizedStudent.parent_phone || normalizedStudent.guardian_mobile;
+      }
+      if (!normalizedStudent.guardian_relation && (normalizedStudent.relation || normalizedStudent.relationship)) {
+        normalizedStudent.guardian_relation = normalizedStudent.relation || normalizedStudent.relationship;
+      }
+
+      const targetClass = normalizedStudent.class || student.class || className; // Use class from Excel, fallback to selected class
       if (!studentsByClass[targetClass]) {
         studentsByClass[targetClass] = [];
       }
-      studentsByClass[targetClass].push({ ...student, originalIndex: index });
+      studentsByClass[targetClass].push({ ...student, ...normalizedStudent, originalIndex: index });
     });
     
     // Validate all classes exist
@@ -1158,26 +1179,54 @@ router.post('/bulk-import', async (req, res) => {
         
         try {
           // Validate required fields
-          if (!studentData.student_name || !studentData.age || !studentData.gender) {
+          if (!studentData.student_name) {
             results.failedCount++;
             results.errors.push({
               row: i + 2, // +2 because Excel is 1-indexed and has header row
               class: targetClass,
-              error: 'Missing required fields: student_name, age, or gender'
+              error: 'Missing required field: student_name'
             });
             continue;
           }
-          
-          if (!studentData.guardian_name || !studentData.guardian_phone || !studentData.guardian_relation) {
-            results.failedCount++;
-            results.errors.push({
-              row: i + 2,
-              class: targetClass,
-              error: 'Missing required guardian fields: guardian_name, guardian_phone, or guardian_relation'
-            });
-            continue;
+
+          // Safe Age parsing (guaranteed integer, prevents NaN)
+          let parsedAge = null;
+          if (studentData.age !== undefined && studentData.age !== null) {
+            if (typeof studentData.age === 'number' && !isNaN(studentData.age)) {
+              parsedAge = Math.floor(studentData.age);
+            } else {
+              const ageStr = String(studentData.age).trim();
+              if (ageStr && !['nan', 'n/a', 'none', 'null', '-'].includes(ageStr.toLowerCase())) {
+                const match = ageStr.match(/\d+/);
+                if (match) {
+                  parsedAge = parseInt(match[0], 10);
+                }
+              }
+            }
           }
-          
+
+          // If age is invalid or <= 0, default based on class
+          if (parsedAge === null || isNaN(parsedAge) || parsedAge <= 0 || parsedAge > 35) {
+            const isKG = String(targetClass || '').toUpperCase().includes('KG');
+            parsedAge = isKG ? 4 : 7;
+          }
+
+          // Safe Gender parsing
+          let gender = studentData.gender;
+          if (gender) {
+            const gLower = String(gender).trim().toLowerCase();
+            if (gLower.startsWith('m')) gender = 'Male';
+            else if (gLower.startsWith('f')) gender = 'Female';
+            else gender = String(gender).trim();
+          } else {
+            gender = 'Male';
+          }
+
+          // Safe Guardian info with fallbacks
+          const finalGuardianName = studentData.guardian_name ? String(studentData.guardian_name).trim() : `${studentData.student_name}'s Guardian`;
+          const guardianPhone = studentData.guardian_phone ? String(studentData.guardian_phone).trim() : '0000000000';
+          const guardianRelation = studentData.guardian_relation ? String(studentData.guardian_relation).trim() : 'Parent';
+
           // Get and increment global school_id
           const globalIdResult = await client.query(`
             UPDATE school_schema_points.global_id_tracker 
@@ -1190,7 +1239,7 @@ router.post('/bulk-import', async (req, res) => {
           currentClassId++;
           
           // Generate student credentials
-          const studentUsername = `${studentData.student_name.toLowerCase().replace(/\s/g, '')}_${Math.floor(Math.random() * 10000)}`;
+          const studentUsername = `${String(studentData.student_name).toLowerCase().replace(/\s/g, '')}_${Math.floor(Math.random() * 10000)}`;
           const studentPassword = uuidv4().slice(0, 8);
           
           // Check if guardian already exists by phone number across all classes
@@ -1206,7 +1255,7 @@ router.post('/bulk-import', async (req, res) => {
                 WHERE guardian_phone = $1 
                 LIMIT 1
               `;
-              const existingGuardianResult = await client.query(existingGuardianQuery, [studentData.guardian_phone]);
+              const existingGuardianResult = await client.query(existingGuardianQuery, [guardianPhone]);
               
               if (existingGuardianResult.rows.length > 0) {
                 // Guardian exists - reuse credentials and name
@@ -1224,24 +1273,24 @@ router.post('/bulk-import', async (req, res) => {
           
           if (!guardianFound) {
             // New guardian - create credentials
-            guardianUsername = `${studentData.guardian_name.toLowerCase().replace(/\s/g, '')}_${Math.floor(Math.random() * 10000)}`;
+            guardianUsername = `${finalGuardianName.toLowerCase().replace(/\s/g, '')}_${Math.floor(Math.random() * 10000)}`;
             guardianPassword = uuidv4().slice(0, 8);
-            guardianName = studentData.guardian_name;
+            guardianName = finalGuardianName;
           }
           
           // Build insert data
           const insertData = {
             school_id: newSchoolId,
             class_id: currentClassId,
-            student_name: studentData.student_name,
-            age: parseInt(studentData.age),
-            gender: studentData.gender,
+            student_name: String(studentData.student_name).trim(),
+            age: parsedAge,
+            gender: gender,
             class: targetClass,
             username: studentUsername,
             password: studentPassword,
             guardian_name: guardianName,
-            guardian_phone: studentData.guardian_phone,
-            guardian_relation: studentData.guardian_relation,
+            guardian_phone: guardianPhone,
+            guardian_relation: guardianRelation,
             guardian_username: guardianUsername,
             guardian_password: guardianPassword
           };
@@ -1305,24 +1354,54 @@ router.post('/bulk-import', async (req, res) => {
             insertData.smachine_id = studentData.smachine_id;
           }
           
+          // System columns that must NEVER be imported from Excel
+          const SYSTEM_COLUMNS = ['id', 'school_id', 'class_id'];
+
           // Process custom fields based on their data types
           Object.keys(studentData).forEach(key => {
-            if (validColumns.includes(key) && !insertData[key]) {
-              const value = studentData[key];
+            const lowerKey = key.trim().toLowerCase();
+            if (SYSTEM_COLUMNS.includes(lowerKey) || SYSTEM_COLUMNS.includes(key)) {
+              return; // Skip id, school_id, class_id
+            }
+
+            if (validColumns.includes(key) && !insertData.hasOwnProperty(key)) {
+              const rawVal = studentData[key];
               const dataType = columnTypes[key];
-              
+
+              if (rawVal === undefined || rawVal === null || rawVal === '' || 
+                  ['nan', 'n/a', 'null', 'undefined', '-'].includes(String(rawVal).trim().toLowerCase())) {
+                insertData[key] = null;
+                return;
+              }
+
               switch (dataType) {
                 case 'integer':
-                  insertData[key] = value ? parseInt(value) : null;
+                case 'smallint':
+                case 'bigint': {
+                  const cleaned = String(rawVal).replace(/[^0-9-]/g, '');
+                  const num = cleaned ? parseInt(cleaned, 10) : null;
+                  insertData[key] = (num === null || isNaN(num)) ? null : num;
                   break;
-                case 'boolean':
-                  insertData[key] = value === 'true' || value === true || value === 'TRUE' || value === 1;
+                }
+                case 'numeric':
+                case 'real':
+                case 'double precision': {
+                  const cleaned = String(rawVal).replace(/[^0-9.-]/g, '');
+                  const flt = cleaned ? parseFloat(cleaned) : null;
+                  insertData[key] = (flt === null || isNaN(flt)) ? null : flt;
                   break;
-                case 'date':
-                  insertData[key] = value || null;
+                }
+                case 'boolean': {
+                  const str = String(rawVal).trim().toLowerCase();
+                  insertData[key] = (str === 'true' || str === '1' || str === 'yes' || rawVal === true);
                   break;
+                }
+                case 'date': {
+                  insertData[key] = rawVal || null;
+                  break;
+                }
                 default:
-                  insertData[key] = value || null;
+                  insertData[key] = String(rawVal).trim();
               }
             }
           });
