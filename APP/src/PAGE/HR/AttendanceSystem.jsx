@@ -709,12 +709,13 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
   const hasCheckedOut = attendance && attendance.check_out;
   const isLeave = attendance && attendance.status === 'LEAVE';
   
-  const [checkIn, setCheckIn] = useState(attendance?.check_in || '08:00');
+  const nowTime = new Date().toTimeString().slice(0, 5);
+  const [checkIn, setCheckIn] = useState(attendance?.check_in ? String(attendance.check_in).slice(0, 5) : nowTime);
   const [checkOut, setCheckOut] = useState(attendance?.check_out || '17:00');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState(hasCheckedIn && !hasCheckedOut ? 'checkout' : 'checkin');
   const [timeMode, setTimeMode] = useState('current');
-  const [markTime, setMarkTime] = useState(attendance?.check_in ? String(attendance.check_in).slice(0, 5) : '08:00');
+  const [markTime, setMarkTime] = useState(attendance?.check_in ? String(attendance.check_in).slice(0, 5) : nowTime);
   const [markLoading, setMarkLoading] = useState(false);
 
   // If this is a LEAVE day, show info and prevent editing
@@ -1041,7 +1042,7 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <input type="radio" checked={timeMode === 'current'} onChange={() => setTimeMode('current')} />
+              <input type="radio" checked={timeMode === 'current'} onChange={() => { setTimeMode('current'); const t = new Date().toTimeString().slice(0, 5); setCheckIn(t); setMarkTime(t); }} />
               Current time
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1057,64 +1058,18 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
               />
             )}
           </div>
-          <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+          <div style={{ fontSize: '12px', color: '#1565c0', marginTop: '8px', fontWeight: 600 }}>
+            {timeMode === 'current'
+              ? 'Will save the real current time when you click a mark (now: ' +
+                new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) + ').'
+              : 'Will save ' + markTime + ' for the mark you click.'}
+          </div>
+          <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
             P is auto-changed to L when the time is after the allowed check-in (any-time staff are never late).
           </div>
         </div>
 
-        {/* Check-In Form */}
-        {(!hasCheckedIn || (hasCheckedIn && hasCheckedOut)) && (
-          <form onSubmit={handleCheckIn} className={styles.form}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600 }}>
-                Check-In Time *
-              </label>
-              <input
-                type="time"
-                value={checkIn}
-                onChange={(e) => setCheckIn(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: '1px solid #e0e0e0',
-                  fontSize: '16px'
-                }}
-              />
-              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                When did the staff member arrive?
-              </div>
-            </div>
-
-            <div className={styles.modalActions}>
-              {cell.attendance && (
-                <button 
-                  type="button" 
-                  onClick={handleDelete}
-                  style={{
-                    padding: '10px 20px',
-                    background: '#dc3545',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: 600
-                  }}
-                >
-                  🗑️ Delete
-                </button>
-              )}
-              <button type="button" onClick={onClose} className={styles.cancelButton}>
-                Cancel
-              </button>
-              <button type="submit" disabled={loading} className={styles.submitButton}>
-                {loading ? 'Recording...' : (hasCheckedIn ? '🔵 Update Check-In' : '🔵 Check-In')}
-              </button>
-            </div>
-          </form>
-        )}
+        {/* Check-in is handled by the quick marks above (current time / set time). */}
 
         {/* Check-Out Form */}
         {hasCheckedIn && !hasCheckedOut && (

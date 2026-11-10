@@ -1283,3 +1283,46 @@
   }
 }
 
+
+/* ============================================================
+   FINAL LAYOUT FIX (Nov 2026)
+   Align the main content with the sidebar/header and stop pages
+   from sliding under the fixed sidebar or overflowing sideways.
+   ============================================================ */
+.mainContent {
+  margin-left: calc(280px + 2rem);
+  width: calc(100% - (280px + 2rem));
+  min-width: 0;
+}
+
+.mainContent.collapsed {
+  margin-left: calc(80px + 2rem);
+  width: calc(100% - (80px + 2rem));
+}
+
+.contentWrapper {
+  padding: 0;
+  min-width: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+@media (max-width: 1023px) {
+  .mainContent,
+  .mainContent.collapsed {
+    margin-left: calc(80px + 2rem);
+    width: calc(100% - (80px + 2rem));
+  }
+}
+
+@media (max-width: 767px) {
+  .mainContent,
+  .mainContent.collapsed {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .contentWrapper {
+    padding: 0;
+  }
+}

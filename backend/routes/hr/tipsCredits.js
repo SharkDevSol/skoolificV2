@@ -58,7 +58,24 @@ function nextMonth(year, month) {
   return { year, month: month + 1 };
 }
 
-async function insertExpense(db, { category, description, amount, dateStr, source, referenceType, referenceId, actor }) {
+async function insertExpense(db, { category, description, amount, dateStr, source, referenceType, referenceId, actor, actorId }) {
+  // Some branch databases store expenses.created_by/approved_by as INTEGER
+  // (user id) and others as VARCHAR (username). Pick the right type instead
+  // of sending "admin" into an integer column.
+  let actorValue = actor;
+  try {
+    const col = await db.query(
+      `SELECT data_type FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'expenses'
+          AND column_name = 'created_by' LIMIT 1`
+    );
+    const type = String((col.rows[0] && col.rows[0].data_type) || '').toLowerCase();
+    if (['integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real'].includes(type)) {
+      const n = Number(actorId);
+      actorValue = Number.isFinite(n) ? n : null;
+    }
+  } catch (_) {}
+
   const r = await db.query(
     `INSERT INTO public.expenses
       (expense_number, category, description, amount, expense_date, source, status,
@@ -68,7 +85,7 @@ async function insertExpense(db, { category, description, amount, dateStr, sourc
     [
       referenceType.toUpperCase() + '-' + referenceId + '-' + Date.now(),
       category, description, amount, dateStr || new Date().toISOString().slice(0, 10),
-      source, actor, referenceType, String(referenceId),
+      source, actorValue, referenceType, String(referenceId),
     ]
   );
   return r.rows[0];
@@ -143,6 +160,7 @@ router.post('/tips', authenticateWithBranch, async (req, res) => {
       referenceType: 'tip',
       referenceId: tipRow.id,
       actor,
+      actorId: req.user && req.user.id,
     });
     await client.query(`UPDATE hr_tips SET expense_id = $1 WHERE id = $2`, [exp.id, tipRow.id]);
     await client.query('COMMIT');
@@ -223,6 +241,7 @@ router.post('/credits', authenticateWithBranch, async (req, res) => {
       referenceType: 'credit',
       referenceId: credit.id,
       actor,
+      actorId: req.user && req.user.id,
     });
     await client.query(`UPDATE hr_staff_credits SET expense_id = $1 WHERE id = $2`, [exp.id, credit.id]);
     await client.query('COMMIT');

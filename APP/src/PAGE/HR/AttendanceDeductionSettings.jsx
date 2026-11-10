@@ -105,6 +105,17 @@ const AttendanceDeductionSettings = () => {
         </Button>
       </header>
 
+      <div className={styles.infoCard}>
+        <strong>What this page does:</strong> it sets how much money (Birr) is deducted from a
+        staff member's salary for each attendance mark. For example, an ABSENT rule of 100 Birr
+        deducts 100 Birr for every absent day. A staff-type rule overrides the ALL rule.
+        <br />
+        <strong>Important:</strong> these deductions only reach payroll when
+        <em>Connect to Salary</em> is ON in <em>Time &amp; Shift Settings</em>, and approved
+        leave/permission days never deduct. A rejected leave request applies the matching rule
+        automatically in Leave Management.
+      </div>
+
       <div className={styles.rulesGrid}>
         {staffTypes.map((staffType) => {
           const typeSettings = settings.filter((s) => s.staff_type === staffType);

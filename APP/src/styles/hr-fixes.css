@@ -1,0 +1,78 @@
+/* ============================================================
+   Solid surfaces for HR modals / popups
+   The theme variables were not resolving in light mode, which made
+   modal cards and inputs transparent ("glass"). These rules provide
+   explicit light/dark fallbacks so every popup has a background.
+   ============================================================ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.modal-content .form-group input,
+.modal-content .form-group select,
+.modal-content .form-group textarea {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #d1d5db;
+}
+
+.modal-content .form-group label {
+  color: #111827;
+}
+
+/* Dark mode */
+body.dark .modal-content,
+body.dark-mode .modal-content,
+.dark .modal-content,
+[data-theme="dark"] .modal-content {
+  background: #1f2937;
+  color: #f9fafb;
+  border-color: #374151;
+}
+
+body.dark .modal-content .form-group input,
+body.dark .modal-content .form-group select,
+body.dark .modal-content .form-group textarea,
+body.dark-mode .modal-content .form-group input,
+body.dark-mode .modal-content .form-group select,
+body.dark-mode .modal-content .form-group textarea,
+.dark .modal-content .form-group input,
+.dark .modal-content .form-group select,
+.dark .modal-content .form-group textarea {
+  background: #111827;
+  color: #f9fafb;
+  border-color: #4b5563;
+}
+
+body.dark .modal-content .form-group label,
+body.dark-mode .modal-content .form-group label,
+.dark .modal-content .form-group label {
+  color: #f9fafb;
+}
+
+/* HR pages already have their own page padding; keep the table wrappers
+   scrolling inside the page instead of pushing the whole document. */
+.contentWrapper {
+  overflow-x: hidden;
+}

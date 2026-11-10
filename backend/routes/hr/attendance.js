@@ -599,6 +599,32 @@ router.post('/attendance/ethiopian', authenticateWithBranch, async (req, res) =>
       console.log(`⚠️  Could not check staff-specific timing:`, err.message);
     }
     
+    // NEW: honour the Staff Specific Time page (hr_staff_specific_times).
+    // The old table (staff_specific_shift_timing) above is kept as a fallback.
+    try {
+      const hs = await pool.query(
+        `SELECT * FROM hr_staff_specific_times
+          WHERE staff_id = $1 OR LOWER(staff_name) = LOWER($2)
+          ORDER BY (staff_id = $1) DESC
+          LIMIT 1`,
+        [staffId, staffName]
+      );
+      if (hs.rows.length > 0) {
+        const r = hs.rows[0];
+        staffSpecificTiming = {
+          ...r,
+          custom_check_in: r.check_in_time,
+          custom_check_out: r.check_out_time,
+          custom_late_threshold: r.late_threshold,
+          anytime_check: r.anytime_check === true
+        };
+        hasAnytimeCheck = r.anytime_check === true;
+        console.log('Using hr_staff_specific_times for ' + staffName + ' (anytime=' + hasAnytimeCheck + ', late=' + r.late_threshold + ')');
+      }
+    } catch (e) {
+      console.log('Could not read hr_staff_specific_times:', e.message);
+    }
+
     // Get shift-specific time settings
     const shiftSettingsResult = await pool.query(
       `SELECT * FROM shift_time_settings WHERE shift_name = $1 AND is_active = true`,

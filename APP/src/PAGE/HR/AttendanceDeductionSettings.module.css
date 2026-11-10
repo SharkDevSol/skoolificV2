@@ -90,3 +90,120 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Modal styles (these classes were referenced by the JSX but missing) */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.modal {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modalHeader h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #111827;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 4px 8px;
+}
+
+.form {
+  display: block;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.cancelButton {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.submitButton {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: none;
+  background: var(--color-primary, #6f56ff);
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+body.dark .modal,
+body.dark-mode .modal {
+  background: #1f2937;
+  color: #f9fafb;
+  border-color: #374151;
+}
+
+body.dark .modalHeader h2,
+body.dark-mode .modalHeader h2 {
+  color: #f9fafb;
+}
+
+body.dark .cancelButton,
+body.dark-mode .cancelButton {
+  background: #111827;
+  color: #f9fafb;
+  border-color: #4b5563;
+}
+
+.infoCard {
+  background: var(--surface-primary, #ffffff);
+  border: 1px solid var(--border-primary, #e5e7eb);
+  border-left: 4px solid var(--color-primary, #6f56ff);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  color: var(--text-secondary, #4b5563);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.infoCard strong { color: var(--text-primary, #111827); }
+body.dark .infoCard, body.dark-mode .infoCard {
+  background: #1f2937; color: #d1d5db; border-color: #374151; border-left-color: #a78bfa;
+}
+body.dark .infoCard strong, body.dark-mode .infoCard strong { color: #f9fafb; }

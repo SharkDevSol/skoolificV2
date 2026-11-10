@@ -49,7 +49,7 @@ const EditSalaryModal = ({ onClose, staff, existingSalary, onSuccess }) => {
         baseSalary: baseNum,
         effectiveFrom: existingSalary?.effectiveFrom || new Date().toISOString().split('T')[0],
         bankName: formData.bankName.trim(),
-        bankAccountNumber: formData.bankAccountNumber.trim(),
+        bankAccountNumber: formData.accountName.trim(),
         taxEnabled: formData.taxEnabled,
         taxType: formData.taxType,
         taxValue: taxVal,
@@ -113,16 +113,6 @@ const EditSalaryModal = ({ onClose, staff, existingSalary, onSuccess }) => {
               value={formData.bankName}
               onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
               placeholder="e.g., Commercial Bank of Ethiopia"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Bank Account Number</label>
-            <input
-              type="text"
-              value={formData.bankAccountNumber}
-              onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
-              placeholder="Staff bank account number"
             />
           </div>
 

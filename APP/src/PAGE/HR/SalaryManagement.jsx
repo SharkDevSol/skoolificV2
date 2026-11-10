@@ -374,7 +374,7 @@ const SalaryManagement = () => {
                                 <div className={styles.salaryDetails}>
                                   <small>Base: {parseFloat(salary.baseSalary).toFixed(2)} Birr</small>
                                   <small>Net: {parseFloat(salary.netSalary).toFixed(2)} Birr</small>
-                                  {salary.bankName ? <small>Bank: {salary.bankName}{salary.bankAccountNumber ? ' - ' + salary.bankAccountNumber : ''}</small> : null}
+                                  {salary.bankName ? <small>Bank: {salary.bankName}</small> : null}
                                   {salary.taxEnabled ? <small>Tax: {salary.taxType === 'PERCENT' ? salary.taxValue + '%' : parseFloat(salary.taxValue || 0).toFixed(2) + ' Birr'}</small> : null}
                                   <small>Months: {Array.isArray(salary.paidMonths) && salary.paidMonths.length ? salary.paidMonths.join(', ') : 'All'}</small>
                                   {salary.isStopped ? <small style={{ color: '#c0392b', fontWeight: 700 }}>STOPPED</small> : null}

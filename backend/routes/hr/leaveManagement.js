@@ -30,55 +30,7 @@ router.get('/attendance-issues', authenticateWithBranch, async (req, res) => {
       )
     `);
 
-    // Get list of registered staff from List Staff page
-    let registeredStaffNames = [];
-    let registeredStaffIds = [];
-    
-    const staffTypes = ['Teachers', 'Administrative Staff', 'Supportive Staff'];
-    
-    for (const staffType of staffTypes) {
-      try {
-        const classesResponse = await axios.get(
-          `http://localhost:5000/api/staff/classes?staffType=${encodeURIComponent(staffType)}`
-        );
-        
-        for (const className of classesResponse.data) {
-          try {
-            const dataResponse = await axios.get(
-              `http://localhost:5000/api/staff/data/${staffType}/${className}`
-            );
-            
-            const staffData = dataResponse.data.data || [];
-            
-            staffData.forEach(staff => {
-              const staffId = staff.global_staff_id || staff.staff_id || staff.id;
-              const staffName = staff.full_name || staff.name;
-              
-              if (staffId) {
-                registeredStaffIds.push(String(staffId).toLowerCase());
-              }
-              if (staffName) {
-                registeredStaffNames.push(String(staffName).toLowerCase());
-              }
-            });
-          } catch (err) {
-            console.warn(`No data for: ${staffType}/${className}`);
-          }
-        }
-      } catch (err) {
-        console.warn(`No classes for: ${staffType}`);
-      }
-    }
-    
-    // Remove duplicates
-    registeredStaffIds = [...new Set(registeredStaffIds)];
-    registeredStaffNames = [...new Set(registeredStaffNames)];
-    
-    console.log(`📋 Found ${registeredStaffIds.length} registered staff IDs`);
-    console.log(`📋 Found ${registeredStaffNames.length} registered staff names`);
-    console.log(`👥 Sample names:`, registeredStaffNames.slice(0, 10));
-
-    console.log(`📅 Month: ${ethMonth}, Year: ${ethYear}, Status filter: ${status || 'ALL'}`);
+    // Attendance is read from the branch database directly (no localhost API hop).
 
     // Build query - filter by registered staff (ID or name match)
     // Use substring matching for flexible name matching
@@ -109,23 +61,17 @@ router.get('/attendance-issues', authenticateWithBranch, async (req, res) => {
       ) s ON true
       WHERE a.ethiopian_month = $1 
         AND a.ethiopian_year = $2
-        AND a.status IN ('LATE', 'ABSENT', 'HALF_DAY', 'LATE_HALF_DAY', 'NO_CHECKOUT', 'L+NCO', 'L+H', 'H', 'NCO', 'LATE + HALF_DAY', 'LATE + without check out')
         AND (
-          LOWER(a.staff_id) = ANY($3)
-          OR LOWER(a.staff_name) = ANY($4)
-          OR EXISTS (
-            SELECT 1 FROM unnest($4) AS registered_name
-            WHERE LOWER(a.staff_name) LIKE '%' || registered_name || '%'
-            OR registered_name LIKE '%' || LOWER(a.staff_name) || '%'
-          )
+          UPPER(a.status) IN ('LATE', 'ABSENT', 'HALF_DAY', 'LATE_HALF_DAY', 'NO_CHECKOUT', 'L+NCO', 'L+H', 'H', 'NCO', 'LATE + HALF_DAY', 'LATE + WITHOUT CHECK OUT')
+          OR UPPER(a.status) IN ('A', 'L', 'H', '*')
         )
     `;
 
-    const params = [parseInt(ethMonth), parseInt(ethYear), registeredStaffIds, registeredStaffNames];
+    const params = [parseInt(ethMonth), parseInt(ethYear)];
 
     // Add status filter
     if (status && status !== 'ALL') {
-      query += ` AND COALESCE(p.permission_status, 'PENDING') = $5`;
+      query += ` AND COALESCE(p.permission_status, 'PENDING') = $3`;
       params.push(status);
     }
 

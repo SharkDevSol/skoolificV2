@@ -213,7 +213,7 @@ router.post('/generate', authenticateWithBranch, async (req, res) => {
 
     const data = await computePayroll(ethMonth, ethYear);
     if (data.staff_count === 0) {
-      return res.status(404).json({ error: 'No salary records found', message: 'Please add salaries in Salary Management first' });
+      return res.status(404).json({ error: 'No salaries are scheduled for this month. Check Paid Months in Salary Management (leave it empty for every month) or add a salary first.', message: 'No scheduled salaries for this month' });
     }
     res.json({
       success: true,

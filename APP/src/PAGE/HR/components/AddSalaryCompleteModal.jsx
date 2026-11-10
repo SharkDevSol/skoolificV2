@@ -30,20 +30,6 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchAccounts();
-    fetchStaffTypes();
-  }, []);
-
-  useEffect(() => {
-    if (staffType) {
-      fetchStaffByType(staffType);
-    } else {
-      setStaffList([]);
-      setFormData((prev) => ({ ...prev, staffId: '', staffName: '', accountId: '', accountName: '' }));
-    }
-  }, [staffType]);
-
   const fetchStaffTypes = async () => {
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
@@ -120,7 +106,7 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
 
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-      const accountInput = formData.accountName.trim();
+      const accountInput = formData.bankAccountNumber.trim();
       if (!accountInput) {
         setError('Please enter an account number');
         setLoading(false);
@@ -135,7 +121,7 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
         baseSalary: baseNum,
         effectiveFrom: new Date().toISOString().split('T')[0],
         bankName: formData.bankName.trim(),
-        bankAccountNumber: formData.bankAccountNumber.trim(),
+        bankAccountNumber: accountInput,
         taxEnabled: formData.taxEnabled,
         taxType: formData.taxType,
         taxValue: taxVal,
@@ -174,51 +160,6 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
         </div>
 
         <form onSubmit={handleSubmit}>
-          {!preSelectedStaff && (
-            <>
-              <div className="form-group">
-                <label>Staff Type *</label>
-                <select value={staffType} onChange={(e) => setStaffType(e.target.value)} required>
-                  <option value="">Select Staff Type</option>
-                  {staffTypes.map(type => (
-                    <option key={type.type} value={type.type}>{type.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {staffType && (
-                <div className="form-group">
-                  <label>Staff Name *</label>
-                  <select value={formData.staffId} onChange={handleStaffChange} required>
-                    <option value="">Select Staff Member</option>
-                    {staffList.map(staff => (
-                      <option key={staff.id} value={staff.id}>
-                        {staff.firstName} {staff.lastName} ({staff.employeeNumber})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="form-group">
-            <label>Account Number *</label>
-            <input
-              type="text"
-              list="accounts-list"
-              value={formData.accountName}
-              onChange={(e) => setFormData({ ...formData, accountName: e.target.value })}
-              placeholder="Type or select account number (e.g., 5100 - Salary Expense)"
-              required
-            />
-            <datalist id="accounts-list">
-              {accounts.map(account => (
-                <option key={account.id} value={`${account.code} - ${account.name}`} />
-              ))}
-            </datalist>
-          </div>
-
           <div className="form-group">
             <label>Base Salary Amount *</label>
             <input
@@ -241,12 +182,13 @@ const AddSalaryCompleteModal = ({ onClose, preSelectedStaff }) => {
           </div>
 
           <div className="form-group">
-            <label>Bank Account Number</label>
+            <label>Account Number *</label>
             <input
               type="text"
               value={formData.bankAccountNumber}
               onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
-              placeholder="Staff bank account number"
+              placeholder="Enter staff account number"
+              required
             />
           </div>
 
