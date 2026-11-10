@@ -155,7 +155,7 @@ const LeaveManagement = () => {
       console.log(`📋 Fetching attendance issues for ${ethiopianMonths[selectedEthMonth - 1]} ${selectedEthYear}, filter: ${filter}`);
       
       const response = await branchAxios.get(
-        `${API_URL}/hr/leave/attendance-issues?ethMonth=${selectedEthMonth}&ethYear=${selectedEthYear}&status=${filter}`,
+        `${API_URL}/hr/leave/attendance-issues?ethMonth=${selectedEthMonth}&ethYear=${selectedEthYear}&status=ALL`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
@@ -222,16 +222,18 @@ const LeaveManagement = () => {
   };
 
   const handleApprove = async (issue) => {
-    setSelectedIssue(issue);
-    setShowPermissionModal({ type: 'approve', issue });
+    if (!window.confirm('Approve this issue? No salary deduction will be applied.')) return;
+    await submitPermission('approve', 'Approved by HR', issue);
   };
 
   const handleReject = async (issue) => {
-    setSelectedIssue(issue);
-    setShowPermissionModal({ type: 'reject', issue });
+    const amount = parseFloat(issue.deduction_amount || 0).toFixed(2);
+    if (!window.confirm('Reject this issue? ' + amount + ' Birr will be added to this staff\'s payroll for the month.')) return;
+    await submitPermission('reject', 'No valid reason provided', issue);
   };
 
-  const submitPermission = async (type, reason) => {
+  const submitPermission = async (type, reason, issue = selectedIssue) => {
+    if (!issue) return;
     if (type === 'approve' && (!reason || reason.trim() === '')) {
       setMessage({ type: 'error', text: 'Please write the reason' });
       return;
@@ -244,7 +246,7 @@ const LeaveManagement = () => {
       const response = await branchAxios.post(
         `${API_URL}/hr/leave/${endpoint}`,
         {
-          attendanceId: selectedIssue.attendance_id,
+          attendanceId: issue.attendance_id,
           reason
         },
         { headers: { 'Authorization': `Bearer ${token}` } }
@@ -262,7 +264,7 @@ const LeaveManagement = () => {
       }
     } catch (error) {
       console.error('Error processing permission:', error);
-      setMessage({ type: 'error', text: 'Failed to process permission' });
+      setMessage({ type: 'error', text: error.response?.data?.error || 'Failed to process permission' });
     }
   };
 
@@ -301,13 +303,17 @@ const LeaveManagement = () => {
     }
   };
 
+  const visibleIssues = filter === 'ALL'
+    ? attendanceIssues
+    : attendanceIssues.filter(i => i.permission_status === filter);
+
   const stats = {
     total: attendanceIssues.length,
     pending: attendanceIssues.filter(i => i.permission_status === 'PENDING').length,
     approved: attendanceIssues.filter(i => i.permission_status === 'APPROVED').length,
     rejected: attendanceIssues.filter(i => i.permission_status === 'REJECTED').length,
     totalDeductions: attendanceIssues
-      .filter(i => i.permission_status !== 'APPROVED')
+      .filter(i => i.permission_status === 'REJECTED')
       .reduce((sum, i) => sum + parseFloat(i.deduction_amount || 0), 0)
   };
 
@@ -555,14 +561,14 @@ const LeaveManagement = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {attendanceIssues.length === 0 ? (
+                  {visibleIssues.length === 0 ? (
                     <tr>
                       <td colSpan="10" style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
                         No attendance issues found for this period
                       </td>
                     </tr>
                   ) : (
-                    attendanceIssues.map(issue => (
+                    visibleIssues.map(issue => (
                       <tr key={issue.attendance_id} style={{ borderBottom: '1px solid #f0f0f0' }}>
                         <td style={{ padding: '16px', fontWeight: 600 }}>
                           {issue.staff_name}
@@ -733,7 +739,7 @@ const LeaveManagement = () => {
           type={showPermissionModal.type}
           issue={showPermissionModal.issue}
           onClose={() => { setShowPermissionModal(false); setSelectedIssue(null); }}
-          onSubmit={submitPermission}
+          onSubmit={(type, reason) => submitPermission(type, reason, showPermissionModal.issue)}
         />
       )}
 

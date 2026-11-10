@@ -127,7 +127,7 @@ async function ensurePermissionsTable(db) {
     "has_reason BOOLEAN DEFAULT FALSE",
     "deduction_amount NUMERIC(12,2) DEFAULT 0",
     "deduction_applied BOOLEAN DEFAULT FALSE",
-    "applied_deduction_id INTEGER",
+    "applied_deduction_id TEXT",
     "reviewed_by VARCHAR(255)",
     "reviewed_at TIMESTAMPTZ",
   ]) {
@@ -187,7 +187,7 @@ router.post('/approve-permission', authenticateWithBranch, async (req, res) => {
 
     // re-review: remove a previously applied deduction
     if (prev && prev.applied_deduction_id) {
-      await client.query('DELETE FROM hr_deductions WHERE id = $1', [prev.applied_deduction_id]);
+      await client.query('DELETE FROM hr_deductions WHERE id::text = $1::text', [String(prev.applied_deduction_id)]);
       await client.query('UPDATE hr_attendance_permissions SET applied_deduction_id = NULL WHERE attendance_id = $1', [attendanceId]);
     }
 
@@ -273,7 +273,7 @@ router.post('/reject-permission', authenticateWithBranch, async (req, res) => {
     let deductionId = (prev && prev.applied_deduction_id) || null;
     if (amount > 0) {
       if (deductionId) {
-        await client.query('UPDATE hr_deductions SET amount = $1 WHERE id = $2', [amount, deductionId]);
+        await client.query('UPDATE hr_deductions SET amount = $1 WHERE id::text = $2::text', [amount, String(deductionId)]);
       } else {
         const ins = await client.query(
           `INSERT INTO hr_deductions (staff_id, staff_name, deduction_type, amount, ethiopian_month, ethiopian_year)
@@ -283,13 +283,13 @@ router.post('/reject-permission', authenticateWithBranch, async (req, res) => {
         deductionId = ins.rows[0].id;
       }
     } else if (deductionId) {
-      await client.query('DELETE FROM hr_deductions WHERE id = $1', [deductionId]);
+      await client.query('DELETE FROM hr_deductions WHERE id::text = $1::text', [String(deductionId)]);
       deductionId = null;
     }
 
     await client.query(
       'UPDATE hr_attendance_permissions SET applied_deduction_id = $1, deduction_applied = $2 WHERE attendance_id = $3',
-      [deductionId, !!deductionId, attendanceId]
+      [deductionId == null ? null : String(deductionId), !!deductionId, attendanceId]
     );
 
     await client.query(

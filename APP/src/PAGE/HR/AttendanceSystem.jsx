@@ -716,6 +716,7 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
   const [mode, setMode] = useState(hasCheckedIn && !hasCheckedOut ? 'checkout' : 'checkin');
   const [timeMode, setTimeMode] = useState('current');
   const [markTime, setMarkTime] = useState(attendance?.check_in ? String(attendance.check_in).slice(0, 5) : nowTime);
+  const [selectedMark, setSelectedMark] = useState('P');
   const [markLoading, setMarkLoading] = useState(false);
 
   // If this is a LEAVE day, show info and prevent editing
@@ -934,7 +935,7 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
     }
   };
 
-  const handleQuickMark = async (selectedMark) => {
+  const handleQuickMark = async (markCode) => {
     setMarkLoading(true);
     try {
       const token = localStorage.getItem('authToken') || localStorage.getItem('token');
@@ -953,7 +954,7 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
           checkIn: time,
           checkOut: (attendance && attendance.check_out) || null,
           shiftType: cell.shiftType,
-          status: selectedMark,
+          status: markCode,
           timeMode,
           source: 'MANUAL',
           createdBy: localStorage.getItem('username') || localStorage.getItem('adminUsername') || 'admin'
@@ -962,10 +963,13 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
       );
       if (response.data.success) {
         onSuccess && onSuccess();
+        return true;
       }
+      return false;
     } catch (error) {
       console.error('Error marking attendance:', error);
       alert('Failed to mark attendance: ' + (error.response?.data?.error || error.message));
+      return false;
     } finally {
       setMarkLoading(false);
     }
@@ -1030,10 +1034,18 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
                 key={code}
                 type="button"
                 disabled={markLoading}
-                onClick={() => handleQuickMark(code)}
+                onClick={() => {
+                  if (hasCheckedIn && !hasCheckedOut) {
+                    handleQuickMark(code);
+                  } else {
+                    setSelectedMark(code);
+                  }
+                }}
                 style={{
-                  padding: '8px 14px', borderRadius: '8px', border: '1px solid #2196F3',
-                  background: '#fff', color: '#1565c0', cursor: 'pointer', fontWeight: 700
+                  padding: '8px 14px', borderRadius: '8px',
+                  border: '1px solid ' + (selectedMark === code ? '#1565c0' : '#2196F3'),
+                  background: selectedMark === code ? '#e3f2fd' : '#fff',
+                  color: '#1565c0', cursor: 'pointer', fontWeight: 700
                 }}
               >
                 {code} · {label}
@@ -1069,7 +1081,37 @@ const TimeModal = ({ cell, ethMonth, ethYear, onClose, onSuccess }) => {
           </div>
         </div>
 
-        {/* Check-in is handled by the quick marks above (current time / set time). */}
+        {(!hasCheckedIn || (hasCheckedIn && hasCheckedOut)) && (
+          <div className={styles.modalActions} style={{ padding: '0 24px 24px', marginTop: 0 }}>
+            {cell.attendance && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                style={{
+                  padding: '10px 20px', background: '#dc3545', color: 'white',
+                  border: 'none', borderRadius: '8px', cursor: 'pointer',
+                  fontSize: '14px', fontWeight: 600
+                }}
+              >
+                Delete
+              </button>
+            )}
+            <button type="button" onClick={onClose} className={styles.cancelButton}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={markLoading}
+              onClick={async () => {
+                const ok = await handleQuickMark(selectedMark);
+                if (ok) onClose();
+              }}
+              className={styles.submitButton}
+            >
+              {markLoading ? 'Saving...' : (hasCheckedIn ? 'Update Check-In' : 'Check-In')}
+            </button>
+          </div>
+        )}
 
         {/* Check-Out Form */}
         {hasCheckedIn && !hasCheckedOut && (

@@ -737,6 +737,12 @@ const AttendanceTimeSettingsCombined = () => {
               <p style={{ fontSize: '12px', color: '#666', marginTop: '12px' }}>
                 P (present) and V (permission) never deduct. The calculation rule is a hook — detailed rules will be added later.
               </p>
+              <a
+                href="/hr/attendance-deduction-settings"
+                style={{ display: 'inline-block', marginTop: '10px', fontWeight: 700, color: '#1976d2', textDecoration: 'none' }}
+              >
+                Open full deduction rules (per staff type) →
+              </a>
             </div>
 
             <button
