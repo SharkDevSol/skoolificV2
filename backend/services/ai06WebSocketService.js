@@ -238,20 +238,20 @@ class AI06WebSocketService {
       console.log(`   In/Out: ${inout} (0=in, 1=out)`);
       
       // Parse the scan time (format: "2026-02-10 15:30:24")
-      // IMPORTANT: Machine clock is 9 hours behind - add correction
       const scanDate = new Date(scanTime);
       
-      // Add 9 hours to correct machine time
-      scanDate.setHours(scanDate.getHours() + 9);
+      // Extract time in HH:MM:SS format directly from machine scanTime
+      let timeOnly;
+      if (typeof scanTime === 'string' && scanTime.includes(' ')) {
+        timeOnly = scanTime.split(' ')[1].slice(0, 8);
+      } else {
+        const hours = scanDate.getHours().toString().padStart(2, '0');
+        const minutes = scanDate.getMinutes().toString().padStart(2, '0');
+        const seconds = scanDate.getSeconds().toString().padStart(2, '0');
+        timeOnly = `${hours}:${minutes}:${seconds}`;
+      }
       
-      // Extract corrected time in HH:MM:SS format
-      const hours = scanDate.getHours().toString().padStart(2, '0');
-      const minutes = scanDate.getMinutes().toString().padStart(2, '0');
-      const seconds = scanDate.getSeconds().toString().padStart(2, '0');
-      const timeOnly = `${hours}:${minutes}:${seconds}`;
-      
-      console.log(`⏰ Machine time (original): ${scanTime}`);
-      console.log(`⏰ Corrected time (+9 hours): ${timeOnly}`);
+      console.log(`⏰ Machine scan time: ${scanTime} (Extracted: ${timeOnly})`);
       
       // ========================================
       // STEP 1: Check if this is a STUDENT or STAFF
