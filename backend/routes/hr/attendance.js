@@ -1520,31 +1520,43 @@ router.get('/devices/status', authenticateWithBranch, async (req, res) => {
   try {
     // Get the AI06 service instance from the app
     const ai06Service = req.app.get('ai06Service');
+    const port = parseInt(process.env.AI06_WEBSOCKET_PORT, 10) || 7701;
+    const defaultBranch = req.branchCode || process.env.AI06_BRANCH_CODE || 'IQRA2';
     
     if (!ai06Service) {
       return res.json({
         success: true,
         devices: [],
+        count: 0,
+        serverPort: port,
+        branch: defaultBranch,
         message: 'AI06 service not initialized'
       });
     }
     
-    // Get list of connected device serial numbers
+    // Get list of connected devices
     const connectedDevices = ai06Service.getConnectedDevices();
     
     // Format device information
-    const devices = connectedDevices.map((serialNumber, index) => ({
-      serialNumber,
-      name: `AI06 Device ${index + 1}`,
-      model: 'AI06 Face Recognition',
-      status: 'connected'
-    }));
+    const devices = connectedDevices.map((d, index) => {
+      const serialNumber = typeof d === 'string' ? d : (d.serialNumber || d.sn || `DEVICE-${index + 1}`);
+      return {
+        serialNumber,
+        name: `AI06/AI08 Device ${index + 1} (${serialNumber})`,
+        model: 'AI08 / AI06 Biometric Face/Fingerprint',
+        branch: (typeof d === 'object' && d.branch) ? d.branch : (ai06Service.branchCode || defaultBranch),
+        ip: (typeof d === 'object' && d.ip) ? d.ip : null,
+        connectedAt: (typeof d === 'object' && d.connectedAt) ? d.connectedAt : new Date().toISOString(),
+        status: 'connected'
+      };
+    });
     
     res.json({
       success: true,
       devices,
       count: devices.length,
-      serverPort: 7788,
+      serverPort: port,
+      branch: defaultBranch,
       timestamp: new Date().toISOString()
     });
   } catch (error) {

@@ -267,6 +267,13 @@ app.use(cors({
 }));
 
 // 4. Rate limiting - apply to all API routes
+// Defensive URL rewrite: normalize any accidental double /api/api/* back to /api/*
+app.use((req, res, next) => {
+  if (req.url && req.url.startsWith('/api/api/')) {
+    req.url = req.url.replace(/^\/api\/api\//, '/api/');
+  }
+  next();
+});
 app.use('/api/', apiLimiter);
 
 // 5. Apply stricter rate limiting to login routes
