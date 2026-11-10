@@ -147,6 +147,30 @@ class AI06WebSocketService {
     };
     
     ws.send(JSON.stringify(response));
+
+    // Automatically request new logs from the device after registration
+    setTimeout(() => {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          console.log(`📡 Requesting new attendance logs from ${sn}...`);
+          ws.send(JSON.stringify({ cmd: 'getnewlog' }));
+        }
+      } catch (err) {
+        console.error(`Failed to request new logs from ${sn}:`, err.message);
+      }
+    }, 1500);
+  }
+
+  // Handle responses from device (to server commands like getnewlog)
+  async handleDeviceResponse(ws, message) {
+    const { ret, result, count, record } = message;
+    console.log(`📥 Device response for "${ret}": result=${result}, count=${count || 0}`);
+    
+    // If device responded to getnewlog or getalllog with records
+    if ((ret === 'getnewlog' || ret === 'getalllog') && Array.isArray(record) && record.length > 0) {
+      console.log(`📊 Processing ${record.length} records received from ${ret}`);
+      await this.handleAttendanceLog(ws, { count: record.length, logindex: 0, record });
+    }
   }
 
   // Handle attendance log from device
