@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FiUsers, FiSearch, FiFilter, FiEye, FiEyeOff, FiUserX, FiUserCheck,
-  FiDownload, FiFile, FiX, FiRefreshCw, FiLock, FiCopy,
+  FiDownload, FiFile, FiX, FiRefreshCw, FiLock, FiCopy, FiKey,
   FiPhone, FiMail, FiUser, FiBriefcase, FiGrid, FiList,
   FiChevronLeft, FiChevronRight, FiEdit, FiTrash2
 } from 'react-icons/fi';
@@ -56,6 +56,10 @@ const ListStaff = () => {
   const [staffTypes, setStaffTypes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
+  const [revealedPasswords, setRevealedPasswords] = useState({});
+  const togglePasswordReveal = (id) => {
+    setRevealedPasswords(prev => ({ ...prev, [id]: !prev[id] }));
+  };
   const canViewPassword = true;
   const branchHeaders = (() => {
     const code = getBranchCode();
@@ -513,6 +517,60 @@ const ListStaff = () => {
       render: (phone) => phone || '-'
     },
     {
+      key: 'username', header: 'Username', sortable: true,
+      render: (_, staff) => staff.username ? (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontWeight: 500 }}>{staff.username}</span>
+          <button 
+            type="button"
+            className={styles.copyBtn} 
+            onClick={(e) => { e.stopPropagation(); copyToClipboard(staff.username); }}
+            title="Copy username"
+            style={{ padding: '2px 5px', fontSize: '11px', cursor: 'pointer' }}
+          >
+            <FiCopy />
+          </button>
+        </div>
+      ) : '-'
+    },
+    {
+      key: 'password', header: 'Password', sortable: false,
+      render: (_, staff) => {
+        const pwd = staff.password_plain || staff.password || staff.password_hash;
+        if (!pwd) return '-';
+        const staffKey = staff.uniqueId || staff.id || staff.global_staff_id;
+        const isRevealed = revealedPasswords[staffKey];
+        return (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontFamily: isRevealed ? 'monospace' : 'inherit', fontSize: '12px' }}>
+              {isRevealed ? pwd : '••••••••'}
+            </span>
+            <button
+              type="button"
+              className={styles.toggleBtn}
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                togglePasswordReveal(staffKey);
+              }}
+              title={isRevealed ? 'Hide password' : 'Show password'}
+              style={{ padding: '2px 5px', fontSize: '11px', cursor: 'pointer' }}
+            >
+              {isRevealed ? <FiEyeOff /> : <FiEye />}
+            </button>
+            <button
+              type="button"
+              className={styles.copyBtn}
+              onClick={(e) => { e.stopPropagation(); copyToClipboard(pwd); }}
+              title="Copy password"
+              style={{ padding: '2px 5px', fontSize: '11px', cursor: 'pointer' }}
+            >
+              <FiCopy />
+            </button>
+          </div>
+        );
+      }
+    },
+    {
       key: 'documents', header: 'Documents', sortable: false,
       render: (_, staff) => {
         const fileFields = getStaffFiles(staff);
@@ -718,6 +776,53 @@ const ListStaff = () => {
                       {staff.department && (
                         <div className={styles.infoItem}><FiBriefcase /> {staff.department}</div>
                       )}
+                      {staff.username && (
+                        <div className={styles.infoItem} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <FiLock />
+                          <span>User: <strong>{staff.username}</strong></span>
+                          <button
+                            type="button"
+                            className={styles.copyBtn}
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(staff.username); }}
+                            title="Copy username"
+                            style={{ padding: '1px 4px', fontSize: '10px', cursor: 'pointer' }}
+                          >
+                            <FiCopy />
+                          </button>
+                        </div>
+                      )}
+                      {(staff.password_plain || staff.password || staff.password_hash) && (() => {
+                        const pwd = staff.password_plain || staff.password || staff.password_hash;
+                        const staffKey = staff.uniqueId || staff.id || staff.global_staff_id;
+                        const isRevealed = revealedPasswords[staffKey];
+                        return (
+                          <div className={styles.infoItem} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <FiKey />
+                            <span>Pass: <strong style={{ fontFamily: isRevealed ? 'monospace' : 'inherit' }}>{isRevealed ? pwd : '••••••••'}</strong></span>
+                            <button
+                              type="button"
+                              className={styles.toggleBtn}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                togglePasswordReveal(staffKey);
+                              }}
+                              title={isRevealed ? 'Hide password' : 'Show password'}
+                              style={{ padding: '1px 4px', fontSize: '10px', cursor: 'pointer' }}
+                            >
+                              {isRevealed ? <FiEyeOff /> : <FiEye />}
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.copyBtn}
+                              onClick={(e) => { e.stopPropagation(); copyToClipboard(pwd); }}
+                              title="Copy password"
+                              style={{ padding: '1px 4px', fontSize: '10px', cursor: 'pointer' }}
+                            >
+                              <FiCopy />
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                     {fileFields.length > 0 && (
                       <div className={styles.cardFiles}>
@@ -844,7 +949,7 @@ const ListStaff = () => {
                   <h3><FiUser /> {t('basicInformation')}</h3>
                   <div className={styles.infoGrid}>
                     {Object.entries(selectedStaff)
-                      .filter(([key, value]) => !isFileField(key) && !looksLikeFile(value) && !['uniqueId', 'id', 'global_staff_id', 'staff_id', 'password', 'password_hash', 'staffType', 'className'].includes(key))
+                      .filter(([key, value]) => !isFileField(key) && !looksLikeFile(value) && !['uniqueId', 'id', 'global_staff_id', 'staff_id', 'password', 'password_plain', 'password_hash', 'staffType', 'className'].includes(key))
                       .map(([key, value]) => (
                         <div key={key} className={styles.infoRow}>
                           <span className={styles.infoLabel}>{formatLabel(key)}</span>
@@ -856,7 +961,7 @@ const ListStaff = () => {
                 </div>
                 
                 {/* Credentials Section */}
-                {(selectedStaff.username || (canViewPassword && (selectedStaff.password || selectedStaff.password_hash))) && (
+                {(selectedStaff.username || (canViewPassword && (selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash))) && (
                   <div className={styles.modalSection}>
                     <h3><FiLock /> {t('loginCredentials')}</h3>
                     <div className={styles.credentialsGrid}>
@@ -875,12 +980,12 @@ const ListStaff = () => {
                           </div>
                         </div>
                       )}
-                      {canViewPassword && (selectedStaff.password || selectedStaff.password_hash) && (
+                      {canViewPassword && (selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash) && (
                         <div className={styles.credentialRow}>
                           <span className={styles.credentialLabel}>{t('password')}</span>
                           <div className={styles.credentialValue}>
                             <span className={styles.passwordText}>
-                              {showPassword ? (selectedStaff.password || selectedStaff.password_hash || '-') : '••••••••'}
+                              {showPassword ? (selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash || '-') : '••••••••'}
                             </span>
                             <button 
                               className={styles.toggleBtn}
@@ -891,7 +996,7 @@ const ListStaff = () => {
                             </button>
                             <button 
                               className={styles.copyBtn}
-                              onClick={() => copyToClipboard(selectedStaff.password || selectedStaff.password_hash || '')}
+                              onClick={() => copyToClipboard(selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash || '')}
                               title="Copy password"
                             >
                               <FiCopy />
@@ -1108,7 +1213,7 @@ const ListStaff = () => {
                   <h3><FiUser /> {t('basicInformation')}</h3>
                   <div className={styles.editGrid}>
                     {Object.entries(editFormData)
-                      .filter(([key]) => !['uniqueId', 'id', 'global_staff_id', 'staff_id', 'password', 'password_hash', 'staffType', 'className', 'image_staff'].includes(key))
+                      .filter(([key]) => !['uniqueId', 'id', 'global_staff_id', 'staff_id', 'password', 'password_plain', 'password_hash', 'staffType', 'className', 'image_staff'].includes(key))
                       .filter(([key, value]) => !isFileField(key) && !looksLikeFile(value))
                       .map(([key, value]) => renderEditField(key, value))
                     }
@@ -1181,7 +1286,7 @@ const ListStaff = () => {
                 })()}
 
                 {/* Login Credentials Section - Read Only */}
-                {(selectedStaff.username || (canViewPassword && (selectedStaff.password || selectedStaff.password_hash))) && (
+                {(selectedStaff.username || (canViewPassword && (selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash))) && (
                   <div className={styles.modalSection}>
                     <h3><FiLock /> {t('loginCredentials')}</h3>
                     <div className={styles.credentialsGrid}>
@@ -1200,12 +1305,12 @@ const ListStaff = () => {
                           </div>
                         </div>
                       )}
-                      {canViewPassword && (selectedStaff.password || selectedStaff.password_hash) && (
+                      {canViewPassword && (selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash) && (
                         <div className={styles.credentialRow}>
                           <span className={styles.credentialLabel}>{t('password')}</span>
                           <div className={styles.credentialValue}>
                             <span className={styles.passwordText}>
-                              {showPassword ? (selectedStaff.password || selectedStaff.password_hash || '-') : '••••••••'}
+                              {showPassword ? (selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash || '-') : '••••••••'}
                             </span>
                             <button 
                               className={styles.toggleBtn}
@@ -1216,7 +1321,7 @@ const ListStaff = () => {
                             </button>
                             <button 
                               className={styles.copyBtn}
-                              onClick={() => copyToClipboard(selectedStaff.password || selectedStaff.password_hash || '')}
+                              onClick={() => copyToClipboard(selectedStaff.password_plain || selectedStaff.password || selectedStaff.password_hash || '')}
                               title="Copy password"
                             >
                               <FiCopy />

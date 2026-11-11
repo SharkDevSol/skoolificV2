@@ -1571,45 +1571,52 @@ router.get('/data/:staffType/:className', async (req, res) => {
   const schema = sanitizeStaffTypeToSchema(staffType);
 
   try {
+    const branchPool = await getPool(req);
     // Check if is_active column exists
-    const columnCheck = await pool.query(
+    const columnCheck = await branchPool.query(
       `SELECT column_name FROM information_schema.columns 
        WHERE table_schema = $1 AND table_name = $2 AND column_name = 'is_active'`,
       [schema, className]
     );
     
+    const selectFields = `s.*, 
+                          u.username,
+                          COALESCE(u.password_plain, u.password_hash) AS password,
+                          u.password_plain,
+                          u.password_hash`;
+
     // Build query with is_active filter if column exists
     let query;
     if (columnCheck.rowCount > 0) {
       if (includeInactive === 'true') {
         // Include all staff (active and inactive)
-        query = `SELECT s.*, u.username
+        query = `SELECT ${selectFields}
                  FROM "${schema}"."${className}" s
                  LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                  ORDER BY LOWER(s.name) ASC`;
       } else if (includeInactive === 'only') {
         // Only inactive staff
-        query = `SELECT s.*, u.username
+        query = `SELECT ${selectFields}
                  FROM "${schema}"."${className}" s
                  LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                  WHERE s.is_active = FALSE
                  ORDER BY LOWER(s.name) ASC`;
       } else {
         // Only active staff (default)
-        query = `SELECT s.*, u.username
+        query = `SELECT ${selectFields}
                  FROM "${schema}"."${className}" s
                  LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                  WHERE s.is_active = TRUE OR s.is_active IS NULL
                  ORDER BY LOWER(s.name) ASC`;
       }
     } else {
-      query = `SELECT s.*, u.username
+      query = `SELECT ${selectFields}
                FROM "${schema}"."${className}" s
                LEFT JOIN staff_users u ON s.global_staff_id = u.global_staff_id
                ORDER BY LOWER(s.name) ASC`;
     }
     
-    const { rows } = await pool.query(query);
+    const { rows } = await branchPool.query(query);
     res.json({ data: rows });
   } catch (e) {
     res
@@ -2186,12 +2193,11 @@ router.get('/profile-by-id/:globalStaffId', authenticateWithBranch, async (req, 
 
 // 7.19 GET ALL STAFF (for dropdowns and lists)
 router.get('/', authenticateWithBranch, async (req, res) => {
-  console.log('\nðŸ“¥ GET /api/staff - Request received');
-  
   try {
+    const branchPool = await getPool(req);
     // Fetch all staff from staff_users table
-    const usersResult = await pool.query(
-      `SELECT global_staff_id, username, staff_type, class_name
+    const usersResult = await branchPool.query(
+      `SELECT global_staff_id, username, password_plain, password_hash, staff_type, class_name
        FROM staff_users
        WHERE global_staff_id IS NOT NULL
        ORDER BY username`
@@ -2215,7 +2221,7 @@ router.get('/', authenticateWithBranch, async (req, res) => {
         const className = user.class_name;
         
         // Fetch staff details from their class table
-        const detailsResult = await pool.query(
+        const detailsResult = await branchPool.query(
           `SELECT name, role, staff_work_time, image_staff, gender
            FROM "${schema}"."${className}"
            WHERE global_staff_id = $1
@@ -2229,6 +2235,9 @@ router.get('/', authenticateWithBranch, async (req, res) => {
             id: user.global_staff_id,
             global_staff_id: user.global_staff_id,
             username: user.username,
+            password: user.password_plain || user.password_hash,
+            password_plain: user.password_plain,
+            password_hash: user.password_hash,
             name: details.name,
             firstName: details.name.split(' ')[0],
             lastName: details.name.split(' ').slice(1).join(' ') || '',
@@ -2245,6 +2254,9 @@ router.get('/', authenticateWithBranch, async (req, res) => {
             id: user.global_staff_id,
             global_staff_id: user.global_staff_id,
             username: user.username,
+            password: user.password_plain || user.password_hash,
+            password_plain: user.password_plain,
+            password_hash: user.password_hash,
             name: user.username,
             firstName: user.username,
             lastName: '',
@@ -2260,6 +2272,9 @@ router.get('/', authenticateWithBranch, async (req, res) => {
           id: user.global_staff_id,
           global_staff_id: user.global_staff_id,
           username: user.username,
+          password: user.password_plain || user.password_hash,
+          password_plain: user.password_plain,
+          password_hash: user.password_hash,
           name: user.username,
           firstName: user.username,
           lastName: '',
