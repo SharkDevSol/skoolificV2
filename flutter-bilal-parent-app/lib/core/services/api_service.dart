@@ -164,6 +164,75 @@ class ApiService {
     return [];
   }
 
+
+  /// Like [guardianWards], but returns [] when the guardian genuinely has no
+  /// wards and null only when the request failed. The provider needs this to
+  /// remove students that were deleted or moved to another guardian instead
+  /// of restoring them from the offline cache.
+  Future<List<Ward>?> guardianWardsStrict(String username) async {
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianProfile}/$username'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['student'] is List) {
+          return (data['student'] as List)
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+        }
+        if (data is List) {
+          return data
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+        }
+        return null;
+      }
+      if (res.statusCode == 404) {
+        // The guardian exists but has no active wards.
+        return <Ward>[];
+      }
+    } catch (_) {
+      return null;
+    }
+
+    // Profile failed -> use the guardian list (it groups by phone, same as web).
+    try {
+      final res = await get(
+        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.guardianList}'),
+        headers: _headers(),
+      );
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body) as List;
+        Map<String, dynamic>? me;
+        for (final g in list) {
+          if (g is Map && g['guardian_username']?.toString() == username) {
+            me = Map<String, dynamic>.from(g);
+            break;
+          }
+        }
+        if (me == null) {
+          for (final g in list) {
+            if (g is Map &&
+                (g['guardian_phone']?.toString() == username ||
+                    g['id']?.toString() == username)) {
+              me = Map<String, dynamic>.from(g);
+              break;
+            }
+          }
+        }
+        if (me != null && me['students'] is List) {
+          return (me['students'] as List)
+              .map((s) => Ward.fromJson(Map<String, dynamic>.from(s as Map)))
+              .toList();
+        }
+        return null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<GuardianMarksResponse> guardianMarks(String username) async {
     try {
       final res = await get(

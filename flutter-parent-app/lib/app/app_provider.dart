@@ -119,37 +119,38 @@ class AppProvider extends ChangeNotifier {
         // is as slow as the SLOWEST request, not the SUM of all four.
         final api = ApiService();
         final results = await Future.wait<Map<String, dynamic>?>([
-          api.guardianWards(user!.username).then((v) => <String, dynamic>{'wards': v}).catchError((_) => <String, dynamic>{}),
+          api.guardianWardsStrict(user!.username).then((v) => <String, dynamic>{'wardsStrict': v}).catchError((_) => <String, dynamic>{}),
           api.guardianMarks(user!.username).then((v) => <String, dynamic>{'marks': v}).catchError((_) => <String, dynamic>{}),
           api.guardianPayments(user!.username).then((v) => <String, dynamic>{'payments': v}).catchError((_) => <String, dynamic>{}),
           api.guardianPosts(selectedWard?.schoolId).then((v) => <String, dynamic>{'posts': v}).catchError((_) => <String, dynamic>{}),
         ]);
         // wards
+        List<Ward>? wRes;
         try {
-          final wRes = results[0]?['wards'] as List<Ward>?;
+          wRes = results[0]?['wardsStrict'] as List<Ward>?;
           if (wRes != null) {
             wards = wRes;
-            if (wards.isNotEmpty) {
-              try {
-                StorageService.setOfflineCache('wards', jsonEncode(
-                  wards.map((w) => {
-                    'studentName': w.studentName,
-                    'className': w.className,
-                    'schoolId': w.schoolId,
-                  }).toList(),
-                ));
-              } catch (_) {}
-            }
+            try {
+              StorageService.setOfflineCache('wards', jsonEncode(
+                wards.map((w) => {
+                  'studentName': w.studentName,
+                  'className': w.className,
+                  'schoolId': w.schoolId,
+                }).toList(),
+              ));
+            } catch (_) {}
             if (wards.isNotEmpty && selectedWard == null) {
               selectedWard = wards.first;
             } else if (wards.isNotEmpty && selectedWard != null) {
               final index = wards.indexWhere((w) => w.studentName == selectedWard!.studentName);
               selectedWard = index >= 0 ? wards[index] : wards.first;
+            } else {
+              selectedWard = null;
             }
           }
         } catch (_) {}
         // offline fallback: wards from storage
-        if (wards.isEmpty) {
+        if (wRes == null && wards.isEmpty) {
           try {
             final wardsJson = StorageService.getOfflineCache('wards');
             if (wardsJson != null) {
@@ -209,13 +210,24 @@ class AppProvider extends ChangeNotifier {
   Future<void> silentRefresh() async {
     if (user == null || user!.username.isEmpty) return;
     try {
-      final freshWards = await ApiService().guardianWards(user!.username);
-      if (freshWards.isNotEmpty) {
+      final freshWards = await ApiService().guardianWardsStrict(user!.username);
+      if (freshWards != null) {
         wards = freshWards;
-        if (selectedWard == null ||
+        if (wards.isEmpty) {
+          selectedWard = null;
+        } else if (selectedWard == null ||
             !wards.any((w) => w.studentName == selectedWard!.studentName)) {
           selectedWard = wards.first;
         }
+        try {
+          StorageService.setOfflineCache('wards', jsonEncode(
+            wards.map((w) => {
+              'studentName': w.studentName,
+              'className': w.className,
+              'schoolId': w.schoolId,
+            }).toList(),
+          ));
+        } catch (_) {}
       }
       try {
         final marksRes = await ApiService().guardianMarks(user!.username);

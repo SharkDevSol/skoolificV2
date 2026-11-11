@@ -41,6 +41,14 @@ android {
         }
     }
 
+    packagingOptions {
+        // FIX: the engine artifact (libflutter.so) ships unstripped (165MB);
+        // AGP 9 keeps symbols by default. Strip everything on release:
+        jniLibs {
+            keepDebugSymbols -= "**/*.so"
+        }
+    }
+
     buildTypes {
         release {
             val keystorePropertiesFile = rootProject.file("key.properties")
@@ -50,6 +58,7 @@ android {
                 signingConfigs.getByName("debug")
             isMinifyEnabled = false
             isShrinkResources = false
+            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
         }
     }
 }
@@ -67,7 +76,3 @@ flutter {
 // 6.2: FCM — the firebase_messaging Flutter plugin brings the native library;
 // we only apply the google-services plugin to read google-services.json.
 apply(plugin = "com.google.gms.google-services")
-
-tasks.matching { it.name.contains("strip", ignoreCase = true) && it.name.contains("DebugSymbols", ignoreCase = true) }.configureEach {
-    enabled = false
-}

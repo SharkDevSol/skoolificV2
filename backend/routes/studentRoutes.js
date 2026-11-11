@@ -1006,44 +1006,103 @@ router.get('/profile/:username', async (req, res) => {
 // Get guardian profile with all their wards
 router.get('/guardian-profile/:username', async (req, res) => {
   const { username } = req.params;
-  
+  const uname = String(username || '').trim();
+  if (!uname) return res.status(400).json({ error: 'username is required' });
+
   try {
-    const tables = (await db.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
-    
-    let wards = [];
-    
+    const tables = (await db.query(
+      'SELECT table_name FROM information_schema.tables WHERE table_schema = $1',
+      ['classes_schema']
+    )).rows.map(row => row.table_name);
+
+    // Only class tables that actually store guardian details.
+    const meta = {};
     for (const table of tables) {
-      // Check if is_active column exists
-      const columnCheck = await db.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_schema = 'classes_schema' 
-          AND table_name = $1 
-          AND column_name = 'is_active'
-      `, [table]);
-      
-      const hasIsActive = columnCheck.rows.length > 0;
-      const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
-      
-      const result = await db.query(
-        `SELECT * FROM classes_schema."${table}" WHERE guardian_username = $1 ${whereClause}`,
-        [username]
-      );
-      
-      if (result.rows.length > 0) {
-        wards = wards.concat(result.rows);
+      const cols = (await db.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = 'classes_schema' AND table_name = $1
+            AND column_name IN ('guardian_name', 'guardian_phone', 'guardian_username', 'is_active', 'class')`,
+        [table]
+      )).rows.map(r => r.column_name);
+      if (!cols.includes('guardian_username') || !cols.includes('guardian_phone')) continue;
+      meta[table] = {
+        hasActive: cols.includes('is_active'),
+      };
+    }
+
+    const active = (table) => meta[table].hasActive
+      ? 'AND (is_active = TRUE OR is_active IS NULL)'
+      : '';
+    const baseWhere = "guardian_name IS NOT NULL AND guardian_name != ''";
+    const onlyDigits = uname.replace(/[^0-9]/g, '');
+
+    // 1) The guardian account can have several phone spellings in the data.
+    // Pick the phone used by most of the rows that share this login username.
+    // That is the phone the web guardian list groups the family under.
+    const phoneCounts = new Map();
+    if (onlyDigits.length >= 7) {
+      phoneCounts.set(uname, 99); // the app was called with a phone number
+    } else {
+      for (const table of Object.keys(meta)) {
+        const rows = (await db.query(
+          `SELECT guardian_phone FROM classes_schema."${table}"
+            WHERE LOWER(guardian_username) = LOWER($1) AND ${baseWhere} ${active(table)}`,
+          [uname]
+        )).rows;
+        for (const row of rows) {
+          const phone = String(row.guardian_phone || '').trim();
+          if (!phone) continue;
+          phoneCounts.set(phone, (phoneCounts.get(phone) || 0) + 1);
+        }
       }
     }
-    
+    let primaryPhone = '';
+    for (const [phone, count] of phoneCounts.entries()) {
+      if (!primaryPhone || count > phoneCounts.get(primaryPhone)) primaryPhone = phone;
+    }
+
+    // 2) Collect every student under that phone, plus rows that share the
+    // username but have no phone at all. This matches the web grouping and
+    // means edits (phone changes) and deletions show up immediately.
+    const wards = [];
+    const seen = new Set();
+    for (const table of Object.keys(meta)) {
+      const clauses = [];
+      const params = [];
+      if (primaryPhone) {
+        clauses.push('TRIM(guardian_phone::text) = $1');
+        params.push(primaryPhone);
+        clauses.push("(LOWER(guardian_username) = LOWER($2) AND (guardian_phone IS NULL OR TRIM(guardian_phone::text) = ''))");
+        params.push(uname);
+      } else {
+        clauses.push('LOWER(guardian_username) = LOWER($1)');
+        params.push(uname);
+      }
+      const rows = (await db.query(
+        `SELECT * FROM classes_schema."${table}"
+          WHERE (${clauses.join(' OR ')}) AND ${baseWhere} ${active(table)}`,
+        params
+      )).rows;
+
+      for (const row of rows) {
+        if (!row.class) row.class = table;
+        const key = String(row.school_id || row.student_name || '') + '|' + String(row.class || table);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        wards.push(row);
+      }
+    }
+
     if (wards.length === 0) {
       return res.status(404).json({ error: 'Guardian not found' });
     }
-    
+
+    wards.sort((a, b) => String(a.student_name || '').localeCompare(String(b.student_name || '')));
+
     res.json({
       role: 'guardian',
       student: wards
     });
-    
   } catch (err) {
     console.error('Guardian profile fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch guardian profile' });
