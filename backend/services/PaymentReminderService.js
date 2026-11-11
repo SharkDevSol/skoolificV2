@@ -28,7 +28,7 @@ const ETH_MONTH_NAMES_SOMALI = [
 ];
 
 const DEFAULT_SOMALI_TEMPLATE =
-  'Ku: Mudane/Marwo {guardian_name}, Waxaan si xushmad leh kuugu xasuusinaynaa in lacagta bisha {month_name} ee ardayga {student_name} ay dhiman tahay ({amount_due} Birr). Fadlan bixi lacagta ka hor inta aysan bilaaban bisha cusub si waxbarashada ardaygu u sii socoto si habsarri leh. Mahadsanid, {school_name}.';
+  'Ku: Mudane/Marwo {guardian_name}, Waxaan ku xasuusinaynaa in lacagta bisha {month_name} ee ardayga {student_name} ({class_name}) ay dhiman tahay ({amount_due} Birr). Fadlan bixi ka hor inta aysan bilaaban bisha cusub. (F.G: Haddii aad leedahay ilmo kale oo bixiyay, ogow fariintani waxay u gaar tahay ardaygan kor ku xusan). Mahadsanid, {school_name}.';
 
 /**
  * Get the target branch databases for the current deployment
@@ -285,6 +285,7 @@ async function runReminderSweep(options = {}) {
           let messageText = templateText
             .replace(/\{guardian_name\}/g, guardianName)
             .replace(/\{student_name\}/g, studentName)
+            .replace(/\{class_name\}/g, className)
             .replace(/\{month_name\}/g, targetMonthName)
             .replace(/\{amount_due\}/g, amountStr)
             .replace(/\{school_name\}/g, schoolName)
