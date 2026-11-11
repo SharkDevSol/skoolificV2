@@ -75,7 +75,7 @@ class OfflineService {
   static String _opKey(Map<String, dynamic> op) {
     switch (op['type']) {
       case 'save_marks':
-        return 'save_marks|${op['subjectName']}|${op['className']}|${op['termNumber']}';
+        return 'save_marks|${op['formId'] ?? ''}|${op['subjectClass'] ?? ''}|${op['subjectName']}|${op['className']}|${op['termNumber']}';
       case 'weekly_attendance':
         return 'weekly_attendance|${op['className']}|${op['weekStart']}';
       default:
@@ -92,7 +92,24 @@ class OfflineService {
     };
     final key = _opKey(op);
     if (key.isNotEmpty) {
-      queue.removeWhere((e) => _opKey(e) == key);
+      final idx = queue.indexWhere((e) => _opKey(e) == key);
+      if (idx >= 0) {
+        final existing = queue.removeAt(idx);
+        if (type == 'save_marks') {
+          // Merge the rows: saving different students/forms while offline
+          // must not replace the earlier rows.
+          final merged = <String, Map<String, dynamic>>{};
+          for (final r in (existing['rows'] as List? ?? [])) {
+            final m = Map<String, dynamic>.from(r as Map);
+            merged['${m['studentName']}'] = m;
+          }
+          for (final r in (payload['rows'] as List? ?? [])) {
+            final m = Map<String, dynamic>.from(r as Map);
+            merged['${m['studentName']}'] = m;
+          }
+          op['rows'] = merged.values.toList();
+        }
+      }
     }
     queue.add(op);
     await StorageService.setOfflineCache(_queueKey, jsonEncode(queue));

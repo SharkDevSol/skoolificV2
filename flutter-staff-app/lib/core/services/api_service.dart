@@ -240,9 +240,24 @@ class ApiService {
           .timeout(const Duration(seconds: 30)),
       retries: 3,
     );
-    final ok = _ok(res);
-    lastStatusCode = ok ? null : res.statusCode;
-    lastError = ok ? null : _err(res);
+    var ok = _ok(res);
+    if (ok) {
+      final d = _safeJson(res.body);
+      final updated = d is Map ? d['updatedCount'] : null;
+      if (updated is num && updated == 0) {
+        ok = false;
+        lastStatusCode = 422;
+        lastError = (d is Map ? d['error']?.toString() : null) ??
+            'No marks were saved. Please retry.';
+      }
+    }
+    if (ok) {
+      lastStatusCode = null;
+      lastError = null;
+    } else {
+      lastStatusCode = res.statusCode;
+      lastError = _err(res);
+    }
     return ok;
   }
 

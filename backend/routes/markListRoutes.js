@@ -45,7 +45,9 @@ const sanitizeComponentKey = (name) => {
     .toString()
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
+    // Keep any Unicode letter/number (Arabic, Amharic, ...) and turn spaces /
+    // punctuation into underscores. The app uses the same rule.
+    .replace(/[^\p{L}\p{N}_]+/gu, '_')
     .replace(/^_+|_+$/g, '');
 };
 
@@ -1942,7 +1944,27 @@ router.post('/bulk-update-marks', async (req, res) => {
     const passThreshold = config && config.pass_threshold ? parseFloat(config.pass_threshold) : 50.00;
     
     let updatedCount = 0;
+    let skippedCount = 0;
     const notifyList = [];
+
+    // Map each config component to the real column in this mark table. Older
+    // tables may spell a column slightly differently (or use Arabic letters).
+    let actualColumns = new Set();
+    try {
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2`,
+        [schemaName, tableName]
+      );
+      actualColumns = new Set(cols.rows.map(r => String(r.column_name)));
+    } catch (_) {}
+    const columnByKey = new Map();
+    for (const col of actualColumns) {
+      const k = sanitizeComponentKey(col);
+      if (!columnByKey.has(k)) columnByKey.set(k, col);
+      const compact = k.replace(/_/g, '');
+      if (!columnByKey.has(compact)) columnByKey.set(compact, col);
+    }
     
     for (const studentMarks of marksData) {
       const { studentName, marks } = studentMarks;
@@ -1983,6 +2005,7 @@ router.post('/bulk-update-marks', async (req, res) => {
           if (inserted.rows.length > 0) studentId = inserted.rows[0].id;
         } catch (insertErr) {
           console.log(`Could not add student "${studentName}": ${insertErr.message}`);
+          skippedCount++;
           continue;
         }
       }
@@ -1994,19 +2017,24 @@ router.post('/bulk-update-marks', async (req, res) => {
       
       for (const component of markComponents) {
         const componentKey = sanitizeComponentKey(component.name);
-        if (marks[componentKey] !== undefined) {
-          const mark = parseFloat(marks[componentKey]);
+        const column = columnByKey.get(componentKey) ||
+          columnByKey.get(componentKey.replace(/_/g, '')) ||
+          (actualColumns.has(componentKey) ? componentKey : null);
+        if (!column) continue;
+        const markValue = marks[componentKey] !== undefined ? marks[componentKey] : marks[component.name];
+        if (markValue !== undefined) {
+          const mark = parseFloat(markValue);
           const maxMark = component.percentage;
-          
+
           // Ensure mark doesn't exceed component percentage
           const finalMark = Math.min(mark, maxMark);
-          updateColumns.push(`${componentKey} = $${updateValues.length + 1}`);
+          updateColumns.push(`"${column}" = $${updateValues.length + 1}`);
           updateValues.push(finalMark);
           total += finalMark;
         }
       }
       
-      if (updateColumns.length === 0) continue;
+      if (updateColumns.length === 0) { skippedCount++; continue; }
       
       // Ensure total doesn't exceed 100
       total = Math.min(total, 100);
@@ -2039,6 +2067,17 @@ router.post('/bulk-update-marks', async (req, res) => {
       }
     }
     
+    if (marksData.length > 0 && (updatedCount === 0 || skippedCount > 0)) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        error: skippedCount > 0
+          ? `Some marks could not be saved (${skippedCount} row(s)). Please retry.`
+          : 'No marks were saved. The subject/class mark columns could not be matched.',
+        updatedCount,
+        skippedCount
+      });
+    }
+
     await client.query('COMMIT');
 
     // Notify guardians of the students whose total actually changed (non-blocking)

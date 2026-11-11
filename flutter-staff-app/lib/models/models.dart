@@ -212,8 +212,11 @@ class MarkComponentConfig {
   /// Column / payload key the backend uses for this component:
   /// `name.toLowerCase().replaceAll(RegExp(r'[\s\-\.]+'), '_')`
   /// (matches server `component.name.toLowerCase().replace(/[\s\-\.]+/g, '_')`).
-  String get componentKey =>
-      name.toLowerCase().replaceAll(RegExp(r'[\s\-\.]+'), '_');
+  String get componentKey => name
+      .toLowerCase()
+      // Keep Arabic / Amharic letters, turn spaces and punctuation into _.
+      .replaceAll(RegExp(r'[^\w\u0600-\u06FF\u1200-\u137F]+'), '_')
+      .replaceAll(RegExp(r'^_+|_+$'), '');
 
   factory MarkComponentConfig.fromJson(Map<String, dynamic> j) => MarkComponentConfig(
         name: j['name']?.toString() ?? '',

@@ -288,6 +288,8 @@ class _MarksTabState extends State<MarksTab> {
       'subjectName': _selectedAssignment!.subjectName,
       'className': _selectedAssignment!.className,
       'termNumber': _selectedTerm,
+      'subjectClass': _selectedAssignment!.subjectClass,
+      'formId': _selectedAssignment!.formId,
       'rows': rows,
     };
 
@@ -328,7 +330,16 @@ class _MarksTabState extends State<MarksTab> {
           showError(context, api.lastError ?? tr(context, 'locked'));
           await _fetchMarkList(force: true);
         } else {
-          showError(context, api.lastError ?? tr(context, 'save_failed'));
+          // Keep a local backup even when the server says it failed (for
+          // example 0 rows saved for a Tarbiya/Arabic form). The queue retries
+          // automatically and the teacher does not have to type it again.
+          await OfflineService.enqueue('save_marks', payload);
+          _snapshotCurrent();
+          _updateCachedPayload();
+          if (mounted) {
+            setState(() => _pendingSync = OfflineService.pendingCount);
+            showSuccess(context, tr(context, 'saved_offline_pending'));
+          }
         }
       }
     } catch (e) {
