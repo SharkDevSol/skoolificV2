@@ -901,7 +901,8 @@ router.post('/create-form', async (req, res) => {
 
   const className = sanitizeClassName(raw);
   const schema = sanitizeStaffTypeToSchema(staffType);
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
 
   try {
     await client.query('BEGIN');
@@ -1056,7 +1057,8 @@ router.delete('/delete-form', async (req, res) => {
 
   const className = sanitizeClassName(raw);
   const schema = sanitizeStaffTypeToSchema(staffType);
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
 
   try {
     await client.query('BEGIN');
@@ -1300,7 +1302,8 @@ router.post('/add-staff', upload, async (req, res) => {
 
 // 7.8 EXCEL / BULK UPLOAD
 router.post('/upload-excel', async (req, res) => {
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
   try {
     const { staffType, className: rawClass, data } = req.body;
     if (!Array.isArray(data) || data.length === 0)
@@ -1656,7 +1659,8 @@ router.delete('/delete-staff', async (req, res) => {
     return res.status(400).json({ error: 'Missing required field: globalStaffId' });
   }
 
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
 
   try {
     await client.query('BEGIN');
@@ -2125,7 +2129,8 @@ router.put('/teacher-work-time', async (req, res) => {
     return res.status(400).json({ error: 'Work time must be either "Full Time" or "Part Time"' });
   }
 
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
   try {
     await client.query('BEGIN');
 
@@ -2305,7 +2310,8 @@ router.get('/', authenticateWithBranch, async (req, res) => {
 
 // UPDATE STAFF MEMBER
 router.put('/update/:globalStaffId', upload, async (req, res) => {
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
   try {
     await client.query('BEGIN');
 
@@ -2315,7 +2321,7 @@ router.put('/update/:globalStaffId', upload, async (req, res) => {
     
     // Extract staffType and class - handle if they come as arrays
     let staffType = req.body.staffType;
-    let rawClass = req.body.class;
+    let rawClass = req.body.className || req.body.class;
     
     // If staffType is an array, take the first element
     if (Array.isArray(staffType)) {
@@ -2325,35 +2331,58 @@ router.put('/update/:globalStaffId', upload, async (req, res) => {
       rawClass = rawClass[0];
     }
     
-    console.log('staffType:', staffType, 'type:', typeof staffType);
+    console.log('staffType:', staffType, 'rawClass:', rawClass);
     
     // Validate staffType is a string
     if (!staffType || typeof staffType !== 'string') {
       throw new Error('Invalid staffType provided');
     }
     
-    const className = sanitizeClassName(rawClass);
+    let className = sanitizeClassName(rawClass);
     const schema = sanitizeStaffTypeToSchema(staffType);
 
     // Parse form data
     const formData = {};
     for (const [k, v] of Object.entries(req.body)) {
-      if (!['staffType', 'class'].includes(k)) {
-        try {
-          formData[k] = JSON.parse(v);
-        } catch {
-          formData[k] = v;
-        }
+      // Keep 'class' field if 'className' was separately provided (meaning 'class' is the data column)
+      if (k === 'className' || k === 'staffType') continue;
+      if (k === 'class' && !req.body.className) continue;
+      try {
+        formData[k] = JSON.parse(v);
+      } catch {
+        formData[k] = v;
       }
     }
 
-    // Get table columns
-    const colRes = await client.query(
+    // Get table columns, or resolve table in schema if needed
+    let colRes = await client.query(
       `SELECT column_name FROM information_schema.columns
        WHERE table_schema = $1 AND table_name = $2`,
       [schema, className]
     );
     
+    if (colRes.rowCount === 0) {
+      // Find actual table in schema where this staff member exists
+      const tblCheck = await client.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name <> 'staff_counter'`,
+        [schema]
+      );
+      for (const tRow of tblCheck.rows) {
+        const hasStaff = await client.query(
+          `SELECT 1 FROM "${schema}"."${tRow.table_name}" WHERE global_staff_id::text = $1::text OR id::text = $1::text LIMIT 1`,
+          [globalStaffId]
+        );
+        if (hasStaff.rowCount > 0) {
+          className = tRow.table_name;
+          colRes = await client.query(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
+            [schema, className]
+          );
+          break;
+        }
+      }
+    }
+
     if (colRes.rowCount === 0) {
       throw new Error('Target table does not exist');
     }
@@ -2392,14 +2421,64 @@ router.put('/update/:globalStaffId', upload, async (req, res) => {
     const updateQuery = `
       UPDATE "${schema}"."${className}"
       SET ${setClause}
-      WHERE global_staff_id = $1
+      WHERE global_staff_id::text = $1::text OR id::text = $1::text
       RETURNING *
     `;
 
-    const result = await client.query(updateQuery, values);
+    let result = await client.query(updateQuery, values);
+
+    if (result.rowCount === 0) {
+      // Fallback: search other tables in schema
+      const allTables = await client.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name <> 'staff_counter'`,
+        [schema]
+      );
+      for (const tRow of allTables.rows) {
+        if (tRow.table_name === className) continue;
+        const fallbackRes = await client.query(
+          `UPDATE "${schema}"."${tRow.table_name}" SET ${setClause} WHERE global_staff_id::text = $1::text OR id::text = $1::text RETURNING *`,
+          values
+        ).catch(() => ({ rowCount: 0 }));
+        if (fallbackRes.rowCount > 0) {
+          result = fallbackRes;
+          break;
+        }
+      }
+    }
 
     if (result.rowCount === 0) {
       throw new Error('Staff member not found');
+    }
+
+    // Also update credentials in staff_users if username or password provided
+    const newUsername = formData.username || req.body.username;
+    const newPassword = formData.password || formData.password_plain || req.body.password;
+    if (newUsername || newPassword) {
+      try {
+        const uSets = [];
+        const uVals = [];
+        let pIdx = 1;
+        if (newUsername) {
+          uSets.push(`username = $${pIdx++}`);
+          uVals.push(newUsername);
+        }
+        if (newPassword) {
+          const bcrypt = require('bcryptjs');
+          const salt = await bcrypt.genSalt(10);
+          const hash = await bcrypt.hash(newPassword, salt);
+          uSets.push(`password_hash = $${pIdx++}`);
+          uVals.push(hash);
+          uSets.push(`password_plain = $${pIdx++}`);
+          uVals.push(newPassword);
+        }
+        uVals.push(globalStaffId);
+        await client.query(
+          `UPDATE staff_users SET ${uSets.join(', ')} WHERE global_staff_id::text = $${pIdx}::text`,
+          uVals
+        );
+      } catch (uErr) {
+        console.warn('Could not update staff_users credentials:', uErr.message);
+      }
     }
 
     await client.query('COMMIT');
@@ -2449,7 +2528,8 @@ router.post('/bulk-import', async (req, res) => {
     return res.status(400).json({ error: 'Staff type, class name, and staff array are required' });
   }
   
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
   
   try {
     await client.query('BEGIN');
@@ -2611,7 +2691,8 @@ router.put('/toggle-active/:globalStaffId', async (req, res) => {
     return res.status(400).json({ error: 'is_active must be a boolean value' });
   }
   
-  const client = await pool.connect();
+  const branchPool = await getPool(req);
+  const client = await branchPool.connect();
   
   try {
     await client.query('BEGIN');

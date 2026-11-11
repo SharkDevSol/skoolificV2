@@ -419,7 +419,7 @@ const ListStaff = () => {
       console.log('Sending update with staffType:', staffType, 'className:', className);
       
       formDataToSend.append('staffType', staffType);
-      formDataToSend.append('class', className);
+      formDataToSend.append('className', className);
 
       // Add all form data - SKIP staffType and className to avoid duplicates
       Object.keys(editFormData).forEach(key => {
