@@ -44,6 +44,7 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   late TabController _tabController;
   // FIX 11: update availability — drives the red badge on the update button
   bool _updateAvailable = false;
+  bool _refreshing = false;
   Map<String, dynamic>? _pendingUpdate;
 
   @override
@@ -207,6 +208,24 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
     );
   }
 
+  Future<void> _manualRefresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await context.read<AppProvider>().silentRefresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Updated'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -256,6 +275,24 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
                   const SizedBox(width: 8),
                   // T3: update button is COMPLETELY HIDDEN unless a newer
                   // version the user hasn't taken is available on the server
+                  GestureDetector(
+                    onTap: _manualRefresh,
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: AppColors.primaryLight,
+                      child: _refreshing
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.primary,
+                              ),
+                            )
+                          : const Icon(Icons.refresh, size: 20, color: AppColors.primary),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   if (_updateAvailable)
                     GestureDetector(
                       onTap: _checkForUpdate,
