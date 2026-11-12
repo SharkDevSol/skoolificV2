@@ -7,6 +7,7 @@ const path = require("path");
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
 const { authenticateWithBranch } = require("../middleware/branchAuth");
+const { renumberClassTx } = require("../utils/classIdRenumber");
 
 // Helper function to resolve database pool based on branch code
 const getPool = async (req) => {
@@ -785,7 +786,7 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
           finalStudentRow.student_name, 
           targetClassTableName || actualTableName, 
           schoolId, 
-          classId
+          finalStudentRow.class_id
         ]);
       } catch (err) {
         console.log('Note: Global machine ID tracker not available:', err.message);
@@ -799,6 +800,36 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
         try { fs.unlinkSync(oldFilePath); } catch (_) {}
       }
     }
+
+    // Keep roll numbers gap-free and alphabetical (active students first)
+    // after a rename, class change or transfer.
+    const renumberTargets = new Set([actualTableName]);
+    if (targetClassTableName && targetClassTableName !== actualTableName) {
+      renumberTargets.add(targetClassTableName);
+    }
+    for (const target of renumberTargets) {
+      try {
+        await renumberClassTx(pool, target);
+      } catch (renumberErr) {
+        console.error(`[StudentList] Roll-number refresh failed for ${target}:`, renumberErr.message);
+      }
+    }
+
+    // class_id may have moved, so return the student's current row.
+    try {
+      const currentTable = targetClassTableName || actualTableName;
+      let refreshed = await pool.query(
+        `SELECT * FROM classes_schema."${currentTable}" WHERE school_id::text = $1::text LIMIT 1`,
+        [String(schoolId)]
+      );
+      if (refreshed.rows.length === 0 && currentTable !== actualTableName) {
+        refreshed = await pool.query(
+          `SELECT * FROM classes_schema."${actualTableName}" WHERE school_id::text = $1::text LIMIT 1`,
+          [String(schoolId)]
+        );
+      }
+      if (refreshed.rows.length > 0) finalStudentRow = refreshed.rows[0];
+    } catch (_) {}
 
     res.json(finalStudentRow);
   } catch (error) {
@@ -948,6 +979,13 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
       console.error('Note: invoice/payment cleanup after student delete failed:', invErr.message);
     }
 
+    // Close the gap left by the deleted student (active students first, A-Z).
+    try {
+      await renumberClassTx(pool, actualTableName);
+    } catch (renumberErr) {
+      console.error(`[StudentList] Roll-number refresh failed for ${actualTableName}:`, renumberErr.message);
+    }
+
     res.json({ message: "Student deleted successfully", deletedStudent: result.rows[0] });
   } catch (error) {
     console.error(`Error deleting student:`, error);
@@ -1015,12 +1053,28 @@ router.put('/toggle-active/:className/:schoolId/:classId', async (req, res) => {
       } catch (_) {}
     }
     
+    // Active students always occupy 1..N, so re-order after (de)activation.
+    try {
+      await renumberClassTx(pool, actualTableName);
+    } catch (renumberErr) {
+      console.error(`[StudentList] Roll-number refresh failed for ${actualTableName}:`, renumberErr.message);
+    }
+
+    let updatedRow = updateResult.rows[0];
+    try {
+      const refreshed = await pool.query(
+        `SELECT * FROM classes_schema."${actualTableName}" WHERE school_id::text = $1::text LIMIT 1`,
+        [String(schoolId)]
+      );
+      if (refreshed.rows.length > 0) updatedRow = refreshed.rows[0];
+    } catch (_) {}
+
     res.json({
       success: true,
       message: is_active 
         ? 'Student activated successfully' 
         : 'Student deactivated successfully',
-      data: updateResult.rows[0]
+      data: updatedRow
     });
     
   } catch (error) {
