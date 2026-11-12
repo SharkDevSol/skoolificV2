@@ -1,0 +1,1082 @@
+{
+  "IQRA2": {
+    "classes": [
+      "G1",
+      "G10",
+      "G11",
+      "G2",
+      "G3",
+      "G4",
+      "G5",
+      "G6",
+      "G7",
+      "G8",
+      "G9",
+      "KG1A",
+      "KG1B",
+      "KG2A",
+      "KG2B"
+    ],
+    "mappingsByClass": {
+      "G1": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "SOMALI",
+        "Science",
+        "TERBIYA"
+      ],
+      "G10": [
+        "Biology",
+        "Chemistry",
+        "Civics",
+        "Economics",
+        "English",
+        "Geography",
+        "History",
+        "ICT",
+        "Mathematics",
+        "Physics",
+        "SOMALI"
+      ],
+      "G2": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "SOMALI",
+        "Science",
+        "TERBIYA"
+      ],
+      "G3": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "SOMALI",
+        "Science",
+        "TERBIYA"
+      ],
+      "G4": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "SOMALI",
+        "Science",
+        "TERBIYA"
+      ],
+      "G5": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "ICT",
+        "Mathematics",
+        "SOMALI",
+        "Science",
+        "TERBIYA"
+      ],
+      "G6": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "ICT",
+        "Mathematics",
+        "SOMALI",
+        "Science",
+        "TERBIYA"
+      ],
+      "G7": [
+        "Amharic",
+        "Arabic",
+        "CAREER",
+        "CITIZEN",
+        "English",
+        "G/S",
+        "ICT",
+        "Mathematics",
+        "SOCIAL",
+        "SOMALI",
+        "TERBIYA"
+      ],
+      "G8": [
+        "CAREER",
+        "CITIZEN",
+        "English",
+        "G/S",
+        "ICT",
+        "Mathematics",
+        "SOCIAL",
+        "SOMALI"
+      ],
+      "G9": [
+        "Biology",
+        "Chemistry",
+        "Civics",
+        "Economics",
+        "English",
+        "Geography",
+        "History",
+        "ICT",
+        "Mathematics",
+        "Physics",
+        "SOMALI"
+      ],
+      "KG1A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "SOMALI",
+        "TERBIYA"
+      ],
+      "KG2A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "SOMALI",
+        "TERBIYA"
+      ]
+    },
+    "schemaSubjectsByClass": {
+      "kg1a": [
+        "english",
+        "mathematics",
+        "somali",
+        "amharic",
+        "arabic",
+        "terbiya"
+      ],
+      "kg2a": [
+        "mathematics",
+        "amharic",
+        "arabic",
+        "english",
+        "somali",
+        "terbiya"
+      ],
+      "g6": [
+        "english",
+        "mathematics",
+        "science",
+        "somali",
+        "arabic",
+        "amharic",
+        "terbiya"
+      ],
+      "g8": [
+        "english",
+        "mathematics",
+        "social",
+        "somali",
+        "amharic",
+        "career",
+        "citizen",
+        "terbiya",
+        "g_s",
+        "arabic"
+      ],
+      "g7": [
+        "citizen",
+        "social",
+        "arabic",
+        "amharic",
+        "g_s",
+        "terbiya",
+        "somali",
+        "career",
+        "english",
+        "mathematics"
+      ],
+      "g1": [
+        "english",
+        "mathematics",
+        "amharic",
+        "somali",
+        "arabic",
+        "science",
+        "terbiya"
+      ],
+      "g4": [
+        "amharic",
+        "somali",
+        "mathematics",
+        "terbiya",
+        "english",
+        "science",
+        "arabic"
+      ],
+      "g5": [
+        "amharic",
+        "arabic",
+        "somali",
+        "terbiya",
+        "english",
+        "mathematics",
+        "science"
+      ],
+      "g2": [
+        "arabic",
+        "amharic",
+        "english",
+        "mathematics",
+        "science",
+        "terbiya",
+        "somali"
+      ],
+      "g3": [
+        "somali",
+        "amharic",
+        "english",
+        "mathematics",
+        "terbiya",
+        "science",
+        "arabic"
+      ],
+      "g9": [
+        "chemistry",
+        "english",
+        "mathematics",
+        "physics",
+        "economics",
+        "geography",
+        "history",
+        "somali",
+        "biology",
+        "civics"
+      ],
+      "g10": [
+        "english",
+        "geography",
+        "mathematics",
+        "history",
+        "physics",
+        "civics",
+        "somali",
+        "chemistry",
+        "biology",
+        "economics"
+      ]
+    }
+  },
+  "IQRA3": {
+    "classes": [
+      "G10",
+      "G11",
+      "G12",
+      "G1A",
+      "G1B",
+      "G2A",
+      "G2B",
+      "G3A",
+      "G3B",
+      "G4A",
+      "G4B",
+      "G5",
+      "G5B",
+      "G6",
+      "G7",
+      "G8",
+      "G9",
+      "KG1A",
+      "KG1B",
+      "KG2A",
+      "KG2B"
+    ],
+    "mappingsByClass": {
+      "G10": [
+        "Biology",
+        "Chemistry",
+        "Citizenship",
+        "Economics",
+        "English",
+        "Geography",
+        "History",
+        "ICT",
+        "Mathematics",
+        "Physics",
+        "Somali"
+      ],
+      "G11": [
+        "Agriculture",
+        "Biology",
+        "Chemistry",
+        "English",
+        "ICT",
+        "Mathematics",
+        "Physics"
+      ],
+      "G12": [
+        "Agriculture",
+        "Biology",
+        "Chemistry",
+        "English",
+        "ICT",
+        "Mathematics",
+        "Physics"
+      ],
+      "G1A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G1B": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G2A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G3A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G4A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G5": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G5B": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G6": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Moral",
+        "Somali",
+        "Tarbia",
+        "science"
+      ],
+      "G7": [
+        "Arabic",
+        "CTE",
+        "Citizenship",
+        "English",
+        "G/Science",
+        "ICT",
+        "Mathematics",
+        "S/Science",
+        "Somali",
+        "Tarbia"
+      ],
+      "G8": [
+        "Arabic",
+        "CTE",
+        "Citizenship",
+        "English",
+        "G/Science",
+        "ICT",
+        "Mathematics",
+        "S/Science",
+        "Somali",
+        "Tarbia"
+      ],
+      "G9": [
+        "Biology",
+        "Chemistry",
+        "Citizenship",
+        "Economics",
+        "English",
+        "Geography",
+        "History",
+        "ICT",
+        "Mathematics",
+        "Physics",
+        "Somali"
+      ],
+      "KG1A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Handwriting",
+        "Mathematics"
+      ],
+      "KG1B": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Handwriting",
+        "Mathematics"
+      ],
+      "KG2A": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Handwriting",
+        "Mathematics",
+        "Somali"
+      ],
+      "KG2B": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Handwriting",
+        "Mathematics",
+        "Somali"
+      ]
+    },
+    "schemaSubjectsByClass": {
+      "g11": [
+        "agriculture",
+        "english",
+        "ict",
+        "biology",
+        "physics",
+        "chemistry",
+        "mathematics"
+      ],
+      "g7": [
+        "cte",
+        "citizenship",
+        "english",
+        "g_science",
+        "ict",
+        "mathematics",
+        "s_science",
+        "tarbia",
+        "somali",
+        "arabic"
+      ],
+      "g12": [
+        "agriculture",
+        "chemistry",
+        "biology",
+        "english",
+        "physics",
+        "ict",
+        "mathematics"
+      ],
+      "g6": [
+        "amharic",
+        "science",
+        "english",
+        "tarbia",
+        "moral",
+        "somali",
+        "arabic",
+        "mathematics"
+      ],
+      "kg1a": [
+        "amharic",
+        "handwriting",
+        "english",
+        "arabic",
+        "mathematics"
+      ],
+      "kg2a": [
+        "amharic",
+        "mathematics",
+        "english",
+        "handwriting",
+        "somali",
+        "arabic"
+      ],
+      "kg2b": [
+        "amharic",
+        "mathematics",
+        "english",
+        "handwriting",
+        "somali",
+        "arabic"
+      ],
+      "g5b": [
+        "english",
+        "mathematics",
+        "amharic",
+        "tarbia",
+        "moral",
+        "somali",
+        "science",
+        "arabic"
+      ],
+      "g10": [
+        "biology",
+        "english",
+        "geography",
+        "ict",
+        "physics",
+        "somali",
+        "citizenship",
+        "arabic",
+        "economics",
+        "history",
+        "chemistry",
+        "mathematics"
+      ],
+      "g1a": [
+        "mathematics",
+        "moral",
+        "somali",
+        "science",
+        "amharic",
+        "arabic",
+        "english",
+        "tarbia"
+      ],
+      "g1b": [
+        "mathematics",
+        "science",
+        "arabic",
+        "english",
+        "tarbia",
+        "moral",
+        "somali",
+        "amharic"
+      ],
+      "g5": [
+        "mathematics",
+        "somali",
+        "amharic",
+        "english",
+        "tarbia",
+        "moral",
+        "science",
+        "arabic"
+      ],
+      "g3a": [
+        "moral",
+        "english",
+        "tarbia",
+        "somali",
+        "science",
+        "arabic",
+        "amharic",
+        "mathematics"
+      ],
+      "g9": [
+        "biology",
+        "citizenship",
+        "chemistry",
+        "economics",
+        "english",
+        "geography",
+        "physics",
+        "somali",
+        "arabic",
+        "history",
+        "ict",
+        "mathematics"
+      ],
+      "g4a": [
+        "somali",
+        "english",
+        "tarbia",
+        "moral",
+        "science",
+        "arabic",
+        "amharic",
+        "mathematics"
+      ],
+      "g2a": [
+        "science",
+        "english",
+        "tarbia",
+        "moral",
+        "somali",
+        "arabic",
+        "amharic",
+        "mathematics"
+      ],
+      "g8": [
+        "cte",
+        "citizenship",
+        "g_science",
+        "english",
+        "tarbia",
+        "s_science",
+        "somali",
+        "arabic",
+        "ict",
+        "mathematics"
+      ],
+      "kg1b": [
+        "handwriting",
+        "english",
+        "arabic",
+        "amharic",
+        "mathematics"
+      ]
+    }
+  },
+  "IQRA4": {
+    "classes": [
+      "G1",
+      "G2",
+      "G3",
+      "G4",
+      "G5",
+      "G6",
+      "G7",
+      "G8",
+      "KG1",
+      "KG2"
+    ],
+    "mappingsByClass": {
+      "G1": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Science",
+        "moral",
+        "soomali",
+        "tarbiya"
+      ],
+      "G2": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Science",
+        "moral",
+        "soomali",
+        "tarbiya"
+      ],
+      "G3": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Science",
+        "moral",
+        "soomali",
+        "tarbiya"
+      ],
+      "G4": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Science",
+        "moral",
+        "soomali",
+        "tarbiya"
+      ],
+      "G5": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Science",
+        "moral",
+        "soomali",
+        "tarbiya"
+      ],
+      "G6": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Science",
+        "moral",
+        "soomali",
+        "tarbiya"
+      ],
+      "G7": [
+        "Amharic",
+        "Arabic",
+        "Career",
+        "Citizenship",
+        "English",
+        "G/science",
+        "ICT",
+        "Mathematics",
+        "S/science",
+        "soomali",
+        "tarbiya"
+      ],
+      "G8": [
+        "Amharic",
+        "Arabic",
+        "Career",
+        "Citizenship",
+        "English",
+        "G/science",
+        "ICT",
+        "Mathematics",
+        "S/science",
+        "soomali",
+        "tarbiya"
+      ],
+      "KG1": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "soomali",
+        "tarbiya"
+      ],
+      "KG2": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Science",
+        "soomali",
+        "tarbiya"
+      ]
+    },
+    "schemaSubjectsByClass": {
+      "g8": [
+        "arabic",
+        "tarbiya",
+        "amharic",
+        "english",
+        "s_science",
+        "career",
+        "g_science",
+        "soomali",
+        "ict",
+        "mathematics",
+        "citizenship"
+      ],
+      "g1": [
+        "amharic",
+        "mathematics",
+        "moral",
+        "tarbiya",
+        "arabic",
+        "soomali",
+        "science",
+        "english"
+      ],
+      "g7": [
+        "amharic",
+        "g_science",
+        "ict",
+        "s_science",
+        "citizenship",
+        "career",
+        "soomali",
+        "mathematics",
+        "english",
+        "tarbiya",
+        "arabic"
+      ],
+      "g6": [
+        "moral",
+        "soomali",
+        "science",
+        "mathematics",
+        "amharic",
+        "english",
+        "tarbiya",
+        "arabic"
+      ],
+      "kg2": [
+        "arabic",
+        "soomali",
+        "science",
+        "mathematics",
+        "amharic",
+        "english",
+        "tarbiya"
+      ],
+      "g2": [
+        "soomali",
+        "science",
+        "mathematics",
+        "amharic",
+        "english",
+        "tarbiya",
+        "arabic",
+        "moral"
+      ],
+      "g3": [
+        "soomali",
+        "science",
+        "mathematics",
+        "amharic",
+        "english",
+        "tarbiya",
+        "arabic",
+        "moral"
+      ],
+      "g4": [
+        "soomali",
+        "science",
+        "mathematics",
+        "amharic",
+        "english",
+        "tarbiya",
+        "arabic",
+        "moral"
+      ],
+      "g5": [
+        "soomali",
+        "science",
+        "mathematics",
+        "amharic",
+        "english",
+        "tarbiya",
+        "arabic",
+        "moral"
+      ],
+      "kg1": [
+        "soomali",
+        "mathematics",
+        "amharic",
+        "english",
+        "tarbiya",
+        "arabic"
+      ]
+    }
+  },
+  "IQRA5": {
+    "classes": [
+      "G1",
+      "G2",
+      "G3",
+      "G4",
+      "G5",
+      "G6",
+      "G7",
+      "G8",
+      "G9",
+      "KG1",
+      "KG2"
+    ],
+    "mappingsByClass": {
+      "G1": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ],
+      "G2": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ],
+      "G3": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ],
+      "G4": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ],
+      "G5": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ],
+      "G6": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ],
+      "G7": [
+        "Amharic",
+        "Arabic",
+        "Career",
+        "Citizenship",
+        "English",
+        "G/science",
+        "ICT",
+        "Mathematics",
+        "S/science",
+        "Somali",
+        "tarbiya"
+      ],
+      "G8": [
+        "Amharic",
+        "Arabic",
+        "Career",
+        "Citizenship",
+        "English",
+        "G/science",
+        "ICT",
+        "Mathematics",
+        "S/science",
+        "Somali",
+        "tarbiya"
+      ],
+      "KG1": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ],
+      "KG2": [
+        "Amharic",
+        "Arabic",
+        "English",
+        "Mathematics",
+        "Somali",
+        "tarbiya"
+      ]
+    },
+    "schemaSubjectsByClass": {
+      "g8": [
+        "arabic",
+        "tarbiya",
+        "career",
+        "amharic",
+        "english",
+        "g_science",
+        "ict",
+        "mathematics",
+        "s_science",
+        "somali"
+      ],
+      "g1": [
+        "english",
+        "mathematics",
+        "science",
+        "somali",
+        "tarbiya",
+        "arabic",
+        "amharic"
+      ],
+      "g7": [
+        "career",
+        "g_science",
+        "ict",
+        "amharic",
+        "english",
+        "mathematics",
+        "s_science",
+        "somali",
+        "tarbiya",
+        "arabic"
+      ],
+      "g2": [
+        "mathematics",
+        "science",
+        "somali",
+        "amharic",
+        "english",
+        "tarbiya",
+        "arabic"
+      ],
+      "g3": [
+        "amharic",
+        "english",
+        "mathematics",
+        "science",
+        "somali",
+        "tarbiya",
+        "arabic"
+      ],
+      "g4": [
+        "amharic",
+        "english",
+        "mathematics",
+        "science",
+        "somali",
+        "tarbiya",
+        "arabic"
+      ],
+      "g5": [
+        "amharic",
+        "english",
+        "mathematics",
+        "science",
+        "somali",
+        "tarbiya",
+        "arabic"
+      ],
+      "g6": [
+        "amharic",
+        "english",
+        "mathematics",
+        "science",
+        "somali",
+        "tarbiya",
+        "arabic"
+      ],
+      "kg1": [
+        "amharic",
+        "english",
+        "mathematics",
+        "somali",
+        "tarbiya",
+        "arabic"
+      ],
+      "kg2": [
+        "amharic",
+        "english",
+        "mathematics",
+        "science",
+        "somali",
+        "tarbiya",
+        "arabic"
+      ],
+      "g9": [
+        "english"
+      ]
+    }
+  }
+}

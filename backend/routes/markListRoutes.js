@@ -39,6 +39,129 @@ const getSubjectSchemaName = (subjectName) => {
   return `subject_${clean}_schema`;
 };
 
+const SUBJECT_SCHEMA_ALIASES = {
+  'tarbiya': ['subject_tarbiya_schema', 'subject_terbiya_schema', 'subject_tarbia_schema'],
+  'terbiya': ['subject_terbiya_schema', 'subject_tarbiya_schema', 'subject_tarbia_schema'],
+  'tarbia': ['subject_tarbia_schema', 'subject_tarbiya_schema', 'subject_terbiya_schema'],
+  'tarbiyah': ['subject_tarbiya_schema', 'subject_terbiya_schema', 'subject_tarbia_schema'],
+  'somali': ['subject_somali_schema', 'subject_soomali_schema'],
+  'soomali': ['subject_soomali_schema', 'subject_somali_schema'],
+  'g_s': ['subject_g_s_schema', 'subject_g_science_schema'],
+  'g_science': ['subject_g_science_schema', 'subject_g_s_schema'],
+  'general_science': ['subject_g_science_schema', 'subject_g_s_schema'],
+  'social': ['subject_social_schema', 'subject_s_science_schema'],
+  's_science': ['subject_s_science_schema', 'subject_social_schema'],
+  'social_science': ['subject_s_science_schema', 'subject_social_schema'],
+  'citizen': ['subject_citizen_schema', 'subject_citizenship_schema'],
+  'citizenship': ['subject_citizenship_schema', 'subject_citizen_schema'],
+  'civics': ['subject_civics_schema', 'subject_citizen_schema', 'subject_citizenship_schema'],
+};
+
+// Async helper to dynamically resolve the real schema name existing in the active database
+const resolveSubjectSchema = async (clientOrPool, subjectName) => {
+  const direct = getSubjectSchemaName(subjectName);
+  if (!clientOrPool || !clientOrPool.query) return direct;
+
+  const clean = (subjectName || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  const candidates = [direct];
+  if (SUBJECT_SCHEMA_ALIASES[clean]) {
+    for (const a of SUBJECT_SCHEMA_ALIASES[clean]) {
+      if (!candidates.includes(a)) candidates.push(a);
+    }
+  }
+
+  try {
+    const res = await clientOrPool.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name = ANY($1)`,
+      [candidates]
+    );
+    if (res.rows.length > 0) {
+      for (const cand of candidates) {
+        if (res.rows.some(r => r.schema_name === cand)) return cand;
+      }
+    }
+    const fallbackRes = await clientOrPool.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE $1 LIMIT 1`,
+      [`%${clean}%`]
+    );
+    if (fallbackRes.rows.length > 0) return fallbackRes.rows[0].schema_name;
+  } catch (_) {}
+
+  return direct;
+};
+
+// Helper to build a smart column resolver for mark tables (supports Arabic, Amharic, Latin)
+const buildColumnResolver = (actualColumns) => {
+  const columnByKey = new Map();
+  for (const col of actualColumns) {
+    const k = sanitizeComponentKey(col);
+    if (!columnByKey.has(k)) columnByKey.set(k, col);
+    const compact = k.replace(/_/g, '');
+    if (!columnByKey.has(compact)) columnByKey.set(compact, col);
+    
+    // Arabic normalization (alif with hamza, ta marbuta, etc.)
+    const norm = k
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/[ة]/g, 'ه')
+      .replace(/[ى]/g, 'ي')
+      .replace(/[\u064B-\u065F]/g, '');
+    if (!columnByKey.has(norm)) columnByKey.set(norm, col);
+    if (!columnByKey.has(norm.replace(/_/g, ''))) columnByKey.set(norm.replace(/_/g, ''), col);
+  }
+
+  return (componentName) => {
+    if (!componentName) return null;
+    const directKey = sanitizeComponentKey(componentName);
+    if (actualColumns.has(componentName)) return componentName;
+    if (actualColumns.has(directKey)) return directKey;
+
+    let col = columnByKey.get(directKey) ||
+      columnByKey.get(directKey.replace(/_/g, ''));
+    if (col) return col;
+
+    const norm = directKey
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/[ة]/g, 'ه')
+      .replace(/[ى]/g, 'ي')
+      .replace(/[\u064B-\u065F]/g, '');
+    col = columnByKey.get(norm) || columnByKey.get(norm.replace(/_/g, ''));
+    if (col) return col;
+
+    // Special known aliases in Tarbiya/Arabic:
+    if (directKey.includes('حديث') || directKey === 'الحديث' || directKey === 'حديث') {
+      for (const c of actualColumns) {
+        if (c.includes('حديث')) return c;
+      }
+    }
+    if (directKey.includes('اسماء') || directKey.includes('الاسماء') || directKey.includes('الأسماء')) {
+      for (const c of actualColumns) {
+        if (c.includes('اسماء') || c.includes('الأسماء')) return c;
+      }
+    }
+    if (directKey.includes('خطبة') || directKey.includes('الخطبة')) {
+      for (const c of actualColumns) {
+        if (c.includes('خطب')) return c;
+      }
+    }
+
+    // Prefix/fuzzy search among actual columns
+    for (const c of actualColumns) {
+      const ck = sanitizeComponentKey(c);
+      if (ck === directKey || ck.startsWith(directKey) || directKey.startsWith(ck)) {
+        return c;
+      }
+    }
+
+    return null;
+  };
+};
+
 // Helper to sanitize column/component keys
 const sanitizeComponentKey = (name) => {
   return (name || '')
@@ -670,7 +793,7 @@ router.post('/create-mark-forms', async (req, res) => {
     }
     
     // Create schema for the subject if it doesn't exist
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
     try {
       await client.query(`GRANT ALL ON SCHEMA ${schemaName} TO PUBLIC`);
@@ -805,7 +928,7 @@ const handleGetMarkList = async (req, res) => {
   const db = req.branchPool || pool;
   const client = await db.connect();
   try {
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${tableClassName}_term_${termNumber}`;
     
     // SYNC STUDENTS: Add new active students and remove deactivated ones
@@ -1046,7 +1169,7 @@ router.put('/update-marks', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get form configuration with fallback
@@ -1078,20 +1201,39 @@ router.put('/update-marks', async (req, res) => {
 
     const passThreshold = config && config.pass_threshold ? parseFloat(config.pass_threshold) : 50.00;
     
+    // Resolve actual database table columns
+    let actualColumns = new Set();
+    try {
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
+        [schemaName, tableName]
+      );
+      actualColumns = new Set(cols.rows.map(r => String(r.column_name)));
+    } catch (_) {}
+    const resolveCol = buildColumnResolver(actualColumns);
+
     // Build update query
     const updateColumns = [];
     const updateValues = [];
     let total = 0;
     
     for (const component of markComponents) {
-      const componentKey = component.name.toLowerCase().replace(/[\s\-\.]+/g, '_');
-      if (marks[componentKey] !== undefined) {
-        const mark = parseFloat(marks[componentKey]);
+      const componentKey = sanitizeComponentKey(component.name);
+      const col = resolveCol(component.name) || resolveCol(componentKey);
+      if (!col) continue;
+
+      let val = marks[col] !== undefined ? marks[col] :
+                (marks[componentKey] !== undefined ? marks[componentKey] :
+                (marks[component.name] !== undefined ? marks[component.name] :
+                (marks[componentKey.replace(/_/g, '')])));
+
+      if (val !== undefined && val !== null && val !== '') {
+        const mark = parseFloat(val);
         const maxMark = component.percentage;
         
         // Ensure mark doesn't exceed component percentage
-        const finalMark = Math.min(mark, maxMark);
-        updateColumns.push(`${componentKey} = $${updateValues.length + 1}`);
+        const finalMark = Math.min(isNaN(mark) ? 0 : mark, maxMark);
+        updateColumns.push(`"${col}" = $${updateValues.length + 1}`);
         updateValues.push(finalMark);
         total += finalMark;
       }
@@ -1285,7 +1427,7 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
     
     for (const subject of subjects) {
       const subjectName = subject.subject_name;
-      const schemaName = getSubjectSchemaName(subjectName);
+      const schemaName = await resolveSubjectSchema(db, subjectName);
       const tableName = `${className.toLowerCase()}_term_${termNumber}`;
       
       try {
@@ -1440,7 +1582,7 @@ router.post('/calculate-totals', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get form configuration with fallback
@@ -1535,7 +1677,7 @@ router.get('/comprehensive-ranking/:className/:termNumber', async (req, res) => 
     // Get marks from each subject
     for (const subject of subjects) {
       const subjectName = subject.subject_name;
-      const schemaName = getSubjectSchemaName(subjectName);
+      const schemaName = await resolveSubjectSchema(db, subjectName);
       const tableName = `${className.toLowerCase()}_term_${termNumber}`;
       
       try {
@@ -1705,7 +1847,7 @@ router.get('/full-ranking/:className', async (req, res) => {
       
       // Query all subjects in parallel for high performance
       await Promise.all(subjects.map(async (subjectName) => {
-        const schemaName = getSubjectSchemaName(subjectName);
+        const schemaName = await resolveSubjectSchema(db, subjectName);
         const tableName = `${className}_term_${termNum}`;
         
         try {
@@ -1814,7 +1956,7 @@ const handleGetStatistics = async (req, res) => {
   
   try {
     const db = req.branchPool || pool;
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(db, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get all marks
@@ -1903,7 +2045,7 @@ router.post('/bulk-update-marks', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get form configuration with multi-stage fallback
@@ -1947,8 +2089,7 @@ router.post('/bulk-update-marks', async (req, res) => {
     let skippedCount = 0;
     const notifyList = [];
 
-    // Map each config component to the real column in this mark table. Older
-    // tables may spell a column slightly differently (or use Arabic letters).
+    // Map each config component to the real column in this mark table.
     let actualColumns = new Set();
     try {
       const cols = await client.query(
@@ -1958,13 +2099,7 @@ router.post('/bulk-update-marks', async (req, res) => {
       );
       actualColumns = new Set(cols.rows.map(r => String(r.column_name)));
     } catch (_) {}
-    const columnByKey = new Map();
-    for (const col of actualColumns) {
-      const k = sanitizeComponentKey(col);
-      if (!columnByKey.has(k)) columnByKey.set(k, col);
-      const compact = k.replace(/_/g, '');
-      if (!columnByKey.has(compact)) columnByKey.set(compact, col);
-    }
+    const resolveCol = buildColumnResolver(actualColumns);
     
     for (const studentMarks of marksData) {
       const { studentName, marks } = studentMarks;
@@ -2017,17 +2152,18 @@ router.post('/bulk-update-marks', async (req, res) => {
       
       for (const component of markComponents) {
         const componentKey = sanitizeComponentKey(component.name);
-        const column = columnByKey.get(componentKey) ||
-          columnByKey.get(componentKey.replace(/_/g, '')) ||
-          (actualColumns.has(componentKey) ? componentKey : null);
+        const column = resolveCol(component.name) || resolveCol(componentKey);
         if (!column) continue;
-        const markValue = marks[componentKey] !== undefined ? marks[componentKey] : marks[component.name];
-        if (markValue !== undefined) {
+        
+        const markValue = marks[column] !== undefined ? marks[column] :
+          (marks[componentKey] !== undefined ? marks[componentKey] :
+          (marks[component.name] !== undefined ? marks[component.name] :
+          (marks[componentKey.replace(/_/g, '')])));
+
+        if (markValue !== undefined && markValue !== null && markValue !== '') {
           const mark = parseFloat(markValue);
           const maxMark = component.percentage;
-
-          // Ensure mark doesn't exceed component percentage
-          const finalMark = Math.min(mark, maxMark);
+          const finalMark = Math.min(isNaN(mark) ? 0 : mark, maxMark);
           updateColumns.push(`"${column}" = $${updateValues.length + 1}`);
           updateValues.push(finalMark);
           total += finalMark;
@@ -2311,7 +2447,7 @@ router.get('/student-marks/:schoolId/:className', async (req, res) => {
     
     for (const subjectRow of subjectsResult.rows) {
       const subjectName = subjectRow.subject_name;
-      const schemaName = getSubjectSchemaName(subjectName);
+      const schemaName = await resolveSubjectSchema(db, subjectName);
       
       // Check all terms (1-4)
       for (let term = 1; term <= 4; term++) {
@@ -2419,7 +2555,7 @@ router.post('/sync-class-students/:className', async (req, res) => {
     // For each subject-class combination
     for (const mapping of subjectMappingsResult.rows) {
       const subjectName = mapping.subject_name;
-      const schemaName = getSubjectSchemaName(subjectName);
+      const schemaName = await resolveSubjectSchema(client, subjectName);
       
       // For each term
       for (let term = 1; term <= termCount; term++) {
@@ -2583,7 +2719,7 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
     
     for (const ward of wards) {
       for (const subjectName of subjects) {
-        const schemaName = getSubjectSchemaName(subjectName);
+        const schemaName = await resolveSubjectSchema(client, subjectName);
         
         for (let term = 1; term <= termCount; term++) {
           const tableName = `${ward.class.toLowerCase()}_term_${term}`;
@@ -2655,7 +2791,7 @@ router.post('/lock-marks', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Check if table exists
@@ -2734,7 +2870,7 @@ router.post('/unlock-marks', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Check if table exists
@@ -2787,7 +2923,7 @@ const handleGetLockStatus = async (req, res) => {
   const db = req.branchPool || pool;
   const client = await db.connect();
   try {
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Get lock status from form_config with fallback
@@ -2819,7 +2955,7 @@ const handleDeleteMarkForm = async (req, res) => {
   const db = req.branchPool || pool;
   const client = await db.connect();
   try {
-    const schemaName = getSubjectSchemaName(subjectName);
+    const schemaName = await resolveSubjectSchema(client, subjectName);
     const tableName = `${className.toLowerCase()}_term_${termNumber}`;
     
     // Drop the mark list table
