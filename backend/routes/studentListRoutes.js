@@ -986,6 +986,15 @@ router.delete("/student/:className/:schoolId/:classId", async (req, res) => {
       console.error(`[StudentList] Roll-number refresh failed for ${actualTableName}:`, renumberErr.message);
     }
 
+    // Remove any report-card visibility row for the deleted student.
+    try {
+      await pool.query(
+        `DELETE FROM public.report_card_visibility
+          WHERE LOWER(class_name) = LOWER($1) AND school_id::text = $2`,
+        [actualTableName, String(schoolId)]
+      );
+    } catch (_) { /* table may not exist yet */ }
+
     res.json({ message: "Student deleted successfully", deletedStudent: result.rows[0] });
   } catch (error) {
     console.error(`Error deleting student:`, error);

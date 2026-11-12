@@ -87,6 +87,7 @@ class ApiService {
           phone: student['phone']?.toString(),
           className: student['class']?.toString() ?? student['class_name']?.toString(),
           schoolId: student['school_id']?.toString(),
+          classId: student['class_id']?.toString() ?? student['classId']?.toString(),
           gender: student['gender']?.toString(),
           age: student['age']?.toString(),
         );
@@ -95,6 +96,20 @@ class ApiService {
     } catch (e) {
       throw ApiException(_handleError(e));
     }
+  }
+
+  Future<Map<String, dynamic>> reportCardVisibility(String className, String schoolId) async {
+    try {
+      final uri = Uri.parse(
+        '${ApiConstants.baseUrl}/api/report-card-visibility/${Uri.encodeComponent(className)}/${Uri.encodeComponent(schoolId)}',
+      );
+      final res = await get(uri, headers: _headers());
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map) return Map<String, dynamic>.from(data);
+      }
+    } catch (_) {}
+    return {'visible': true, 'terms': null};
   }
 
   Future<GuardianMarksResponse> studentMarks(String username) async {
@@ -130,12 +145,26 @@ class ApiService {
             .map((m) => Mark.fromJson(Map<String, dynamic>.from(m as Map)))
             .toList();
         final subjects = (d['subjects'] as List?)?.map((s) => s.toString()).toList() ?? [];
-        final termCount = d['termCount'] is int ? d['termCount'] as int : 4;
+        final visibility = d['visibility'] is Map
+            ? Map<String, dynamic>.from(d['visibility'] as Map)
+            : <String, dynamic>{};
+        final rawTerms = visibility['terms'] ?? visibility['visibleTerms'];
+        int termCount = d['termCount'] is int ? d['termCount'] as int : 0;
+        if (termCount <= 0) {
+          for (final m in marks) {
+            if (m.termNumber > termCount) termCount = m.termNumber;
+          }
+          if (termCount <= 0) termCount = 2;
+        }
         return GuardianMarksResponse(
           wards: [],
           marks: marks,
           subjects: subjects,
           termCount: termCount,
+          reportVisible: visibility['visible'] != false,
+          visibleTerms: rawTerms is List
+              ? rawTerms.map((t) => int.tryParse(t.toString()) ?? 0).where((t) => t > 0).toList()
+              : null,
         );
       }
       throw ApiException('Failed to load marks');
@@ -144,11 +173,22 @@ class ApiService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> aiStudentTests(String username, String className) async {
+  Future<List<Map<String, dynamic>>> aiStudentTests(
+    String username,
+    String className, {
+    String? studentName,
+    String? schoolId,
+  }) async {
     try {
+      final params = <String, String>{
+        'className': className,
+        'studentUsername': username,
+      };
+      if (studentName != null && studentName.isNotEmpty) params['studentName'] = studentName;
+      if (schoolId != null && schoolId.isNotEmpty) params['schoolId'] = schoolId;
       final uri = Uri.parse(
-        '${ApiConstants.baseUrl}${ApiConstants.aiStudentTests}?className=$className&studentUsername=$username',
-      );
+        '${ApiConstants.baseUrl}${ApiConstants.aiStudentTests}',
+      ).replace(queryParameters: params);
       final res = await get(uri, headers: _headers());
       final data = jsonDecode(res.body);
       if (res.statusCode == 200) {
@@ -161,11 +201,18 @@ class ApiService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> aiStudentResults(String username) async {
+  Future<List<Map<String, dynamic>>> aiStudentResults(
+    String username, {
+    String? studentName,
+    String? className,
+  }) async {
     try {
+      final params = <String, String>{'studentUsername': username};
+      if (studentName != null && studentName.isNotEmpty) params['studentName'] = studentName;
+      if (className != null && className.isNotEmpty) params['className'] = className;
       final uri = Uri.parse(
-        '${ApiConstants.baseUrl}${ApiConstants.aiStudentResults}?studentUsername=$username',
-      );
+        '${ApiConstants.baseUrl}${ApiConstants.aiStudentResults}',
+      ).replace(queryParameters: params);
       final res = await get(uri, headers: _headers());
       final data = jsonDecode(res.body);
       if (res.statusCode == 200) {
@@ -502,7 +549,7 @@ class ApiService {
 
   // 8.1: send message — POST /api/chats/conversations/:id/messages
   Future<void> sendMessage(String conversationId, String content) async {
-    int senderId = 0;
+    String senderId = 'student_0';
     String senderName = '';
     String senderType = 'student';
     String senderUsername = '';
@@ -511,7 +558,9 @@ class ApiService {
     if (userJson != null && userJson.isNotEmpty) {
       try {
         final parsed = jsonDecode(userJson) as Map<String, dynamic>;
-        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+        final schoolId = parsed['school_id']?.toString() ?? parsed['schoolId']?.toString() ?? '';
+        final rowId = parsed['id']?.toString() ?? '0';
+        senderId = 'student_${schoolId.isNotEmpty ? schoolId : rowId}';
         senderName = parsed['name']?.toString() ?? parsed['student_name']?.toString() ?? '';
         senderType = 'student';
         senderUsername = parsed['username']?.toString() ?? '';
@@ -539,7 +588,7 @@ class ApiService {
   // Backend accepts upload.array('attachments', 5).
   Future<void> sendMessageWithMedia(String conversationId, String content,
       List<String> filePaths) async {
-    int senderId = 0;
+    String senderId = 'student_0';
     String senderName = '';
     String senderType = 'student';
 
@@ -547,7 +596,9 @@ class ApiService {
     if (userJson != null && userJson.isNotEmpty) {
       try {
         final parsed = jsonDecode(userJson) as Map<String, dynamic>;
-        senderId = parsed['id'] is int ? parsed['id'] : int.tryParse(parsed['id']?.toString() ?? '') ?? 0;
+        final schoolId = parsed['school_id']?.toString() ?? parsed['schoolId']?.toString() ?? '';
+        final rowId = parsed['id']?.toString() ?? '0';
+        senderId = 'student_${schoolId.isNotEmpty ? schoolId : rowId}';
         senderName = parsed['name']?.toString() ?? parsed['student_name']?.toString() ?? '';
         senderType = 'student';
       } catch (_) {}
@@ -636,7 +687,11 @@ class ApiService {
       ).timeout(_timeout);
       final data = jsonDecode(res.body);
       if (res.statusCode == 200 && data['success'] == true) return null;
-      return data['error']?.toString() ?? 'Failed to change password';
+      final error = data['error']?.toString() ?? 'Failed to change password';
+      final details = data['errors'];
+      return details is List && details.isNotEmpty
+          ? '$error: ${details.join(', ')}'
+          : error;
     } catch (e) {
       return _handleError(e);
     }
@@ -658,7 +713,11 @@ class ApiService {
       ).timeout(_timeout);
       final data = jsonDecode(res.body);
       if (res.statusCode == 200 && data['success'] == true) return null;
-      return data['error']?.toString() ?? 'Failed to change username';
+      final error = data['error']?.toString() ?? 'Failed to change username';
+      final details = data['errors'];
+      return details is List && details.isNotEmpty
+          ? '$error: ${details.join(', ')}'
+          : error;
     } catch (e) {
       return _handleError(e);
     }

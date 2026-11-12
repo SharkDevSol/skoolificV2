@@ -34,8 +34,17 @@ class _TestsTabState extends State<TestsTab> {
     final username = app.user!.username;
     final className = app.user!.className ?? '';
     try {
-      final tests = await ApiService().aiStudentTests(username, className);
-      final results = await ApiService().aiStudentResults(username);
+      final tests = await ApiService().aiStudentTests(
+        username,
+        className,
+        studentName: app.user!.name,
+        schoolId: app.user!.schoolId,
+      );
+      final results = await ApiService().aiStudentResults(
+        username,
+        studentName: app.user!.name,
+        className: className,
+      );
       if (mounted) {
         setState(() {
           _tests = tests;
@@ -216,6 +225,7 @@ class _ResultDetailPage extends StatelessWidget {
     final total = (result['totalMarks'] ?? result['total_marks'] ?? 0).toString();
     final pct = result['percentage'] ?? 0;
     final questions = (detail['questions'] as List?) ??
+        (detail['results'] as List?) ??
         (detail['questionDetails'] as List?) ??
         (detail['items'] as List?) ??
         (detail['answers'] as List?) ??

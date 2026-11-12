@@ -23,6 +23,9 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
   Map<int, Map<String, dynamic>> _ranking = {};
   // Server-reported term count (Bilal = 4) — report card shows ALL terms
   int _termCount = 2;
+  // Report-card visibility set by the school (per student + term)
+  bool _reportVisible = true;
+  List<int>? _visibleTerms;
 
   @override
   void initState() {
@@ -59,6 +62,8 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
         setState(() {
           _marks = res.marks;
           _termCount = res.termCount > 0 ? res.termCount : 4;
+          _reportVisible = res.reportVisible;
+          _visibleTerms = res.visibleTerms;
           _error = null;
           _loading = false;
         });
@@ -94,10 +99,17 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
     }
   }
 
+  // Terms the school allows this student to see (null = all terms).
+  List<Mark> get _displayMarks {
+    final terms = _visibleTerms;
+    if (terms == null || terms.isEmpty) return _marks;
+    return _marks.where((m) => terms.contains(m.termNumber)).toList();
+  }
+
   // 2.3: marks for the SELECTED ward only — always current
   Map<String, List<Mark>> _getByTerm(Ward? selectedWard) {
     final map = <String, List<Mark>>{};
-    for (final m in _marks) {
+    for (final m in _displayMarks) {
       map.putIfAbsent(m.term, () => []).add(m);
     }
     return map;
@@ -201,8 +213,14 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
   int? _rankTotal;
 
   Widget _buildReportCardPreview(AppProvider app, ThemeData theme, bool isDark) {
-    final marks = _marks;
+    final marks = _displayMarks;
     if (_loading) return ListView(padding: const EdgeInsets.all(16), children: const [SkeletonCard(height: 300)]);
+    if (!_reportVisible) {
+      return EmptyState(
+        icon: Icons.lock_outline,
+        message: 'Report card is not available for your account yet. Please contact the school.',
+      );
+    }
     if (marks.isEmpty) return EmptyState(icon: Icons.emoji_events_outlined, message: AppLocalizations.tr(context, 'no_report'));
 
     // 2.2: fit-to-screen by default, smooth pinch-zoom/pan, never hidden by nav bar
@@ -239,6 +257,7 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
                       ranking: _ranking,
                       rankTotal: _rankTotal,
                       termCount: _termCount,
+                      visibleTerms: _visibleTerms,
                     ),
                   ),
               ),
@@ -285,6 +304,7 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
                         ranking: _ranking,
                         rankTotal: _rankTotal,
                         termCount: _termCount,
+                        visibleTerms: _visibleTerms,
                       ),
                     ),
                   ),
@@ -387,40 +407,26 @@ class _SubjectCard extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: mark.details.entries.where((e) {
-              // Skip system/metadata columns — show every numeric mark component
-              const skip = {
-                'id', 'student_name', 'studentname', 'age', 'gender',
-                'total', 'pass_status', 'passstatus', 'class', 'classname',
-                'subject', 'term', 'created_at', 'updated_at',
-              };
-              if (skip.contains(e.key.toLowerCase())) return false;
-              final v = e.value;
-              return v is num || (v is String && double.tryParse(v) != null);
-            }).map((e) {
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1A1A1A) : AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: isDark ? const Color(0xFF2C2C2C) : AppColors.border.withOpacity(0.5)),
-                ),
-                child: RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${_pretty(e.key)}: ',
-                        style: TextStyle(fontSize: 13, color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7)),
-                      ),
-                      TextSpan(
-                        text: e.value.toString(),
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: theme.textTheme.bodyLarge?.color),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
+            children: [
+              _chip(context, 'Term ${mark.term}'),
+              if (mark.components.isNotEmpty)
+                ...mark.components.map((c) => _chip(
+                      context,
+                      '${c.name}: ${_fmt(c.score)}${c.max > 0 ? ' / ${_fmt(c.max)}' : ''}',
+                    ))
+              else
+                ...mark.details.entries.where((e) {
+                  // Skip system/metadata columns — show every numeric mark component
+                  const skip = {
+                    'id', 'student_name', 'studentname', 'age', 'gender',
+                    'total', 'pass_status', 'passstatus', 'class', 'classname',
+                    'subject', 'term', 'created_at', 'updated_at',
+                  };
+                  if (skip.contains(e.key.toLowerCase())) return false;
+                  final v = e.value;
+                  return v is num || (v is String && double.tryParse(v) != null);
+                }).map((e) => _chip(context, '${_pretty(e.key)}: ${e.value}')),
+            ],
           ),
           const SizedBox(height: 16),
           Container(
@@ -453,6 +459,34 @@ class _SubjectCard extends StatelessWidget {
     );
   }
 
+  Widget _chip(BuildContext context, String text) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A1A1A) : AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? const Color(0xFF2C2C2C) : AppColors.border.withOpacity(0.5),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: theme.textTheme.bodyLarge?.color,
+        ),
+      ),
+    );
+  }
+
+  String _fmt(double v) {
+    if (v == v.roundToDouble()) return v.toInt().toString();
+    return v.toStringAsFixed(1);
+  }
+
   String _pretty(String k) {
     final map = {
       'mid': 'Mid',
@@ -483,6 +517,8 @@ class _ReportCardWidget extends StatelessWidget {
   final int? rankTotal;
   // Server term count — show ALL term columns even when a term has no marks
   final int termCount;
+  // When the school hides terms for this student, only these are shown.
+  final List<int>? visibleTerms;
 
   const _ReportCardWidget({
     required this.wardName,
@@ -494,6 +530,7 @@ class _ReportCardWidget extends StatelessWidget {
     this.ranking = const {},
     this.rankTotal,
     this.termCount = 4,
+    this.visibleTerms,
   });
 
   @override
@@ -502,8 +539,11 @@ class _ReportCardWidget extends StatelessWidget {
     final subjects = marks.map((m) => m.subject).toSet().toList()..sort();
 
     // Show ALL terms from server config (Bilal = 4) — even if a term has
-    // no marks yet, its column still prints (empty cells).
-    final termNums = List<int>.generate(termCount, (i) => i + 1);
+    // no marks yet, its column still prints (empty cells). When the school
+    // restricts visible terms, only those columns are printed.
+    final termNums = (visibleTerms != null && visibleTerms!.isNotEmpty)
+        ? (List<int>.from(visibleTerms!)..sort())
+        : List<int>.generate(termCount, (i) => i + 1);
     // Column widths: subject + one per term + average
     final colWidths = <int, FlexColumnWidth>{
       0: const FlexColumnWidth(2),

@@ -10,7 +10,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/api_service.dart';
 import '../../app/app_provider.dart';
 import '../../widgets/app_widgets.dart';
-import '../../widgets/page_header.dart';
 import '../../models/models.dart';
 import '../../core/l10n/app_localizations.dart';
 
@@ -42,7 +41,7 @@ class _MessagesTabState extends State<MessagesTab> {
     try {
       // Backend matches conversation_participants.user_id which uses the
       // prefixed format: student_<id> (web app uses guardian_<id>, teacher_<id>, admin_<id>)
-      final userId = 'student_${app.user!.id}';
+      final userId = 'student_${app.user!.schoolId ?? app.user!.id}';
       _conversations = await ApiService().conversations(
         userId,
         myUsername: userId,
@@ -93,7 +92,7 @@ class _MessagesTabState extends State<MessagesTab> {
     );
     if (picked == null || !mounted) return;
     final convId = await ApiService().createConversation('teacher_chat', [
-      {'user_id': 'student_${app.user!.id}', 'user_type': 'student', 'user_name': app.user!.name},
+      {'user_id': 'student_${app.user!.schoolId ?? app.user!.id}', 'user_type': 'student', 'user_name': app.user!.name},
       {'user_id': picked['id'] ?? '', 'user_type': 'teacher', 'user_name': picked['name'] ?? ''},
     ]);
     if (convId == null || !mounted) return;
@@ -115,16 +114,20 @@ class _MessagesTabState extends State<MessagesTab> {
     // FIX 7: app header on Messages page
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        onPressed: _newMessage,
-        child: const Icon(Icons.add),
+      floatingActionButton: Padding(
+        // The app uses a floating bottom navigation bar; without this the
+        // button sits behind it on phones with gesture navigation.
+        padding: const EdgeInsets.only(bottom: 84),
+        child: FloatingActionButton(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          onPressed: _newMessage,
+          child: const Icon(Icons.add),
+        ),
       ),
       body: SafeArea(
         child: Column(
           children: [
-            PageHeader(title: tr(context, 'messages'), icon: Icons.chat_bubble_outline),
             Expanded(
               child: GradientBackground(
                 child: RefreshIndicator(
@@ -132,7 +135,6 @@ class _MessagesTabState extends State<MessagesTab> {
         child: ListView(
           padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
           children: [
-            SectionTitle(AppLocalizations.tr(context, 'messages')),
             if (_loading)
               const Column(children: [
                 SkeletonCard(height: 80),

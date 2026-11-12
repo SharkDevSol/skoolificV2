@@ -44,6 +44,7 @@ const attendanceRoutes = require('./routes/attendanceRoutes');
 const viewStudentAttendanceRoutes = require('./routes/viewStudentAttendanceRoutes');
 const studentFaultsRoutes = require('./routes/studentFaultsRoutes');
 const markListRoutes = require('./routes/markListRoutes');
+const reportCardVisibilityRoutes = require('./routes/reportCardVisibilityRoutes');
 const evaluationRoutes = require('./routes/evaluations');
 const staffRoutes = require('./routes/staffRoutes');
 const postRoutes = require('./routes/postRoutes');
@@ -407,6 +408,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/view-attendance', viewStudentAttendanceRoutes);
 app.use('/api/faults', studentFaultsRoutes);
 app.use('/api/mark-list', markListRoutes);
+app.use('/api/report-card-visibility', reportCardVisibilityRoutes);
 app.use('/api/student-activities', studentActivitiesRoutes);
 app.use('/api/evaluations', evaluationRoutes);
 app.use('/api/kg-evaluations', require('./routes/kgEvaluationRoutes')); // KG-specific evaluation module

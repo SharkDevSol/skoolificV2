@@ -5,7 +5,7 @@ import styles from './ReportCard.module.css';
 import { 
   FaPrint, FaUserGraduate, FaSchool, 
   FaSpinner, FaAward,
-  FaDownload, FaUsers, FaImage
+  FaDownload, FaUsers, FaImage, FaEye
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import jsPDF from 'jspdf';
@@ -29,6 +29,11 @@ const ReportCard = () => {
   const [termCount, setTermCount] = useState(2);
   const [classRankingData, setClassRankingData] = useState(null);
   const [classStudentList, setClassStudentList] = useState([]);
+  // Report-card visibility (per student + term)
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
+  const [visibilitySettings, setVisibilitySettings] = useState({});
+  const [visibilityTerms, setVisibilityTerms] = useState([]);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
 
   const [schoolInfo, setSchoolInfo] = useState({
     name: 'SCHOOL ACADEMY',
@@ -138,7 +143,32 @@ const ReportCard = () => {
     };
   }, [selectedClass]);
 
-  // 2. Compute single student report and batch print data entirely in-memory (0ms)
+  // Load saved report-card visibility whenever the class changes.
+  useEffect(() => {
+    if (!selectedClass) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(`/report-card-visibility/${encodeURIComponent(selectedClass)}`);
+        if (cancelled) return;
+        const map = {};
+        (res.data?.settings || []).forEach((v) => {
+          map[String(v.schoolId)] = {
+            visible: v.visible !== false,
+            terms: Array.isArray(v.terms) && v.terms.length ? v.terms : null,
+          };
+        });
+        setVisibilitySettings(map);
+        const withTerms = (res.data?.settings || []).find(
+          (v) => Array.isArray(v.terms) && v.terms.length
+        );
+        setVisibilityTerms(withTerms ? withTerms.terms : []);
+      } catch (e) {
+        if (!cancelled) console.warn('Could not load report card visibility:', e?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedClass]);
   useEffect(() => {
     if (!classRankingData || !selectedStudent) {
       setReportData(null);
@@ -312,6 +342,60 @@ const ReportCard = () => {
     return <ReportCardFront data={data} schoolInfo={schoolInfo} />;
   };
 
+  const classStudentEntries = (classStudentList || [])
+    .map((s) => ({
+      schoolId: String(s.school_id ?? s.schoolId ?? ''),
+      name: s.student_name ?? s.studentName ?? '',
+      classId: s.class_id ?? s.classId ?? '',
+    }))
+    .filter((s) => s.schoolId);
+
+  const openVisibility = () => {
+    if (classStudentEntries.length === 0) {
+      alert('No students found in this class.');
+      return;
+    }
+    if (visibilityTerms.length === 0) {
+      setVisibilityTerms(Array.from({ length: termCount || 2 }, (_, i) => i + 1));
+    }
+    setVisibilityOpen(true);
+  };
+
+  const toggleStudent = (schoolId) => {
+    setVisibilitySettings((prev) => {
+      const current = prev[schoolId] || { visible: true, terms: null };
+      return { ...prev, [schoolId]: { ...current, visible: !current.visible } };
+    });
+  };
+
+  const toggleTerm = (term) => {
+    setVisibilityTerms((prev) => (
+      prev.includes(term)
+        ? prev.filter((t) => t !== term)
+        : [...prev, term].sort((a, b) => a - b)
+    ));
+  };
+
+  const saveVisibility = async () => {
+    setVisibilitySaving(true);
+    try {
+      const settings = classStudentEntries.map((s) => {
+        const current = visibilitySettings[s.schoolId] || {};
+        return {
+          schoolId: s.schoolId,
+          visible: current.visible !== false,
+          terms: visibilityTerms.length ? visibilityTerms : null,
+        };
+      });
+      await api.put(`/report-card-visibility/${encodeURIComponent(selectedClass)}`, { settings });
+      setVisibilityOpen(false);
+    } catch (e) {
+      alert(e?.response?.data?.error || 'Could not save report card visibility.');
+    } finally {
+      setVisibilitySaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className={styles.loadingContainer}>
@@ -371,6 +455,9 @@ const ReportCard = () => {
           <motion.button className={styles.imgBtn} onClick={handleDownloadImage} whileHover={{ scale: 1.05 }} disabled={!reportData}>
             <FaImage /> Image
           </motion.button>
+          <motion.button className={styles.imgBtn} onClick={openVisibility} whileHover={{ scale: 1.05 }} disabled={classStudentEntries.length === 0}>
+            <FaEye /> Visibility
+          </motion.button>
         </div>
       </div>
 
@@ -401,6 +488,80 @@ const ReportCard = () => {
               {getCardForPrint(studentData)}
             </div>
           ))}
+        </div>
+      )}
+      {visibilityOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => { if (!visibilitySaving) setVisibilityOpen(false); }}
+        >
+          <div
+            style={{ background: '#fff', color: '#111', width: 'min(680px, 96vw)', maxHeight: '88vh', overflow: 'auto', borderRadius: 16, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,.35)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 4px' }}>Report Card Visibility</h2>
+            <p style={{ margin: '0 0 18px', color: '#555', fontSize: 14 }}>
+              Choose which students can see their report card, and which terms are shown.
+            </p>
+
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Terms to show</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {Array.from({ length: termCount || 2 }, (_, i) => i + 1).map((term) => (
+                  <label
+                    key={term}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', border: '1px solid #ddd', borderRadius: 999, cursor: 'pointer', background: visibilityTerms.includes(term) ? '#FFF6D6' : '#fff' }}
+                  >
+                    <input type="checkbox" checked={visibilityTerms.includes(term)} onChange={() => toggleTerm(term)} />
+                    Term {term}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontWeight: 700 }}>Students</div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {classStudentEntries.filter((s) => visibilitySettings[s.schoolId]?.visible !== false).length} / {classStudentEntries.length} visible
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+              {classStudentEntries.map((s, index) => {
+                const visible = visibilitySettings[s.schoolId]?.visible !== false;
+                return (
+                  <label
+                    key={s.schoolId}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: index ? '1px solid #f0f0f0' : 'none', cursor: 'pointer', background: visible ? '#fff' : '#fafafa' }}
+                  >
+                    <input type="checkbox" checked={visible} onChange={() => toggleStudent(s.schoolId)} />
+                    <span style={{ flex: 1, fontWeight: 600 }}>{s.name}</span>
+                    <span style={{ fontSize: 12, color: '#777' }}>Class ID {s.classId}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: visible ? '#1a7f37' : '#b42318' }}>
+                      {visible ? 'Visible' : 'Hidden'}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+              <button
+                onClick={() => setVisibilityOpen(false)}
+                disabled={visibilitySaving}
+                style={{ padding: '10px 16px', borderRadius: 10, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveVisibility}
+                disabled={visibilitySaving}
+                style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#E5C518', color: '#111', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {visibilitySaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -7,6 +7,7 @@
   final String? phone;
   final String? className;
   final String? schoolId;
+  final String? classId;
   final String? gender;
   final String? age;
 
@@ -19,6 +20,7 @@
     this.phone,
     this.className,
     this.schoolId,
+    this.classId,
     this.gender,
     this.age,
   });
@@ -26,12 +28,13 @@
   factory User.fromJson(Map<String, dynamic> j) => User(
         id: j['id'] is int ? j['id'] : int.tryParse(j['id']?.toString() ?? '') ?? 0,
         username: j['username']?.toString() ?? '',
-        name: j['name']?.toString() ?? j['guardian_name']?.toString() ?? '',
+        name: j['name']?.toString() ?? j['student_name']?.toString() ?? j['guardian_name']?.toString() ?? '',
         role: j['role']?.toString() ?? 'guardian',
         branchCode: j['branchCode']?.toString() ?? '',
         phone: j['phone']?.toString() ?? j['guardian_phone']?.toString(),
         className: j['class']?.toString() ?? j['className']?.toString(),
         schoolId: j['school_id']?.toString() ?? j['schoolId']?.toString(),
+        classId: j['class_id']?.toString() ?? j['classId']?.toString(),
         gender: j['gender']?.toString(),
         age: j['age']?.toString(),
       );
@@ -45,6 +48,9 @@
         'phone': phone,
         'className': className,
         'schoolId': schoolId,
+        'school_id': schoolId,
+        'classId': classId,
+        'class_id': classId,
         'gender': gender,
         'age': age,
       };
@@ -111,6 +117,20 @@ class Ward {
 
 // === MARKS ===
 
+class MarkComponent {
+  final String name;
+  final double score;
+  final double max;
+
+  const MarkComponent({required this.name, required this.score, required this.max});
+
+  factory MarkComponent.fromJson(Map<String, dynamic> j) => MarkComponent(
+        name: j['name']?.toString() ?? j['component']?.toString() ?? '',
+        score: _toDouble(j['score'] ?? j['mark'] ?? j['value']),
+        max: _toDouble(j['max'] ?? j['maxMarks'] ?? j['percentage'] ?? j['out_of']),
+      );
+}
+
 class Mark {
   final String ward;        // student name
   final String className;   // class identifier
@@ -119,6 +139,7 @@ class Mark {
   final String passStatus;
   final double total;
   final Map<String, dynamic> details;
+  final List<MarkComponent> components;
 
   Mark({
     required this.ward,
@@ -128,17 +149,53 @@ class Mark {
     required this.passStatus,
     required this.total,
     required this.details,
+    this.components = const [],
   });
 
-  factory Mark.fromJson(Map<String, dynamic> j) => Mark(
-        ward: j['ward']?.toString() ?? j['student_name']?.toString() ?? '',
-        className: j['class']?.toString() ?? '',
-        subject: j['subject']?.toString() ?? '',
-        term: (j['term'] ?? 1).toString(),
-        passStatus: j['pass_status']?.toString() ?? j['passStatus']?.toString() ?? 'Pass',
-        total: _toDouble(j['total']),
-        details: j['details'] is Map ? Map<String, dynamic>.from(j['details']) : {},
-      );
+  int get termNumber => int.tryParse(term) ?? 1;
+
+  factory Mark.fromJson(Map<String, dynamic> j) {
+    final subject = j['subject_name']?.toString() ?? j['subject']?.toString() ?? '';
+    final term = (j['term_number'] ?? j['termNumber'] ?? j['term'] ?? 1).toString();
+    final rawComponents = j['components'];
+    final components = rawComponents is List
+        ? rawComponents
+            .whereType<Map>()
+            .map((c) => MarkComponent.fromJson(Map<String, dynamic>.from(c)))
+            .toList()
+        : <MarkComponent>[];
+
+    // Guardian-marks and older endpoints return flat key/value columns instead
+    // of a components list. Keep them in `details` for the fallback display.
+    Map<String, dynamic> details = {};
+    if (j['details'] is Map) {
+      details = Map<String, dynamic>.from(j['details'] as Map);
+    } else {
+      const skip = {
+        'id', 'student_name', 'studentname', 'ward', 'age', 'gender',
+        'total', 'pass_status', 'passstatus', 'class', 'classname',
+        'subject', 'subject_name', 'term', 'term_number', 'components',
+        'created_at', 'updated_at',
+      };
+      j.forEach((key, value) {
+        if (skip.contains(key.toLowerCase())) return;
+        if (value is num || (value is String && double.tryParse(value) != null)) {
+          details[key] = value;
+        }
+      });
+    }
+
+    return Mark(
+      ward: j['ward']?.toString() ?? j['student_name']?.toString() ?? '',
+      className: j['class']?.toString() ?? j['class_name']?.toString() ?? '',
+      subject: subject,
+      term: term,
+      passStatus: j['pass_status']?.toString() ?? j['passStatus']?.toString() ?? 'Pass',
+      total: _toDouble(j['total']),
+      details: details,
+      components: components,
+    );
+  }
 }
 
 class GuardianMarksResponse {
@@ -146,21 +203,33 @@ class GuardianMarksResponse {
   final List<Mark> marks;
   final List<String> subjects;
   final int termCount;
+  final bool reportVisible;
+  final List<int>? visibleTerms;
 
   GuardianMarksResponse({
     required this.wards,
     required this.marks,
     required this.subjects,
     required this.termCount,
+    this.reportVisible = true,
+    this.visibleTerms,
   });
 
   factory GuardianMarksResponse.fromJson(Map<String, dynamic> j) {
     final data = j['data'] is Map ? j['data'] as Map<String, dynamic> : j;
+    final visibility = data['visibility'] is Map
+        ? Map<String, dynamic>.from(data['visibility'] as Map)
+        : <String, dynamic>{};
+    final rawTerms = visibility['terms'] ?? visibility['visibleTerms'] ?? data['visibleTerms'];
     return GuardianMarksResponse(
       wards: (data['wards'] as List?)?.map((w) => Ward.fromJson(w)).toList() ?? [],
       marks: (data['marks'] as List?)?.map((m) => Mark.fromJson(m)).toList() ?? [],
       subjects: (data['subjects'] as List?)?.map((s) => s.toString()).toList() ?? [],
       termCount: data['termCount'] is int ? data['termCount'] : 1,
+      reportVisible: visibility['visible'] != false && data['reportVisible'] != false,
+      visibleTerms: rawTerms is List
+          ? rawTerms.map((t) => _toInt(t)).where((t) => t > 0).toList()
+          : null,
     );
   }
 }
@@ -542,6 +611,9 @@ class ChatConversation {
     // T6: admin broadcast â€” use the admin's full name
     if (j['type'] == 'class_broadcast' && j['admin_name'] != null) {
       title = j['admin_name'].toString();
+    }
+    if (j['type'] == 'class' && title.isEmpty) {
+      title = 'School Messages';
     }
     // T6: teacher chat â€” title shows the teacher's full name
     if (j['type'] == 'teacher_chat' && participants is List) {

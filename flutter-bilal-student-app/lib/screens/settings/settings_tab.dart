@@ -265,6 +265,24 @@ class SettingsTab extends StatelessWidget {
                       await storage.StorageService.setRememberedUsername(newCtrl.text.trim());
                     }
                   } catch (_) {}
+                  // Keep the in-memory session in sync too, otherwise the app
+                  // keeps sending the old username until it is restarted.
+                  final current = app.user;
+                  if (current != null) {
+                    app.setUser(User(
+                      id: current.id,
+                      username: newCtrl.text.trim(),
+                      name: current.name,
+                      role: current.role,
+                      branchCode: current.branchCode,
+                      phone: current.phone,
+                      className: current.className,
+                      schoolId: current.schoolId,
+                      classId: current.classId,
+                      gender: current.gender,
+                      age: current.age,
+                    ));
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                       content: Text('Username changed successfully'),
                       backgroundColor: AppColors.success));
@@ -416,6 +434,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     row('Phone', user?.phone ?? ''),
                     row('Class', user?.className ?? ''),
+                    row('Class ID', user?.classId ?? ''),
                     row('Gender', user?.gender ?? ''),
                     row('Age', user?.age ?? ''),
                     row('School ID', user?.schoolId ?? ''),
