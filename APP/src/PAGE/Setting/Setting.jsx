@@ -8,9 +8,6 @@ import { getBranchCode } from '../../utils/branchCode';
 import { useApp } from '../../context/AppContext';
 import { FiUser, FiLock, FiGlobe, FiSun, FiImage, FiSave, FiCheck, FiX, FiCamera, FiUpload, FiHome, FiSmartphone, FiDownload, FiShare2, FiCopy, FiUsers, FiShield } from 'react-icons/fi';
 import LanguageSelector from '../../COMPONENTS/LanguageSelector';
-import FileUpload from '../../COMPONENTS/FileUpload';
-import Input from '../../COMPONENTS/Input/Input';
-import Button from '../../COMPONENTS/Button/Button';
 import PermissionSelector from '../../COMPONENTS/PermissionSelector';
 
 const AdminSubAccountsPanel = lazy(() => import('../AdminSubAccounts/AdminSubAccounts'));
@@ -33,20 +30,20 @@ const Setting = () => {
   
   // Local profile state for form
   const [localProfile, setLocalProfile] = useState({
-    name: profile.name || '',
-    email: profile.email || '',
-    profileImage: profile.profileImage || null
+    name: profile?.name || '',
+    email: profile?.email || '',
+    profileImage: profile?.profileImage || null
   });
 
   useEffect(() => {
     if (profile) {
       setLocalProfile({
-        name: profile.name || '',
-        email: profile.email || '',
-        profileImage: profile.profileImage || null
+        name: profile?.name || '',
+        email: profile?.email || '',
+        profileImage: profile?.profileImage || null
       });
     }
-  }, [profile.name, profile.email, profile.profileImage]);
+  }, [profile?.name, profile?.email, profile?.profileImage]);
   
   // Password state
   const [passwordData, setPasswordData] = useState({

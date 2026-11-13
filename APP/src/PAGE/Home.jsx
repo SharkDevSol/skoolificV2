@@ -1,5 +1,5 @@
 // Updated PAGE/Home.jsx - With new Sidebar and Header components
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import styles from "./Home.module.css";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,6 +9,7 @@ import { getBranchCode } from "../utils/branchCode";
 import { filterNavByPermissions } from "../utils/permissionUtils";
 import Sidebar from "../COMPONENTS/Sidebar/Sidebar";
 import Header from "../COMPONENTS/Header/Header";
+import LoadingScreen from "../COMPONENTS/LoadingScreen";
 import { 
   FiHome, FiUser, FiUsers, FiBook, FiCalendar, 
   FiMessageSquare, FiFileText, FiSettings, 
@@ -735,7 +736,9 @@ const Home = () => {
           transition={{ duration: 0.3 }}
           className={styles.contentWrapper}
         >
-          <Outlet />
+          <Suspense fallback={<LoadingScreen />}>
+            <Outlet />
+          </Suspense>
         </motion.div>
       </main>
     </div>

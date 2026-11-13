@@ -353,25 +353,25 @@ function App() {
               <Route path="live-attendance" element={<LiveAttendanceMonitor />} />
               <Route path="communication" element={<AdminChat />} />
               {/* Counsellor route removed */}
-              <Route path="create-mark-list" element={<MarkListSystem />} />
-              <Route path="Mark-List-Management" element={<MarkListManagement />} />
-              <Route path="Subject-Mapping-Setup" element={<SubjectMappingSetup />} />
-              <Route path="post" element={<Post />} />
+              <Route path="create-mark-list" element={<LazyRoute component={MarkListSystem} />} />
+              <Route path="Mark-List-Management" element={<LazyRoute component={MarkListManagement} />} />
+              <Route path="Subject-Mapping-Setup" element={<LazyRoute component={SubjectMappingSetup} />} />
+              <Route path="post" element={<LazyRoute component={Post} />} />
               {/* Roaster route removed */}
-              <Route path="report-card" element={<ReportCard />} />
-              <Route path="create-accounts" element={<CreateAccounts />} />
-              <Route path="admin-sub-accounts" element={<AdminSubAccounts />} />
+              <Route path="report-card" element={<LazyRoute component={ReportCard} />} />
+              <Route path="create-accounts" element={<LazyRoute component={CreateAccounts} />} />
+              <Route path="admin-sub-accounts" element={<LazyRoute component={AdminSubAccounts} />} />
               {/* Payment route removed */}
-              <Route path="settings" element={<Setting />} />
-              <Route path="sms-templates" element={<SmsTemplates />} />
-              <Route path="sms" element={<SmsTemplates />} />
-              <Route path="sms-counter" element={<SmsCounter />} />
-              <Route path="backup" element={<DataBackup />} />
+              <Route path="settings" element={<LazyRoute component={Setting} />} />
+              <Route path="sms-templates" element={<LazyRoute component={SmsTemplates} />} />
+              <Route path="sms" element={<LazyRoute component={SmsTemplates} />} />
+              <Route path="sms-counter" element={<LazyRoute component={SmsCounter} />} />
+              <Route path="backup" element={<LazyRoute component={DataBackup} />} />
               {/* Branch-create route removed */}
-              <Route path="schedule" element={<ScheduleDashboard />} />
-              <Route path="schedule/Timetable" element={<ScheduleTimetable />} />
-              <Route path="schedule/ClassShiftForm" element={<ClassShiftForm />} />
-              <Route path="schedule/requirements" element={<ClassRequirementsForm />} />
+              <Route path="schedule" element={<LazyRoute component={ScheduleDashboard} />} />
+              <Route path="schedule/Timetable" element={<LazyRoute component={ScheduleTimetable} />} />
+              <Route path="schedule/ClassShiftForm" element={<LazyRoute component={ClassShiftForm} />} />
+              <Route path="schedule/requirements" element={<LazyRoute component={ClassRequirementsForm} />} />
 
               {/* New route for StaffForm */}
               <Route path="staff-form/:staffType/:className" element={<StaffForm />} />
