@@ -109,9 +109,46 @@ const clearFinanceAuthData = () => {
   localStorage.removeItem('superFinanceUser');
 };
 
-// Response interceptor - handle common errors
+const decodeHTMLEntities = (text) => {
+  if (typeof text !== 'string') return text;
+  if (!text.includes('&')) return text;
+  return text
+    .replace(/&#x27;|&#39;|&apos;/gi, "'")
+    .replace(/&#x2F;|&#47;/gi, '/')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#96;|&#x60;/gi, '`')
+    .replace(/&amp;/gi, '&');
+};
+
+const recursivelyDecodeEntities = (data) => {
+  if (!data) return data;
+  if (typeof data === 'string') {
+    return decodeHTMLEntities(data);
+  }
+  if (Array.isArray(data)) {
+    return data.map(recursivelyDecodeEntities);
+  }
+  if (typeof data === 'object') {
+    if (typeof Blob !== 'undefined' && data instanceof Blob) return data;
+    if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) return data;
+    if (data instanceof Date) return data;
+    const res = {};
+    for (const key of Object.keys(data)) {
+      res[key] = recursivelyDecodeEntities(data[key]);
+    }
+    return res;
+  }
+  return data;
+};
+
+// Response interceptor - handle common errors and decode entities
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response?.data) {
+      response.data = recursivelyDecodeEntities(response.data);
+    }
+    return response;
+  },
   (error) => {
     // Prevent multiple simultaneous redirects
     if (isRedirecting) {

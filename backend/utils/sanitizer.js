@@ -28,16 +28,39 @@ function sanitizeHTML(input) {
 }
 
 /**
- * Sanitize plain text by escaping HTML entities
+ * Decode common HTML entities back to raw characters
+ * Prevents corruption of names with hudhaa/apostrophes, slashes, quotes, etc.
+ * @param {string} input - Text with potential HTML entities
+ * @returns {string} - Decoded text
+ */
+function decodeHTMLEntities(input) {
+  if (!input || typeof input !== 'string') return input;
+  return input
+    .replace(/&#x27;|&#39;|&apos;/gi, "'")
+    .replace(/&#x2F;|&#47;/gi, '/')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#96;|&#x60;/gi, '`')
+    .replace(/&amp;/gi, '&');
+}
+
+/**
+ * Sanitize plain text safely without corrupting apostrophes, quotes, or slashes
  * @param {string} input - Raw text input
- * @returns {string} - Escaped text
+ * @returns {string} - Cleaned text
  */
 function sanitizeText(input) {
   if (!input || typeof input !== 'string') {
     return '';
   }
   
-  return validator.escape(input);
+  // First decode any previously HTML-escaped entities
+  const decoded = decodeHTMLEntities(input);
+
+  // Strip null bytes and malicious script tags without mangling punctuation
+  return decoded
+    .replace(/\0/g, '')
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .trim();
 }
 
 /**
@@ -386,6 +409,7 @@ function sanitizeObject(data, schema) {
 }
 
 module.exports = {
+  decodeHTMLEntities,
   sanitizeInput,
   sanitizeObject,
   sanitizeHTML,

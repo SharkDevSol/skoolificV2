@@ -34,7 +34,7 @@ function sanitizeValue(value) {
     return sanitized;
   }
   
-  // Handle strings (escape HTML entities)
+  // Handle strings (safely sanitize and decode entities, preserving ', ", /, &)
   if (typeof value === 'string') {
     return sanitizeText(value);
   }
