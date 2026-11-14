@@ -49,11 +49,13 @@ const initializeChatTables = async () => {
       CREATE TABLE IF NOT EXISTS conversations (
         id SERIAL PRIMARY KEY,
         type VARCHAR(50) NOT NULL,
+        teacher_class VARCHAR(255),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         last_message_at TIMESTAMP WITH TIME ZONE
       )
     `);
+    await client.query('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS teacher_class VARCHAR(255)');
 
     // Create conversation_participants table
     await client.query(`

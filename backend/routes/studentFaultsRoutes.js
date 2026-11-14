@@ -559,4 +559,36 @@ router.get('/reports', async (req, res) => {
   }
 });
 
+
+// Get every fault from every class table in one response.
+// Used by the admin app history tab so it shows the same records as the web.
+router.get('/all-faults', async (req, res) => {
+  try {
+    const db = getDB(req);
+    const tables = (await db.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'class_students_fault'"
+    )).rows;
+    const all = [];
+    for (const row of tables) {
+      const className = row.table_name;
+      if (!/^[a-zA-Z0-9_]+$/.test(className)) continue;
+      try {
+        const faults = await db.query(
+          `SELECT id, school_id, class_id, student_name, date, type, level, description, reported_by, action_taken, attachment, '${className}' AS class_name
+             FROM class_students_fault."${className}"
+             ORDER BY date DESC`
+        );
+        all.push(...faults.rows);
+      } catch (error) {
+        console.warn('Could not read faults for', className, error.message);
+      }
+    }
+    all.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    res.json(all);
+  } catch (error) {
+    console.error('Error fetching all faults:', error);
+    res.status(500).json({ error: 'Failed to fetch all faults', details: error.message });
+  }
+});
+
 module.exports = router;

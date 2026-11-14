@@ -50,6 +50,15 @@ const validatePasswordStrength = (password) => {
     errors
   };
 };
+// Admin password rule: any password with at least 8 characters.
+const validateAdminPassword = (password) => {
+  const errors = [];
+  if (!password || String(password).length < 8) {
+    errors.push('Password must be at least 8 characters long');
+  }
+  return { isValid: errors.length === 0, errors };
+};
+
 
 /**
  * Change Username for Admin Users
@@ -147,7 +156,7 @@ router.post('/admin/change-password', authenticateWithBranch, async (req, res) =
     }
 
     // Validate password strength
-    const passwordValidation = validatePasswordStrength(newPassword);
+    const passwordValidation = validateAdminPassword(newPassword);
     if (!passwordValidation.isValid) {
       return res.status(400).json({ 
         error: 'Password does not meet strength requirements',

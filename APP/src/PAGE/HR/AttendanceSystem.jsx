@@ -323,29 +323,34 @@ const TeacherAttendance = () => {
     const staffName = staffMember?.name;
     
     // Match by machine_id if available, otherwise by global_staff_id or staff name
-    const record = attendanceRecords.find(r => {
+    const matches = (r, includeShift) => {
       const recordStaffId = String(r.staff_id);
       const recordStaffName = String(r.staff_name || '').toLowerCase();
       const recordDay = parseInt(r.ethiopian_day);
       const recordMonth = parseInt(r.ethiopian_month);
       const recordYear = parseInt(r.ethiopian_year);
       const recordShiftType = r.shift_type;
-      
+
       const dayMatch = recordDay === parseInt(ethDay);
       const monthMatch = recordMonth === parseInt(selectedEthMonth);
       const yearMatch = recordYear === parseInt(selectedEthYear);
-      
+
       // Match by machine_id (if staff has one) OR by global_staff_id OR by staff name (for N/A staff)
-      const idMatch = machineId 
+      const idMatch = machineId
         ? recordStaffId === String(machineId)
         : (recordStaffId === String(globalStaffId) || recordStaffName === String(staffName || '').toLowerCase());
-      
-      // If shiftType is specified, also match by shift_type
-      const shiftMatch = shiftType ? recordShiftType === shiftType : true;
-      
+
+      // If shiftType is specified, also match by shift_type.
+      const shiftMatch = includeShift && shiftType ? recordShiftType === shiftType : true;
+
       return idMatch && dayMatch && monthMatch && yearMatch && shiftMatch;
-    });
-    
+    };
+
+    // Prefer the record for the selected shift. If the app/admin recorded the
+    // day under another shift, still show it instead of an empty cell.
+    let record = attendanceRecords.find(r => matches(r, true));
+    if (!record) record = attendanceRecords.find(r => matches(r, false));
+
     return record;
   };
 
