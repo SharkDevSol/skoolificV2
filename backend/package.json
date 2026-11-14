@@ -16,6 +16,7 @@
     "test:property": "jest --testPathPattern=property",
     "test:auth": "node test-sub-accounts-auth.js",
     "setup:attendance": "node scripts/setup-staff-attendance.js",
+    "verify:class-ids": "node scripts/verify-class-id-order.js",
     "setup:machine-attendance": "node scripts/setup-dual-mode-attendance.js",
     "test:machine": "node scripts/test-machine-connection.js",
     "diagnose:machine": "node scripts/diagnose-machine.js",

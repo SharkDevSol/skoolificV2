@@ -97,6 +97,7 @@ const getAllStudents = async (db, className = null, studentType = null) => {
       let selectClause = `
         CAST(school_id AS VARCHAR) as student_id,
         CAST(class_id AS VARCHAR) as class_id,
+        class_id AS class_id_sort,
         student_name,
         smachine_id,
         age,
@@ -120,7 +121,7 @@ const getAllStudents = async (db, className = null, studentType = null) => {
           '${tableName}' as class_name
         FROM classes_schema."${tableName}"
         ${whereClause}
-        ORDER BY student_name
+        ORDER BY class_id_sort NULLS LAST, LOWER(student_name)
       `);
 
       allStudents = allStudents.concat(studentsResult.rows);
