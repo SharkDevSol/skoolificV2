@@ -20,6 +20,7 @@ import Input from '../../../COMPONENTS/Input/Input';
 import { getBranchCode } from '../../../utils/branchCode';
 import Select from '../../../COMPONENTS/Select/Select';
 import Button from '../../../COMPONENTS/Button/Button';
+import { dedupeStaff } from '../../../utils/staffList';
 
 const getApiBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_URL;
@@ -104,9 +105,10 @@ const ListStaff = () => {
         } catch (err) { console.warn(`No data for: ${staffType}`); }
       }
       
+      const dedupedStaff = dedupeStaff(allStaff, 'global_staff_id');
       setStaffTypes(foundTypes);
-      setStaffData(allStaff);
-      setFilteredData(allStaff);
+      setStaffData(dedupedStaff);
+      setFilteredData(dedupedStaff);
     } catch (error) { console.error('Error:', error); }
     finally { setLoading(false); }
   };

@@ -916,16 +916,29 @@ router.post('/create-form', async (req, res) => {
       [schema]
     );
     if (existing.rowCount) {
-      const existingTable = existing.rows[0].table_name;
-      const countRes = await client.query(
-        `SELECT COUNT(*) as count FROM "${schema}"."${existingTable}"`
-      );
-      if (parseInt(countRes.rows[0].count) === 0) {
-        console.log(`Existing table "${schema}"."${existingTable}" is empty. Replacing with new form.`);
-        await client.query(`DROP TABLE IF EXISTS "${schema}"."${existingTable}" CASCADE`);
-        await client.query(`DELETE FROM form_metadata.field_types WHERE schema_name = $1 AND table_name = $2`, [schema, existingTable]);
+      // Check if any existing table has staff data
+      let hasData = false;
+      let totalStaffCount = 0;
+      for (const row of existing.rows) {
+        const countRes = await client.query(
+          `SELECT COUNT(*) as count FROM "${schema}"."${row.table_name}"`
+        );
+        const count = parseInt(countRes.rows[0].count, 10);
+        if (count > 0) {
+          hasData = true;
+          totalStaffCount += count;
+        }
+      }
+
+      if (hasData) {
+        throw new Error(`A form already exists for ${staffType} with ${totalStaffCount} staff member(s). Each staff type only supports one active form.`);
       } else {
-        throw new Error(`A form already exists for ${staffType} with ${countRes.rows[0].count} staff member(s). To modify the form, please delete it from Staff Registration or archive existing staff.`);
+        // Drop ALL empty tables in this schema to guarantee no duplicate empty forms remain
+        for (const row of existing.rows) {
+          console.log(`Dropping empty table "${schema}"."${row.table_name}" to maintain 1 form per staff type.`);
+          await client.query(`DROP TABLE IF EXISTS "${schema}"."${row.table_name}" CASCADE`);
+          await client.query(`DELETE FROM form_metadata.field_types WHERE schema_name = $1 AND table_name = $2`, [schema, row.table_name]);
+        }
       }
     }
 
@@ -1127,6 +1140,59 @@ router.post('/add-staff', upload, async (req, res) => {
     );
     if (colRes.rowCount === 0)
       throw new Error('Target table does not exist');
+
+    // ---- Duplicate Prevention Checks ----
+    const staffName = (formData.name || '').trim();
+    if (staffName) {
+      // 1. Check if an active staff member with this exact name already exists in target table
+      const nameCheck = await client.query(
+        `SELECT id, name, global_staff_id 
+         FROM "${schema}"."${className}" 
+         WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND (is_active = TRUE OR is_active IS NULL)`,
+        [staffName]
+      );
+      if (nameCheck.rowCount > 0) {
+        throw new Error(`A staff member named "${staffName}" is already registered in ${staffType}. To prevent duplicates, please verify existing staff or use a full distinguishing name.`);
+      }
+
+      // 2. Cross-check across all other staff tables in this school
+      const otherTablesRes = await client.query(
+        `SELECT table_schema, table_name 
+         FROM information_schema.tables 
+         WHERE table_schema LIKE 'staff_%' 
+           AND table_name <> 'staff_counter' 
+           AND NOT (table_schema = $1 AND table_name = $2)`,
+        [schema, className]
+      );
+      for (const ot of otherTablesRes.rows) {
+        try {
+          const crossCheck = await client.query(
+            `SELECT id, name, global_staff_id 
+             FROM "${ot.table_schema}"."${ot.table_name}" 
+             WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND (is_active = TRUE OR is_active IS NULL)`,
+            [staffName]
+          );
+          if (crossCheck.rowCount > 0) {
+            throw new Error(`A staff member named "${staffName}" is already registered under ${ot.table_schema.replace('staff_', '').replace(/_/g, ' ')} (${ot.table_name}).`);
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 3. Check phone number uniqueness across active staff
+    if (formData.phone && String(formData.phone).trim()) {
+      const cleanPhone = String(formData.phone).replace(/\D/g, '');
+      if (cleanPhone.length >= 9) {
+        const phoneCheck = await client.query(
+          `SELECT name FROM "${schema}"."${className}" 
+           WHERE REPLACE(COALESCE(phone, ''), ' ', '') LIKE $1 AND (is_active = TRUE OR is_active IS NULL)`,
+          [`%${cleanPhone.slice(-9)}`]
+        );
+        if (phoneCheck.rowCount > 0) {
+          throw new Error(`A staff member with phone number "${formData.phone}" is already registered (${phoneCheck.rows[0].name}).`);
+        }
+      }
+    }
 
     const tableCols = colRes.rows.map((r) => r.column_name);
     const insertData = {};
@@ -1367,6 +1433,20 @@ router.post('/upload-excel', async (req, res) => {
     const teacherData = [];
 
     for (const row of data) {
+      const rowName = (row.name || '').trim();
+      if (!rowName) continue;
+
+      // Duplicate check: Skip if staff with this name already exists in target table
+      const dupCheck = await client.query(
+        `SELECT id FROM "${schema}"."${className}" 
+         WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND (is_active = TRUE OR is_active IS NULL)`,
+        [rowName]
+      );
+      if (dupCheck.rowCount > 0) {
+        console.warn(`[upload-excel] Skipping duplicate staff name: ${rowName}`);
+        continue;
+      }
+
       curStaffId++;
       const globalStaffId = await getNextGlobalStaffId(client);
 
@@ -2581,6 +2661,19 @@ router.post('/bulk-import', async (req, res) => {
         if (!staffData.name) {
           results.failedCount++;
           results.errors.push({ row: i + 2, error: 'Missing name' });
+          continue;
+        }
+        
+        // Duplicate check: prevent duplicate staff name in table
+        const staffName = String(staffData.name || '').trim();
+        const dupCheck = await client.query(
+          `SELECT id FROM "${schema}"."${sanitizedClassName}" 
+           WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND (is_active = TRUE OR is_active IS NULL)`,
+          [staffName]
+        );
+        if (dupCheck.rowCount > 0) {
+          results.failedCount++;
+          results.errors.push({ row: i + 2, error: `Duplicate staff name "${staffName}" already exists` });
           continue;
         }
         
