@@ -128,6 +128,13 @@ const getAllStudents = async (db, className = null, studentType = null) => {
         ORDER BY class_id_sort NULLS LAST, LOWER(student_name)
       `);
 
+      // Class IDs shown on the attendance screen are always sequential 1..N
+      // for the students returned in this class. The stored class_id is kept
+      // untouched so attendance, faults and finance records stay linked.
+      studentsResult.rows.forEach((row, index) => {
+        row.class_id = index + 1;
+      });
+
       allStudents = allStudents.concat(studentsResult.rows);
     }
 
