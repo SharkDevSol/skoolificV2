@@ -114,7 +114,11 @@ const getAllStudents = async (db, className = null, studentType = null) => {
         selectClause += `, is_evening_class`;
       }
 
-      // Get students with all their details
+      // Get students with all their details.
+      // IMPORTANT: class_id is the student's roll number. Sort by the numeric
+      // class_id first, then by name. Sorting only by student_name is
+      // case-sensitive, so names that start with lowercase letters are pushed
+      // to the bottom and the Class ID column appears to jump (28, 32, ...).
       const studentsResult = await db.query(`
         SELECT 
           ${selectClause},
