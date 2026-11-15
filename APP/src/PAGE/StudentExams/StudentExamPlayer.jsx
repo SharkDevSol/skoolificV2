@@ -427,6 +427,7 @@ const StudentExamPlayer = () => {
     if (!q) return null;
 
     if (type === 'mcq') {
+      const optImages = Array.isArray(q.optionImages) ? q.optionImages : [];
       return (
         <div className={styles.options}>
           {(q.options || []).map((opt, j) => (
@@ -439,7 +440,12 @@ const StudentExamPlayer = () => {
                 onChange={() => setAnswer(q.id, opt)}
               />
               <strong className={styles.optLetter}>{String.fromCharCode(65 + j)}.</strong>
-              <span>{opt}</span>
+              <span>
+                {opt}
+                {optImages[j] && (
+                  <img src={optImages[j]} alt={`Option ${String.fromCharCode(65 + j)}`} style={{ display: 'block', maxHeight: '100px', maxWidth: '170px', borderRadius: '6px', border: '1px solid #e5e7eb', marginTop: '5px' }} />
+                )}
+              </span>
             </label>
           ))}
         </div>
@@ -462,21 +468,43 @@ const StudentExamPlayer = () => {
     if (type === 'matching' && q.leftColumn && q.rightColumn) {
       const studentMap = answers[q.id] || {};
       return (
-        <div className={styles.matching}>
-          {q.leftColumn.map((left) => (
-            <div key={left} className={styles.matchRow}>
-              <span className={styles.matchLeft}>{left}</span>
-              <span className={styles.matchArrow}>→</span>
-              <select
-                value={studentMap[left] || ''}
-                onChange={(e) => setAnswer(q.id, { ...(answers[q.id] || {}), [left]: e.target.value })}
-              >
-                <option value="">Select…</option>
-                {q.rightColumn.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+        <>
+          <div className={styles.matching}>
+            {q.leftColumn.map((left, leftIndex) => (
+              <div key={left} className={styles.matchRow}>
+                <span className={styles.matchLeft}>
+                  {q.leftImages?.[leftIndex] && (
+                    <img src={q.leftImages[leftIndex]} alt={`Left ${leftIndex + 1}`} style={{ display: 'block', maxHeight: '80px', maxWidth: '120px', borderRadius: '6px', border: '1px solid #e5e7eb', marginBottom: '4px' }} />
+                  )}
+                  {left}
+                </span>
+                <span className={styles.matchArrow}>→</span>
+                <select
+                  value={studentMap[left] || ''}
+                  onChange={(e) => setAnswer(q.id, { ...(answers[q.id] || {}), [left]: e.target.value })}
+                >
+                  <option value="">Select…</option>
+                  {q.rightColumn.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          {(q.rightImages || []).some(Boolean) && (
+            <div style={{ marginTop: '10px', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+              <strong style={{ fontSize: '0.85rem' }}>Right-side choices with images</strong>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                {q.rightColumn.map((r, i) => (
+                  <div key={`${r}-${i}`} style={{ border: '1px solid #e5e7eb', borderRadius: '7px', padding: '6px', maxWidth: '160px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.8rem' }}>{String.fromCharCode(65 + i)}. {r}</div>
+                    {q.rightImages?.[i] && (
+                      <img src={q.rightImages[i]} alt={`Right ${i + 1}`} style={{ display: 'block', maxHeight: '90px', maxWidth: '140px', borderRadius: '6px', marginTop: '4px' }} />
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       );
     }
 
@@ -577,6 +605,9 @@ const StudentExamPlayer = () => {
           </button>
         </div>
           <p className={styles.qText}>{q.question}</p>
+          {q.questionImage && (
+            <img src={q.questionImage} alt="Question" style={{ display: 'block', maxWidth: '100%', maxHeight: '360px', borderRadius: '8px', border: '1px solid #e5e7eb', margin: '8px 0' }} />
+          )}
           {renderAnswerArea()}
         </div>
       )}

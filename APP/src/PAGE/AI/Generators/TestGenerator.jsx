@@ -20,13 +20,15 @@ const typeLabel = (t) => (QUESTION_TYPES.find(x => x.type === t) || { label: t }
 const emptyDraft = (type) => ({
   type: type || 'mcq',
   question: '',
+  questionImage: '',
   marks: 1,
   explanation: '',
   options: ['', '', '', ''],
+  optionImages: ['', '', '', ''],
   correctIndex: 0,
   textAnswer: '',
   boolAnswer: true,
-  pairs: [{ left: '', right: '' }],
+  pairs: [{ left: '', right: '', leftImage: '', rightImage: '' }],
 });
 
 const toDraft = (q) => {
@@ -36,34 +38,65 @@ const toDraft = (q) => {
     const idx = q.options.findIndex(o => String(o).trim() === String(q.answer || '').trim());
     correctIndex = idx >= 0 ? idx : 0;
   }
-  const pairs = Array.isArray(q.correctMatches) && q.correctMatches.length
-    ? q.correctMatches.map(m => ({ left: String(m.left ?? ''), right: String(m.right ?? '') }))
-    : (Array.isArray(q.leftColumn) ? q.leftColumn.map((l, i) => ({ left: String(l), right: String((q.rightColumn || [])[i] ?? '') })) : [{ left: '', right: '' }]);
+  const correctMatches = Array.isArray(q.correctMatches) ? q.correctMatches : [];
+  const leftImages = Array.isArray(q.leftImages) ? q.leftImages : [];
+  const rightImages = Array.isArray(q.rightImages) ? q.rightImages : [];
+  const pairImages = Array.isArray(q.pairImages) ? q.pairImages : [];
+  const pairs = correctMatches.length
+    ? correctMatches.map((m, i) => ({
+        left: String(m.left ?? ''),
+        right: String(m.right ?? ''),
+        leftImage: String(m.leftImage ?? leftImages[i] ?? pairImages[i]?.left ?? ''),
+        rightImage: String(m.rightImage ?? rightImages[i] ?? pairImages[i]?.right ?? ''),
+      }))
+    : (Array.isArray(q.leftColumn)
+        ? q.leftColumn.map((l, i) => ({
+            left: String(l),
+            right: String((q.rightColumn || [])[i] ?? ''),
+            leftImage: String(leftImages[i] ?? pairImages[i]?.left ?? ''),
+            rightImage: String(rightImages[i] ?? pairImages[i]?.right ?? ''),
+          }))
+        : [{ left: '', right: '', leftImage: '', rightImage: '' }]);
   return {
     type,
     question: q.question || '',
+    questionImage: q.questionImage || '',
     marks: q.marks || 1,
     explanation: q.explanation || '',
     options: type === 'mcq' ? [...(q.options || [])] : [],
+    optionImages: type === 'mcq' ? [...(q.optionImages || [])] : [],
     correctIndex,
     textAnswer: (type === 'fill_blank' || type === 'short_answer') ? String(q.answer || '') : '',
     boolAnswer: !String(q.answer || '').toLowerCase().startsWith('f'),
-    pairs: pairs.length ? pairs : [{ left: '', right: '' }],
+    pairs: pairs.length ? pairs : [{ left: '', right: '', leftImage: '', rightImage: '' }],
   };
 };
 
 const fromDraft = (d, base = {}) => {
-  const q = { ...base, type: d.type, question: d.question.trim(), marks: Math.max(1, parseInt(d.marks) || 1), explanation: d.explanation.trim() };
-  delete q.options; delete q.leftColumn; delete q.rightColumn; delete q.correctMatches;
+  const q = { ...base, type: d.type, question: d.question.trim(), questionImage: d.questionImage || '', marks: Math.max(1, parseInt(d.marks) || 1), explanation: d.explanation.trim() };
+  delete q.options; delete q.optionImages; delete q.leftColumn; delete q.rightColumn; delete q.correctMatches;
+  delete q.leftImages; delete q.rightImages; delete q.pairImages;
   if (d.type === 'mcq') {
-    q.options = d.options.map(o => o.trim()).filter(Boolean);
-    q.answer = q.options[d.correctIndex] ?? '';
+    const rows = d.options.map((o, i) => ({ text: o.trim(), image: (d.optionImages || [])[i] || '', index: i }));
+    const kept = rows.filter(r => r.text || r.image);
+    const correctPos = Math.max(0, kept.findIndex(r => r.index === d.correctIndex));
+    q.options = kept.map((r, i) => r.text || `Option ${String.fromCharCode(65 + i)}`);
+    q.optionImages = kept.map(r => r.image);
+    q.answer = q.options[correctPos] ?? q.options[0] ?? '';
   } else if (d.type === 'true_false') {
     q.answer = d.boolAnswer ? 'True' : 'False';
   } else if (d.type === 'matching') {
-    const pr = d.pairs.map(p => ({ left: p.left.trim(), right: p.right.trim() })).filter(p => p.left && p.right);
+    const valid = d.pairs.filter(p => (p.left.trim() || p.leftImage) && (p.right.trim() || p.rightImage));
+    const pr = valid.map((p, i) => ({
+      left: p.left.trim() || `Left ${i + 1}`,
+      right: p.right.trim() || `Right ${i + 1}`,
+      leftImage: p.leftImage || '',
+      rightImage: p.rightImage || '',
+    }));
     q.leftColumn = pr.map(p => p.left);
     q.rightColumn = pr.map(p => p.right);
+    q.leftImages = pr.map(p => p.leftImage);
+    q.rightImages = pr.map(p => p.rightImage);
     q.correctMatches = pr;
     delete q.answer;
   } else {
@@ -75,13 +108,72 @@ const fromDraft = (d, base = {}) => {
 const draftError = (d) => {
   if (d.question.trim().length < 5) return 'Question text is required (at least 5 characters)';
   if (d.type === 'mcq') {
-    const opts = d.options.map(o => o.trim()).filter(Boolean);
-    if (opts.length < 2) return 'MCQ needs at least 2 options';
-    if (!opts[d.correctIndex]) return 'Select which option is the correct answer';
+    const opts = d.options.map((o, i) => ({ text: o.trim(), image: (d.optionImages || [])[i] || '' })).filter(x => x.text || x.image);
+    if (opts.length < 2) return 'MCQ needs at least 2 options (text or image)';
+    const selected = d.options[d.correctIndex]?.trim() || (d.optionImages || [])[d.correctIndex];
+    if (!selected) return 'Select which option is the correct answer';
   }
-  if (d.type === 'matching' && !d.pairs.filter(p => p.left.trim() && p.right.trim()).length) return 'Matching needs at least one pair';
+  if (d.type === 'matching' && !d.pairs.filter(p => (p.left.trim() || p.leftImage) && (p.right.trim() || p.rightImage)).length) return 'Matching needs at least one pair';
   if ((d.type === 'fill_blank' || d.type === 'short_answer') && !d.textAnswer.trim()) return 'The answer is required';
   return '';
+};
+
+const uploadQuestionImage = async (file) => {
+  const fd = new FormData();
+  fd.append('image', file);
+  const res = await axios.post('/api/ai/upload-question-image', fd);
+  const url = res.data?.url || res.data?.data?.url;
+  if (!url) throw new Error(res.data?.error || 'Upload failed');
+  return url;
+};
+
+const ImageField = ({ label = 'Image', value, onChange, compact = false }) => {
+  const ref = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const choose = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const url = await uploadQuestionImage(file);
+      onChange(url);
+    } catch (err) {
+      alert('Image upload failed: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
+      <button
+        type="button"
+        onClick={() => ref.current?.click()}
+        disabled={busy}
+        style={{ border: '1px dashed #93c5fd', background: '#eff6ff', color: '#1d4ed8', borderRadius: '7px', padding: '5px 10px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}
+      >
+        {busy ? 'Uploading…' : value ? 'Change image' : `📷 ${label}`}
+      </button>
+      {value && (
+        <>
+          <img
+            src={value}
+            alt={label}
+            style={{ height: compact ? '34px' : '52px', maxWidth: compact ? '80px' : '130px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #d1d5db' }}
+          />
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            title="Remove image"
+            style={{ border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: '6px', padding: '4px 7px', cursor: 'pointer' }}
+          >
+            ✕
+          </button>
+        </>
+      )}
+      <input ref={ref} type="file" accept="image/*" style={{ display: 'none' }} onChange={choose} />
+    </div>
+  );
 };
 
 // Edit / add one question (works for every supported type)
@@ -90,6 +182,13 @@ const QuestionEditor = ({ initial, isNew, onSave, onCancel }) => {
   const [err, setErr] = useState('');
   const set = (patch) => setD(prev => ({ ...prev, ...patch }));
   const setOption = (i, v) => setD(prev => { const o = [...prev.options]; o[i] = v; return { ...prev, options: o }; });
+  const setOptionImage = (i, v) => setD(prev => { const imgs = [...(prev.optionImages || [])]; imgs[i] = v; return { ...prev, optionImages: imgs }; });
+  const removeOption = (i) => setD(prev => ({
+    ...prev,
+    options: prev.options.filter((_, j) => j !== i),
+    optionImages: (prev.optionImages || []).filter((_, j) => j !== i),
+    correctIndex: prev.correctIndex > i ? prev.correctIndex - 1 : (prev.correctIndex === i ? 0 : prev.correctIndex),
+  }));
   const setPair = (i, k, v) => setD(prev => { const p = [...prev.pairs]; p[i] = { ...p[i], [k]: v }; return { ...prev, pairs: p }; });
 
   const submit = () => {
@@ -104,7 +203,7 @@ const QuestionEditor = ({ initial, isNew, onSave, onCancel }) => {
     <div style={{ border: '1px solid #c4b5fd', background: '#faf9ff', borderRadius: '10px', padding: '14px', margin: '8px 0' }}>
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>
         <strong>{isNew ? 'Add question' : 'Edit question'}</strong>
-        <select value={d.type} onChange={e => set({ ...emptyDraft(e.target.value), question: d.question, marks: d.marks, explanation: d.explanation })} style={{ ...inp, width: 'auto', marginBottom: 0 }}>
+        <select value={d.type} onChange={e => set({ ...emptyDraft(e.target.value), question: d.question, questionImage: d.questionImage, marks: d.marks, explanation: d.explanation })} style={{ ...inp, width: 'auto', marginBottom: 0 }}>
           {QUESTION_TYPES.map(t => <option key={t.type} value={t.type}>{t.label}</option>)}
         </select>
         <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>type: {typeLabel(d.type)}</span>
@@ -112,6 +211,7 @@ const QuestionEditor = ({ initial, isNew, onSave, onCancel }) => {
 
       <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Question *</label>
       <textarea style={{ ...inp, minHeight: '60px' }} value={d.question} onChange={e => set({ question: e.target.value })} placeholder="Write the question…" />
+      <ImageField label="Question image (graph, diagram…)" value={d.questionImage} onChange={v => set({ questionImage: v })} />
 
       <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Marks</label>
       <input type="number" min="1" style={{ ...inp, width: '110px' }} value={d.marks} onChange={e => set({ marks: e.target.value })} />
@@ -120,14 +220,24 @@ const QuestionEditor = ({ initial, isNew, onSave, onCancel }) => {
         <div style={{ marginTop: '6px' }}>
           <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Options — click the radio of the CORRECT answer *</label>
           {d.options.map((o, i) => (
-            <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
-              <input type="radio" name="draftCorrect" checked={d.correctIndex === i} onChange={() => set({ correctIndex: i })} title="Mark as correct" />
-              <span style={{ fontWeight: 700, width: '18px' }}>{String.fromCharCode(65 + i)}</span>
-              <input style={{ ...inp, marginBottom: 0 }} value={o} onChange={e => setOption(i, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)}`} />
-              <button type="button" onClick={() => setD(prev => ({ ...prev, options: prev.options.filter((_, j) => j !== i), correctIndex: prev.correctIndex > i ? prev.correctIndex - 1 : (prev.correctIndex === i ? 0 : prev.correctIndex) }))} style={{ border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: '6px', padding: '6px 8px', cursor: 'pointer' }}><FiX /></button>
+            <div key={i} style={{ marginBottom: '8px', padding: '7px', border: '1px solid #e9d5ff', borderRadius: '8px', background: '#fff' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input type="radio" name="draftCorrect" checked={d.correctIndex === i} onChange={() => set({ correctIndex: i })} title="Mark as correct" />
+                <span style={{ fontWeight: 700, width: '18px' }}>{String.fromCharCode(65 + i)}</span>
+                <input style={{ ...inp, marginBottom: 0 }} value={o} onChange={e => setOption(i, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)} text`} />
+                <button type="button" onClick={() => removeOption(i)} style={{ border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: '6px', padding: '6px 8px', cursor: 'pointer' }}><FiX /></button>
+              </div>
+              <div style={{ marginLeft: '26px', marginTop: '5px' }}>
+                <ImageField
+                  label={`Answer ${String.fromCharCode(65 + i)} image`}
+                  value={(d.optionImages || [])[i] || ''}
+                  onChange={v => setOptionImage(i, v)}
+                  compact
+                />
+              </div>
             </div>
           ))}
-          <button type="button" onClick={() => set({ options: [...d.options, ''] })} style={{ border: '1px dashed #93c5fd', background: '#eff6ff', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.82rem' }}>+ Add option</button>
+          <button type="button" onClick={() => set({ options: [...d.options, ''], optionImages: [...(d.optionImages || []), ''] })} style={{ border: '1px dashed #93c5fd', background: '#eff6ff', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.82rem' }}>+ Add option</button>
         </div>
       )}
 
@@ -152,14 +262,20 @@ const QuestionEditor = ({ initial, isNew, onSave, onCancel }) => {
         <div style={{ marginTop: '6px' }}>
           <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Pairs — left item and its correct match *</label>
           {d.pairs.map((p, i) => (
-            <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
-              <input style={{ ...inp, marginBottom: 0 }} value={p.left} onChange={e => setPair(i, 'left', e.target.value)} placeholder={`Left ${i + 1}`} />
-              <span style={{ alignSelf: 'center' }}>→</span>
-              <input style={{ ...inp, marginBottom: 0 }} value={p.right} onChange={e => setPair(i, 'right', e.target.value)} placeholder={`Right ${i + 1}`} />
-              <button type="button" onClick={() => setD(prev => ({ ...prev, pairs: prev.pairs.filter((_, j) => j !== i) }))} style={{ border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: '6px', padding: '6px 8px', cursor: 'pointer' }}><FiX /></button>
+            <div key={i} style={{ marginBottom: '8px', padding: '7px', border: '1px solid #e9d5ff', borderRadius: '8px', background: '#fff' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input style={{ ...inp, marginBottom: 0 }} value={p.left} onChange={e => setPair(i, 'left', e.target.value)} placeholder={`Left ${i + 1} text`} />
+                <span style={{ alignSelf: 'center' }}>→</span>
+                <input style={{ ...inp, marginBottom: 0 }} value={p.right} onChange={e => setPair(i, 'right', e.target.value)} placeholder={`Right ${i + 1} text`} />
+                <button type="button" onClick={() => setD(prev => ({ ...prev, pairs: prev.pairs.filter((_, j) => j !== i) }))} style={{ border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: '6px', padding: '6px 8px', cursor: 'pointer' }}><FiX /></button>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '5px' }}>
+                <ImageField label={`Left ${i + 1} image`} value={p.leftImage || ''} onChange={v => setPair(i, 'leftImage', v)} compact />
+                <ImageField label={`Right ${i + 1} image`} value={p.rightImage || ''} onChange={v => setPair(i, 'rightImage', v)} compact />
+              </div>
             </div>
           ))}
-          <button type="button" onClick={() => set({ pairs: [...d.pairs, { left: '', right: '' }] })} style={{ border: '1px dashed #93c5fd', background: '#eff6ff', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.82rem' }}>+ Add pair</button>
+          <button type="button" onClick={() => set({ pairs: [...d.pairs, { left: '', right: '', leftImage: '', rightImage: '' }] })} style={{ border: '1px dashed #93c5fd', background: '#eff6ff', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.82rem' }}>+ Add pair</button>
         </div>
       )}
 
@@ -1120,10 +1236,21 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
                   ) : (
                     <>
                       <p className={styles.qText}>{q.question}</p>
+                      {q.questionImage && (
+                        <img src={q.questionImage} alt="Question" style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '8px', border: '1px solid #e5e7eb', margin: '6px 0' }} />
+                      )}
                       {q.type === 'matching' ? (
                         <div className={styles.qOptions}>
                           {(q.correctMatches || []).map((m, j) => (
-                            <div key={j} className={styles.qOption}>{j + 1}. {m.left} → {m.right}</div>
+                            <div key={j} className={styles.qOption}>
+                              <div>{j + 1}. {m.left} → {m.right}</div>
+                              {(m.leftImage || m.rightImage || q.leftImages?.[j] || q.rightImages?.[j]) && (
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                  {(m.leftImage || q.leftImages?.[j]) && <img src={m.leftImage || q.leftImages[j]} alt={`Left ${j + 1}`} style={{ maxHeight: '70px', maxWidth: '110px', borderRadius: '6px', border: '1px solid #e5e7eb' }} />}
+                                  {(m.rightImage || q.rightImages?.[j]) && <img src={m.rightImage || q.rightImages[j]} alt={`Right ${j + 1}`} style={{ maxHeight: '70px', maxWidth: '110px', borderRadius: '6px', border: '1px solid #e5e7eb' }} />}
+                                </div>
+                              )}
+                            </div>
                           ))}
                         </div>
                       ) : q.options && q.options.length > 0 ? (
@@ -1134,7 +1261,10 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
                               className={styles.qOption}
                               style={String(o).trim() === String(q.answer || '').trim() ? { background: '#dcfce7', borderColor: '#86efac' } : undefined}
                             >
-                              <strong>{String.fromCharCode(65 + j)}.</strong> {o}
+                              <div><strong>{String.fromCharCode(65 + j)}.</strong> {o}</div>
+                              {q.optionImages?.[j] && (
+                                <img src={q.optionImages[j]} alt={`Option ${String.fromCharCode(65 + j)}`} style={{ maxHeight: '90px', maxWidth: '140px', borderRadius: '6px', border: '1px solid #e5e7eb', marginTop: '4px' }} />
+                              )}
                             </div>
                           ))}
                         </div>
