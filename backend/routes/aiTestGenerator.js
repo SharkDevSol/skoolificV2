@@ -837,8 +837,12 @@ const stripAnswersForStudent = (rows) => rows.map((raw) => {
     type: d.type || raw.question_type,
     question: d.question || '',
     options: d.options || null,
+    questionImage: d.questionImage || null,
+    optionImages: d.optionImages || [],
     leftColumn: d.leftColumn || null,
     rightColumn: d.rightColumn || null,
+    leftImages: d.leftImages || [],
+    rightImages: d.rightImages || [],
     marks: raw.marks || d.marks || 1
   };
 });
@@ -1033,6 +1037,16 @@ router.post('/save-test', async (req, res) => {
       }
 
       // Test-level settings: 5-digit password + practice flag
+      await client.query(`CREATE TABLE IF NOT EXISTS ai_test_settings (
+        schema_name VARCHAR(255) NOT NULL,
+        table_name VARCHAR(255) NOT NULL,
+        password VARCHAR(20),
+        practice BOOLEAN DEFAULT false,
+        language VARCHAR(50) DEFAULT 'English',
+        updated_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (schema_name, table_name)
+      )`);
+      // ensure-settings-table
       const pwd = password === undefined || password === null || String(password).trim() === ''
         ? null : String(password).trim();
       if (pwd && !/^\d{4,6}$/.test(pwd)) throw new Error('Test password must be 4-6 digits');
