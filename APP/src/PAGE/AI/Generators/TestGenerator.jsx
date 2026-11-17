@@ -319,6 +319,8 @@ const TestGenerator = () => {
   });
 const [testPassword, setTestPassword] = useState(() => String(Math.floor(10000 + Math.random() * 90000)));
 const newTestPassword = () => setTestPassword(String(Math.floor(10000 + Math.random() * 90000)));
+// When students may see their score for THIS test (empty = 30 minutes after submitting)
+const [resultPublishAt, setResultPublishAt] = useState('');
 const [publishTarget, setPublishTarget] = useState(null); // test row passed to the publish dialog
 const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } from save-test
   const [questionTypes, setQuestionTypes] = useState(
@@ -688,6 +690,7 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
           language: form.language,
           password: testPassword,
           practice: !!form.practice,
+          resultPublishAt: resultPublishAt ? new Date(resultPublishAt).toISOString() : null,
           isPublished: false
         });
         results.push(res.data?.data || null);
@@ -737,7 +740,8 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
         practice: !!form.practice, published: false, allStudents: true
       }),
       password: testPassword || row?.password,
-      practice: !!form.practice
+      practice: !!form.practice,
+      resultPublishAt: resultPublishAt ? new Date(resultPublishAt).toISOString() : row?.resultPublishAt
     });
   };
 
@@ -1155,6 +1159,23 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
                       🏃 Practice — marks not saved
                     </span>
                   )}
+                </div>
+                <div style={{ marginTop: '10px', padding: '10px 12px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '9px' }}>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#0c4a6e', marginBottom: '4px' }}>
+                    📅 Results publish date &amp; time for this test
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={resultPublishAt}
+                    onChange={(e) => setResultPublishAt(e.target.value)}
+                    style={{ padding: '7px 9px', border: '1px solid #7dd3fc', borderRadius: '8px', fontSize: '0.88rem' }}
+                  />
+                  <small style={{ display: 'block', color: '#0369a1', fontSize: '0.76rem', marginTop: '4px' }}>
+                    Students see “Your result will be published on …” after submitting.
+                    {resultPublishAt
+                      ? ` Score unlocks on ${new Date(resultPublishAt).toLocaleString()}.`
+                      : ' Leave empty to unlock 30 minutes after each submission. You can change it later in Saved Tests.'}
+                  </small>
                 </div>
                 <small style={{ display: 'block', color: '#6b7280', fontSize: '0.78rem', marginTop: '4px' }}>
                   Click <b>Publish</b> to pick the password, practice mode and which students get it — or do it later from <b>Saved Tests</b>. Tell students the password yourself — it is never sent to them.

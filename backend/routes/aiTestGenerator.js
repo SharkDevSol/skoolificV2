@@ -68,6 +68,7 @@ const runAiTestMigration = async () => {
       )
     `);
     await db.query(`ALTER TABLE ai_test_settings ADD COLUMN IF NOT EXISTS practice BOOLEAN DEFAULT false`);
+    await db.query(`ALTER TABLE ai_test_settings ADD COLUMN IF NOT EXISTS result_publish_at TIMESTAMPTZ`);
     console.log('✅ published_ai_tests / ai_test_settings columns ready');
     console.log('✅ student_exams columns ready');
   } catch (e) {
@@ -998,7 +999,7 @@ const isStudentAllowed = (pub, ident = {}) => {
 
 // POST /api/ai/save-test — Save a generated/edited test
 router.post('/save-test', async (req, res) => {
-  const { subjectName, className, termNumber, componentName, questions, timeLimit, language, isPublished, password, practice } = req.body;
+  const { subjectName, className, termNumber, componentName, questions, timeLimit, language, isPublished, password, practice, resultPublishAt } = req.body;
   if (!subjectName || !className || !termNumber || !componentName || !questions) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
@@ -1045,31 +1046,39 @@ router.post('/save-test', async (req, res) => {
         password VARCHAR(20),
         practice BOOLEAN DEFAULT false,
         language VARCHAR(50) DEFAULT 'English',
+        result_publish_at TIMESTAMPTZ,
         updated_at TIMESTAMP DEFAULT NOW(),
         PRIMARY KEY (schema_name, table_name)
       )`);
+      await client.query(`ALTER TABLE ai_test_settings ADD COLUMN IF NOT EXISTS result_publish_at TIMESTAMPTZ`);
       // ensure-settings-table
       const pwd = password === undefined || password === null || String(password).trim() === ''
         ? null : String(password).trim();
       if (pwd && !/^\d{4,6}$/.test(pwd)) throw new Error('Test password must be 4-6 digits');
-      if (pwd) {
+
+      // Results release date chosen on the generator page (may be changed later in Saved Tests)
+      let publishDate = null;
+      if (resultPublishAt !== undefined && resultPublishAt !== null && String(resultPublishAt).trim() !== '') {
+        publishDate = new Date(resultPublishAt);
+        if (Number.isNaN(publishDate.getTime())) throw new Error('Invalid result publish date');
+      }
+
+      if (pwd || practice !== undefined || resultPublishAt !== undefined) {
         await client.query(`
-          INSERT INTO ai_test_settings (schema_name, table_name, password, practice, language, updated_at)
-          VALUES ($1, $2, $3, $4, $5, NOW())
+          INSERT INTO ai_test_settings (schema_name, table_name, password, practice, language, result_publish_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, NOW())
           ON CONFLICT (schema_name, table_name)
-          DO UPDATE SET password = EXCLUDED.password, practice = EXCLUDED.practice, language = EXCLUDED.language, updated_at = NOW()
-        `, [schemaName, tableName, pwd, !!practice, language || 'English']);
-      } else if (practice !== undefined) {
-        await client.query(`
-          INSERT INTO ai_test_settings (schema_name, table_name, password, practice, language, updated_at)
-          VALUES ($1, $2, NULL, $3, $4, NOW())
-          ON CONFLICT (schema_name, table_name)
-          DO UPDATE SET practice = EXCLUDED.practice, language = EXCLUDED.language, updated_at = NOW()
-        `, [schemaName, tableName, !!practice, language || 'English']);
+          DO UPDATE SET
+            password = COALESCE(EXCLUDED.password, ai_test_settings.password),
+            practice = EXCLUDED.practice,
+            language = EXCLUDED.language,
+            result_publish_at = COALESCE(EXCLUDED.result_publish_at, ai_test_settings.result_publish_at),
+            updated_at = NOW()
+        `, [schemaName, tableName, pwd, !!practice, language || 'English', publishDate]);
       }
       
       await client.query('COMMIT');
-      res.json({ success: true, message: `Test saved: ${questions.length} questions`, data: { schemaName, tableName, password: pwd, practice: !!practice } });
+      res.json({ success: true, message: `Test saved: ${questions.length} questions`, data: { schemaName, tableName, password: pwd, practice: !!practice, resultPublishAt: publishDate } });
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -1289,8 +1298,19 @@ router.post('/set-result-date', async (req, res) => {
         WHERE schema_name = $2 AND table_name = $3`,
       [date, schemaName, tableName]
     );
+
+    // Also store it with the saved test so the date survives until publishing,
+    // and so the generator/Saved Tests always show the chosen date.
+    await db.query(
+      `INSERT INTO ai_test_settings (schema_name, table_name, result_publish_at, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (schema_name, table_name)
+       DO UPDATE SET result_publish_at = EXCLUDED.result_publish_at, updated_at = NOW()`,
+      [schemaName, tableName, date]
+    );
+
     if (!r.rowCount) {
-      return res.status(404).json({ error: 'Publish the test first, then set the result date' });
+      return res.json({ success: true, resultPublishAt: date, prepared: true });
     }
     res.json({ success: true, resultPublishAt: date });
   } catch (error) {
@@ -1309,6 +1329,17 @@ router.post('/publish-test', async (req, res) => {
   if (resultPublishAt !== undefined && resultPublishAt !== null && String(resultPublishAt).trim() !== '') {
     resultDate = new Date(resultPublishAt);
     if (Number.isNaN(resultDate.getTime())) return res.status(400).json({ error: 'Invalid result publish date' });
+  } else {
+    // No date in the request — use the one chosen on the generator page (if any)
+    try {
+      const st = await db.query(
+        `SELECT result_publish_at FROM ai_test_settings WHERE schema_name = $1 AND table_name = $2 LIMIT 1`,
+        [schemaName, tableName]
+      );
+      if (st.rows[0] && st.rows[0].result_publish_at) {
+        resultDate = new Date(st.rows[0].result_publish_at);
+      }
+    } catch (e) { /* column may not exist yet on an old row — keep 30-minute default */ }
   }
 
   const allowed = (allStudents || !Array.isArray(students) || students.length === 0)
@@ -2116,7 +2147,7 @@ router.get('/list-tests', async (req, res) => {
     const rows = [...byId.values()];
     try {
       const [setRes, pubRes, attRes] = await Promise.all([
-        db.query(`SELECT schema_name, table_name, password, practice FROM ai_test_settings`),
+        db.query(`SELECT schema_name, table_name, password, practice, result_publish_at FROM ai_test_settings`),
         db.query(`SELECT id, schema_name, table_name, password, practice, allowed_students, published_at, is_active, result_delay_minutes, result_publish_at FROM published_ai_tests`),
         db.query(`SELECT table_name, COUNT(*)::int AS c FROM student_exams GROUP BY table_name`)
       ]);
@@ -2143,7 +2174,7 @@ router.get('/list-tests', async (req, res) => {
           r.allowedCount = Array.isArray(arr) ? arr.length : null;
         } catch (e) { r.allowedCount = null; }
         r.resultDelayMinutes = p && p.result_delay_minutes ? parseInt(p.result_delay_minutes) : 30;
-        r.resultPublishAt = p ? p.result_publish_at : null;
+        r.resultPublishAt = (p && p.result_publish_at) || (s && s.result_publish_at) || null;
       });
     } catch (e) { console.log('⚠️ list-tests settings merge skipped:', e.message); }
 

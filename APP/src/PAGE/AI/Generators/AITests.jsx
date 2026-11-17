@@ -140,7 +140,14 @@ const AITests = () => {
               )}
               {t.published && (
                 <p className={styles.meta} style={{ color: '#0369a1', fontWeight: 600 }}>
-                  <FiCalendar /> Results: {t.resultPublishAt ? new Date(t.resultPublishAt).toLocaleString() : 'date not set'}
+                  <FiCalendar /> {t.resultPublishAt
+                    ? `Results: ${new Date(t.resultPublishAt).toLocaleString()}`
+                    : 'Results: 30 min after each submission (no date set)'}
+                </p>
+              )}
+              {!t.published && t.resultPublishAt && (
+                <p className={styles.meta} style={{ color: '#0369a1', fontWeight: 600 }}>
+                  <FiCalendar /> Results planned: {new Date(t.resultPublishAt).toLocaleString()}
                 </p>
               )}
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

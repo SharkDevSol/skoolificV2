@@ -53,7 +53,7 @@ const ResultSettingsModal = ({ test, onClose, onSaved }) => {
         </p>
         {!test.published && (
           <p style={{ fontSize: '0.82rem', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '9px', padding: '9px 11px' }}>
-            Publish this test to students first. The date can still be prepared now and saved after publishing.
+            This test is not published yet. The date is saved with the test and applies as soon as you publish it.
           </p>
         )}
         <label style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', margin: '12px 0 4px' }}>Publish results on</label>
