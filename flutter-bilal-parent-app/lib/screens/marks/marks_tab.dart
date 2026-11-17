@@ -485,7 +485,9 @@ class _SubjectCard extends StatelessWidget {
   String _pretty(String k) {
     final map = {
       'mid': 'Mid',
+      'mid_exam': 'Mid Exam',
       'final': 'Final',
+      'final_exam': 'Final Exam',
       'test1': 'Test 1',
       'test_1': 'Test 1',
       'test2': 'Test 2',
@@ -494,9 +496,25 @@ class _SubjectCard extends StatelessWidget {
       'practical_1': 'Practical 1',
       'practical2': 'Practical 2',
       'practical_2': 'Practical 2',
+      'group_mark_1': 'Group Mark 1',
+      'group_mark_2': 'Group Mark 2',
+      'group_work': 'Group Work',
+      'exercise_book': 'Exercise Book',
+      'exerc_book': 'Exercise Book',
+      'ex_book': 'Exercise Book',
+      'attendance': 'Attendance',
+      'conduct': 'Conduct',
+      'discipline': 'Discipline',
       'book': 'Book',
     };
-    return map[k.toLowerCase()] ?? k;
+    final key = k.toLowerCase();
+    if (map.containsKey(key)) return map[key]!;
+    // Fallback: model_1 -> Model 1, test_3 -> Test 3, some_component -> Some Component
+    return key
+        .split(RegExp(r'[_ ]+'))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .join(' ');
   }
 }
 

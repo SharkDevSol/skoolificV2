@@ -340,21 +340,14 @@ const StudentExamPlayer = () => {
           <div className={styles.doneIcon}>{r.violationEnded ? <FiAlertTriangle /> : <FiSend />}</div>
           <h1>{r.violationEnded ? 'Test ended' : 'Submitted'}</h1>
           <p className={styles.doneMsg}>{r.message || r.localMessage || 'Your answers were submitted.'}</p>
-          {(r.obtainedMarks !== undefined && r.obtainedMarks !== null) && (
-            <div className={styles.doneScore}>
-              <span className={styles.doneScoreBig}>{r.obtainedMarks} / {r.totalMarks}</span>
-              {r.percentage !== undefined && r.percentage !== null && (
-                <span className={styles.doneScorePct}>{r.percentage}%</span>
-              )}
+          {r.resultAvailableAt && (
+            <div className={styles.doneTime} style={{ fontSize: '1rem', fontWeight: 700 }}>
+              <FiClock /> Result will be published on {fmtTime(r.resultAvailableAt)}
             </div>
-          )}
-          {r.resultAvailableAt && r.detailsHidden && (
-            <p className={styles.doneTime}><FiClock /> Full breakdown after {fmtTime(r.resultAvailableAt)}</p>
           )}
           <div className={styles.doneNotes}>
             {r.practice && <span>🏃 Practice test — no marks written to your mark list.</span>}
-            {!r.practice && !r.violationEnded && <span>{r.markSaved ? '✅ Marks saved to your mark list.' : 'Marks will be added to your mark list.'}</span>}
-            {r.violationEnded && <span>⚠️ Score for this test: 0 (fullscreen lock was broken twice).</span>}
+            {r.violationEnded && <span>⚠️ This test was ended because the exam screen was left twice.</span>}
           </div>
           <button className={styles.backBtn} onClick={() => navigate(`/app/student/${username}/exams`)}>← Back to my tests</button>
         </div>

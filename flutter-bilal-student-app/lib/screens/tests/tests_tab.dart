@@ -109,6 +109,18 @@ class _TestsTabState extends State<TestsTab> {
   }
 }
 
+String _formatPublishDate(dynamic raw) {
+  if (raw == null) return '';
+  final d = DateTime.tryParse(raw.toString());
+  if (d == null) return '';
+  final local = d.toLocal();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final h = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final m = local.minute.toString().padLeft(2, '0');
+  final ap = local.hour >= 12 ? 'PM' : 'AM';
+  return '${months[local.month - 1]} ${local.day}, ${local.year} · $h:$m $ap';
+}
+
 class _ResultCard extends StatelessWidget {
   final Map<String, dynamic> result;
   final VoidCallback onTap;
@@ -121,6 +133,7 @@ class _ResultCard extends StatelessWidget {
     final total = (result['totalMarks'] ?? result['total_marks'] ?? 0).toString();
     final pct = result['percentage'] ?? 0;
     final pending = result['pending'] == true || result['detailsLocked'] == true;
+    final releaseDate = _formatPublishDate(result['resultAvailableAt'] ?? result['result_available_at']);
     final subject = result['subject_name']?.toString() ?? result['subject']?.toString() ?? '';
 
     return AppCard(
@@ -149,7 +162,9 @@ class _ResultCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     pending
-                        ? 'Result pending...'
+                        ? (releaseDate.isEmpty
+                            ? 'Result will be published soon'
+                            : 'Result will be published on $releaseDate')
                         : 'Score: $earned / $total ($pct%)',
                     style: theme.textTheme.bodySmall,
                   ),
@@ -234,6 +249,10 @@ class _ResultDetailPage extends StatelessWidget {
         (detail['details'] as List?) ??
         const [];
     final pending = result['pending'] == true || result['detailsLocked'] == true;
+    final releaseDate = _formatPublishDate(result['resultAvailableAt'] ?? result['result_available_at']);
+    final pendingLine = releaseDate.isEmpty
+        ? 'Your result will be published soon'
+        : 'Your result will be published on $releaseDate';
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -245,16 +264,20 @@ class _ResultDetailPage extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          'Score: $earned / $total ($pct%)',
+          pending ? 'Result pending' : 'Score: $earned / $total ($pct%)',
           style: TextStyle(color: theme.primaryColor, fontSize: 16, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
       body: questions.isEmpty
           ? Center(
-              child: Text(
-                pending ? 'Result pending...' : 'No question details available',
-                style: theme.textTheme.bodyMedium,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  pending ? pendingLine : 'No question details available',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
               ),
             )
           : ListView.builder(

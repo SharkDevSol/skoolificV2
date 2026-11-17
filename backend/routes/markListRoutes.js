@@ -2662,23 +2662,20 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
           SELECT column_name 
           FROM information_schema.columns 
           WHERE table_schema = 'classes_schema' 
-            AND table_name = $1 
-            AND column_name = 'is_active'
+            AND table_name = $1
+            AND column_name IN ('is_active','school_id','class_id','age','gender','class')
         `, [className]);
-        
-        const hasIsActive = columnsCheck.rows.length > 0;
-        const whereClause = hasIsActive 
+
+        const available = new Set(columnsCheck.rows.map((r) => r.column_name));
+        const hasIsActive = available.has('is_active');
+        const whereClause = hasIsActive
           ? `WHERE guardian_username = $1 AND (is_active = TRUE OR is_active IS NULL)`
           : `WHERE guardian_username = $1`;
-        
+        const selectFields = ['student_name', ...['school_id', 'class_id', 'age', 'gender'].filter((f) => available.has(f))];
+        const classExpr = available.has('class') ? 'class' : `'${className}' AS class`;
+
         const result = await client.query(`
-          SELECT 
-            student_name,
-            school_id,
-            class_id,
-            class,
-            age,
-            gender
+          SELECT ${selectFields.join(', ')}, ${classExpr}
           FROM classes_schema."${className}"
           ${whereClause}
         `, [guardianUsername]);
@@ -2742,6 +2739,33 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
               
               if (marksResult.rows.length > 0) {
                 const mark = marksResult.rows[0];
+                let details = mark;
+                try {
+                  const cfg = await client.query(
+                    `SELECT mark_components FROM ${schemaName}.form_config WHERE LOWER(class_name) = LOWER($1) AND term_number = $2 LIMIT 1`,
+                    [ward.class, term]
+                  );
+                  const comps = Array.isArray(cfg.rows[0]?.mark_components) ? cfg.rows[0].mark_components : [];
+                  if (comps.length) {
+                    const norm = (v) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const rowNorm = {};
+                    Object.entries(mark).forEach(([k, v]) => { rowNorm[norm(k)] = v; });
+                    const filtered = {};
+                    for (const comp of comps) {
+                      const name = typeof comp === 'string' ? comp : comp?.name;
+                      if (!name) continue;
+                      const key = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                      const n = norm(name);
+                      let value = rowNorm[n];
+                      if (value === undefined && n === 'exercisebook') value = rowNorm['execisebook'];
+                      if (value === undefined && n === 'finalexam') value = rowNorm['final'];
+                      if (value === undefined && n === 'test1') value = rowNorm['test_1'];
+                      if (value === undefined && n === 'test2') value = rowNorm['test_2'];
+                      filtered[key] = value === undefined || value === null ? 0 : value;
+                    }
+                    details = filtered;
+                  }
+                } catch (cfgErr) { /* keep the raw row if the config cannot be read */ }
                 marksData.push({
                   ward: ward.student_name,
                   class: ward.class,
@@ -2749,7 +2773,7 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
                   term: term,
                   total: mark.total || 0,
                   pass_status: mark.pass_status || 'Fail',
-                  details: mark
+                  details
                 });
               }
             }

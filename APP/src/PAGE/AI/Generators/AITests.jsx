@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { FiList, FiPlay, FiRefreshCw, FiSend, FiTrash2, FiPrinter } from 'react-icons/fi';
+import { FiList, FiPlay, FiRefreshCw, FiSend, FiTrash2, FiPrinter, FiCalendar } from 'react-icons/fi';
 import styles from './AITests.module.css';
 import PublishModal from './PublishModal';
 import PrintTestModal from './PrintTestModal';
 import StudentResults from './StudentResults';
+import ResultSettingsModal from './ResultSettingsModal';
 
 const AITests = () => {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ const AITests = () => {
   const [error, setError] = useState('');
   const [target, setTarget] = useState(null); // test being published
   const [printing, setPrinting] = useState(null); // test being printed/downloaded
+  const [resultTarget, setResultTarget] = useState(null); // test whose result date is being set
   const [deleting, setDeleting] = useState(null); // test pending delete confirmation
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -136,6 +138,11 @@ const AITests = () => {
                   {t.practice ? ' · practice' : ''}
                 </p>
               )}
+              {t.published && (
+                <p className={styles.meta} style={{ color: '#0369a1', fontWeight: 600 }}>
+                  <FiCalendar /> Results: {t.resultPublishAt ? new Date(t.resultPublishAt).toLocaleString() : 'date not set'}
+                </p>
+              )}
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button className={styles.playBtn} onClick={() => playTest(t)}><FiPlay /> Play Test</button>
                 <button
@@ -147,6 +154,13 @@ const AITests = () => {
                 </button>
                 <button className={styles.publishBtn} onClick={() => setTarget(t)}>
                   <FiSend /> {t.published ? 'Publish / Unpublish' : 'Publish'}
+                </button>
+                <button
+                  className={styles.printBtn}
+                  onClick={() => setResultTarget(t)}
+                  title="Set the date when students can see their score"
+                >
+                  <FiCalendar /> Result date
                 </button>
                 <button
                   className={styles.deleteBtn}
@@ -206,6 +220,14 @@ const AITests = () => {
 
       {target && (
         <PublishModal test={target} onClose={() => { setTarget(null); fetchTests(); }} onChanged={fetchTests} />
+      )}
+
+      {resultTarget && (
+        <ResultSettingsModal
+          test={resultTarget}
+          onClose={() => setResultTarget(null)}
+          onSaved={fetchTests}
+        />
       )}
 
       {printing && (

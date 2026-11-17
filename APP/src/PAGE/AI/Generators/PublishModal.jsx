@@ -4,6 +4,14 @@ import { FiX } from 'react-icons/fi';
 
 const randPassword = () => String(Math.floor(10000 + Math.random() * 90000));
 
+const toLocalInput = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 // Shared publish dialog: 5-digit password + practice flag + student selection (all / some)
 const PublishModal = ({ test, onClose, onChanged }) => {
   const [password, setPassword] = useState('');
@@ -13,6 +21,7 @@ const PublishModal = ({ test, onClose, onChanged }) => {
   const [rosterLoading, setRosterLoading] = useState(false);
   const [selected, setSelected] = useState({});
   const [search, setSearch] = useState('');
+  const [resultPublishAt, setResultPublishAt] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // publish success payload
@@ -25,6 +34,7 @@ const PublishModal = ({ test, onClose, onChanged }) => {
     setMode(test.allStudents === false ? 'select' : 'all');
     setSelected({});
     setSearch('');
+    setResultPublishAt(toLocalInput(test.resultPublishAt));
     setError('');
     setDone(null);
     setUnpublished(false);
@@ -81,6 +91,7 @@ const PublishModal = ({ test, onClose, onChanged }) => {
         practice,
         allStudents: mode === 'all',
         students: mode === 'select' ? Object.values(selected) : [],
+        resultPublishAt: resultPublishAt ? new Date(resultPublishAt).toISOString() : null,
         publishedBy: 'Teacher'
       });
       setDone({ ...(res.data.data || {}), practice, password });
@@ -230,6 +241,19 @@ const PublishModal = ({ test, onClose, onChanged }) => {
                 )}
               </div>
             )}
+
+            <label style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Results publish date
+            </label>
+            <input
+              type="datetime-local"
+              value={resultPublishAt}
+              onChange={(e) => setResultPublishAt(e.target.value)}
+              style={{ width: '100%', padding: '9px 10px', border: '1px solid #d1d5db', borderRadius: '8px', marginBottom: '4px' }}
+            />
+            <div style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: '12px' }}>
+              Students see “Result will be published on …” after submitting. Score and answers unlock on this date.
+            </div>
 
             {error && (
               <div style={{ color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '8px 10px', fontSize: '0.85rem', margin: '10px 0' }}>

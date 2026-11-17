@@ -199,21 +199,23 @@ const StudentExams = () => {
 
                   {t.completed ? (
                     <div className={styles.completedBox}>
-                      {t.violationEnded && <span className={styles.violationNote}>⚠️ Ended early — score 0</span>}
-                      {t.earnedMarks != null && (
-                        <div className={styles.scoreBox}>
-                          <span className={styles.scoreBig}>{t.earnedMarks} / {t.totalMarks}</span>
-                          {t.percentage != null && <span className={styles.scorePct}>{t.percentage}%</span>}
-                        </div>
-                      )}
+                      {t.violationEnded && <span className={styles.violationNote}>⚠️ Ended early</span>}
                       {t.resultPending ? (
                         <span className={styles.pendingNote}>
-                          <FiClock /> Full breakdown after {fmtTime(t.resultAvailableAt)}
+                          <FiClock /> Result will be published on {fmtTime(t.resultAvailableAt || t.result_available_at)}
                         </span>
                       ) : (
-                        <button className={styles.resultBtn} onClick={() => setTab('results')}>
-                          View result →
-                        </button>
+                        <>
+                          {t.earnedMarks != null && (
+                            <div className={styles.scoreBox}>
+                              <span className={styles.scoreBig}>{t.earnedMarks} / {t.totalMarks}</span>
+                              {t.percentage != null && <span className={styles.scorePct}>{t.percentage}%</span>}
+                            </div>
+                          )}
+                          <button className={styles.resultBtn} onClick={() => setTab('results')}>
+                            View result →
+                          </button>
+                        </>
                       )}
                     </div>
                   ) : (
@@ -261,17 +263,19 @@ const StudentExams = () => {
                       </div>
                     )}
 
-                    <div className={styles.scoreBox}>
-                      <span className={styles.scoreBig}>{r.earnedMarks ?? 0} / {max}</span>
-                      <span className={styles.scorePct}>{r.percentage != null ? `${r.percentage}%` : ''}</span>
-                      {r.practice && <span className={styles.practiceNote}>practice — not saved to marks</span>}
-                    </div>
-
-                    {pending ? (
-                      <div className={styles.pendingBox}>
-                        <FiClock /> Score shown now · full breakdown after {fmtTime(r.result_available_at)}
+                    {!pending ? (
+                      <div className={styles.scoreBox}>
+                        <span className={styles.scoreBig}>{r.earnedMarks ?? 0} / {max}</span>
+                        <span className={styles.scorePct}>{r.percentage != null ? `${r.percentage}%` : ''}</span>
+                        {r.practice && <span className={styles.practiceNote}>practice — not saved to marks</span>}
                       </div>
                     ) : (
+                      <div className={styles.pendingBox}>
+                        <FiClock /> Result will be published on {fmtTime(r.result_available_at || r.resultAvailableAt)}
+                      </div>
+                    )}
+
+                    {!pending && (
                       <button className={styles.answersBtn} onClick={() => openDetail(r)}>
                         📝 View every question, your answer & the correct answer
                       </button>

@@ -24,6 +24,7 @@ const runAiTestMigration = async () => {
         total_marks INTEGER DEFAULT 0,
         time_limit INTEGER DEFAULT 0,
         excluded_students JSONB DEFAULT '[]'::jsonb,
+        result_publish_at TIMESTAMPTZ,
         published_by VARCHAR(100),
         published_at TIMESTAMP DEFAULT NOW(),
         created_at TIMESTAMP DEFAULT NOW()
@@ -46,6 +47,7 @@ const runAiTestMigration = async () => {
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS allowed_students JSONB DEFAULT NULL`);
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS practice BOOLEAN DEFAULT false`);
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS result_delay_minutes INTEGER DEFAULT 30`);
+    await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS result_publish_at TIMESTAMPTZ`);
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`);
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await db.query(`ALTER TABLE student_exams ADD COLUMN IF NOT EXISTS student_username VARCHAR(255)`);
@@ -1267,12 +1269,47 @@ router.get('/check-test-exists', async (req, res) => {
 });
 
 // POST /api/ai/publish-test — Publish a saved test to students (password + student selection)
+// POST /api/ai/set-result-date — choose the exact date/time when students can see their score
+router.post('/set-result-date', async (req, res) => {
+  const { schemaName, tableName, resultPublishAt } = req.body || {};
+  if (!schemaName || !tableName) {
+    return res.status(400).json({ error: 'schemaName and tableName are required' });
+  }
+  let date = null;
+  if (resultPublishAt !== undefined && resultPublishAt !== null && String(resultPublishAt).trim() !== '') {
+    date = new Date(resultPublishAt);
+    if (Number.isNaN(date.getTime())) {
+      return res.status(400).json({ error: 'Invalid result publish date' });
+    }
+  }
+  try {
+    const r = await db.query(
+      `UPDATE published_ai_tests
+          SET result_publish_at = $1, updated_at = NOW()
+        WHERE schema_name = $2 AND table_name = $3`,
+      [date, schemaName, tableName]
+    );
+    if (!r.rowCount) {
+      return res.status(404).json({ error: 'Publish the test first, then set the result date' });
+    }
+    res.json({ success: true, resultPublishAt: date });
+  } catch (error) {
+    console.error('Error setting result date:', error);
+    res.status(500).json({ error: 'Failed to set result date', details: error.message });
+  }
+});
+
 router.post('/publish-test', async (req, res) => {
   const { schemaName, tableName, subjectName, className, termNumber, componentName, totalMarks, timeLimit,
-          password, practice, students, allStudents, publishedBy, resultDelayMinutes } = req.body;
+          password, practice, students, allStudents, publishedBy, resultDelayMinutes, resultPublishAt } = req.body;
   if (!schemaName || !tableName) return res.status(400).json({ error: 'schemaName and tableName required' });
   const pwd = String(password == null ? '' : password).trim();
   if (!/^\d{5}$/.test(pwd)) return res.status(400).json({ error: 'Test password must be exactly 5 digits' });
+  let resultDate = null;
+  if (resultPublishAt !== undefined && resultPublishAt !== null && String(resultPublishAt).trim() !== '') {
+    resultDate = new Date(resultPublishAt);
+    if (Number.isNaN(resultDate.getTime())) return res.status(400).json({ error: 'Invalid result publish date' });
+  }
 
   const allowed = (allStudents || !Array.isArray(students) || students.length === 0)
     ? null
@@ -1293,14 +1330,14 @@ router.post('/publish-test', async (req, res) => {
       const ins = await client.query(`
         INSERT INTO published_ai_tests
           (schema_name, table_name, subject_name, class_name, term_number, component_name, total_marks, time_limit,
-           excluded_students, allowed_students, password, practice, result_delay_minutes, published_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '[]'::jsonb, $9, $10, $11, $12, $13)
+           excluded_students, allowed_students, password, practice, result_delay_minutes, result_publish_at, published_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '[]'::jsonb, $9, $10, $11, $12, $13, $14)
         RETURNING id, published_at
       `, [
         schemaName, tableName, subjectName || '', className || '', parseInt(termNumber, 10) || 1,
         componentName || '', calcTotalMarks, calcTimeLimit,
         allowed ? JSON.stringify(allowed) : null, pwd, !!practice,
-        parseInt(resultDelayMinutes, 10) || 30, publishedBy || ''
+        parseInt(resultDelayMinutes, 10) || 30, resultDate, publishedBy || ''
       ]);
 
       await client.query(`
@@ -1323,7 +1360,8 @@ router.post('/publish-test', async (req, res) => {
           students: allowed ? allowed.length : null,
           totalMarks: calcTotalMarks,
           timeLimit: calcTimeLimit,
-          publishedAt: ins.rows[0].published_at
+          publishedAt: ins.rows[0].published_at,
+          resultPublishAt: resultDate
         }
       });
     } catch (e) {
@@ -1426,8 +1464,8 @@ router.get('/student-tests', async (req, res) => {
         completed: !!c,
         submittedAt: c ? c.submitted_at : null,
         violationEnded: c ? !!c.violation_ended : false,
-        earnedMarks: c ? c.earned_marks : null,
-        percentage: c ? c.percentage : null,
+        earnedMarks: c && !(availableAt && now < availableAt) ? c.earned_marks : null,
+        percentage: c && !(availableAt && now < availableAt) ? c.percentage : null,
         resultAvailableAt: availableAt ? new Date(availableAt).toISOString() : null,
         resultPending: !!(c && availableAt && now < availableAt)
       };
@@ -1537,11 +1575,14 @@ router.get('/student-results', async (req, res) => {
       const pending = availableAt > now;
       return {
         ...row,
-        // Score is shown right away; `pending` only locks the per-question breakdown.
+        // The score is not shown until the teacher's release date.
         pending,
         detailsLocked: pending,
-        earnedMarks: row.earned_marks,
-        percentage: row.percentage,
+        earnedMarks: pending ? null : row.earned_marks,
+        earned_marks: pending ? null : row.earned_marks,
+        percentage: pending ? null : row.percentage,
+        bonus_marks: pending ? null : row.bonus_marks,
+        component_marks: pending ? null : row.component_marks,
         violationEnded: !!row.violation_ended
       };
     });
@@ -1586,12 +1627,12 @@ router.get('/student-result/:examId', async (req, res) => {
           pending: true,
           detailsLocked: true,
           resultAvailableAt: row.result_available_at,
-          // Score is shown immediately; the per-question breakdown waits for the delay.
-          earned_marks: row.earned_marks,
+          // No score or breakdown until the teacher's release date.
+          earned_marks: null,
           total_marks: row.total_marks,
-          percentage: row.percentage,
-          bonus_marks: row.bonus_marks,
-          grade: row.grade,
+          percentage: null,
+          bonus_marks: null,
+          grade: null,
           status: row.status,
           submitted_at: row.submitted_at,
           violation_ended: !!row.violation_ended,
@@ -1871,7 +1912,10 @@ router.post('/submit-exam', async (req, res) => {
     // Persist the submission. exam_id / student_id are NULLABLE for AI-generator tests
     // (they have no ai_exams / students row) — persistence failures must never break grading.
     const delayMinutes = pub ? (parseInt(pub.result_delay_minutes, 10) || 30) : 0;
-    const resultAvailableAt = pub && delayMinutes > 0 ? new Date(Date.now() + delayMinutes * 60000) : null;
+    const explicitResultDate = pub && pub.result_publish_at ? new Date(pub.result_publish_at) : null;
+    const resultAvailableAt = explicitResultDate && !Number.isNaN(explicitResultDate.getTime())
+      ? explicitResultDate
+      : (pub && delayMinutes > 0 ? new Date(Date.now() + delayMinutes * 60000) : null);
     // Only persist an attempt that belongs to a real student (published attempt or a
     // named/username'd student). Teacher previews ("Play Test") have no identity.
     const hasStudentIdentity = !!(
@@ -1989,33 +2033,23 @@ router.post('/submit-exam', async (req, res) => {
       })();
     }
 
-    // Student exam mode: the score is shown at once, the per-question
-    // breakdown (which questions were right/wrong) waits for result_delay_minutes.
+    // Student exam mode: never reveal the score on the submission screen.
+    // The result (score + breakdown) is released on the date set by the teacher.
     if (pub) {
-      const detailsHidden = delayMinutes > 0;
-      const scoreLine = violated
-        ? `Your test ended because you left the exam screen twice. Score: 0/${examTotalMarks}.`
-        : `You scored ${rawScore}/${examTotalMarks} (${percentage}%).`;
+      const publishDate = resultAvailableAt || new Date();
       return res.json({
         success: true,
         submitted: true,
-        obtainedMarks: rawScore,
         totalMarks: examTotalMarks,
-        cappedScore,
-        componentMax,
-        bonusMarks,
-        percentage,
-        results: detailsHidden ? [] : results,
-        manualGradingCount: detailsHidden ? null : manualCount,
-        resultHidden: detailsHidden,
-        detailsHidden,
-        resultAvailableAt: (resultAvailableAt || new Date()).toISOString(),
+        results: [],
+        manualGradingCount: null,
+        resultHidden: true,
+        detailsHidden: true,
+        resultAvailableAt: publishDate.toISOString(),
         practice: !!pub.practice,
         violationEnded: !!violated,
         markSaved: !!(markSave && markSave.saved),
-        message: detailsHidden
-          ? `${scoreLine} The full breakdown unlocks in ${delayMinutes} minutes.`
-          : scoreLine
+        message: `Your answers have been submitted. Your result will be published on ${publishDate.toLocaleString()}.`
       });
     }
 
@@ -2083,7 +2117,7 @@ router.get('/list-tests', async (req, res) => {
     try {
       const [setRes, pubRes, attRes] = await Promise.all([
         db.query(`SELECT schema_name, table_name, password, practice FROM ai_test_settings`),
-        db.query(`SELECT id, schema_name, table_name, password, practice, allowed_students, published_at, is_active, result_delay_minutes FROM published_ai_tests`),
+        db.query(`SELECT id, schema_name, table_name, password, practice, allowed_students, published_at, is_active, result_delay_minutes, result_publish_at FROM published_ai_tests`),
         db.query(`SELECT table_name, COUNT(*)::int AS c FROM student_exams GROUP BY table_name`)
       ]);
       const settings = new Map(setRes.rows.map((r) => [`${r.schema_name}.${r.table_name}`, r]));
@@ -2109,6 +2143,7 @@ router.get('/list-tests', async (req, res) => {
           r.allowedCount = Array.isArray(arr) ? arr.length : null;
         } catch (e) { r.allowedCount = null; }
         r.resultDelayMinutes = p && p.result_delay_minutes ? parseInt(p.result_delay_minutes) : 30;
+        r.resultPublishAt = p ? p.result_publish_at : null;
       });
     } catch (e) { console.log('⚠️ list-tests settings merge skipped:', e.message); }
 

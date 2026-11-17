@@ -402,8 +402,16 @@ class _SubjectCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: mark.details.entries.where((e) {
-              const allowed = ['mid', 'final', 'test_1', 'test_2', 'practical_1', 'practical_2', 'book', 'test1', 'test2', 'practical1', 'practical2'];
-              return allowed.contains(e.key.toLowerCase());
+              // Show every numeric mark component, but skip metadata/system columns.
+              const skip = {
+                'id', 'student_name', 'studentname', 'age', 'gender',
+                'total', 'pass_status', 'passstatus', 'class', 'classname',
+                'subject', 'term', 'created_at', 'updated_at',
+                'class_id', 'school_id', 'is_locked', 'locked_at', 'locked_by',
+              };
+              if (skip.contains(e.key.toLowerCase())) return false;
+              final v = e.value;
+              return v is num || (v is String && double.tryParse(v) != null);
             }).map((e) {
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -463,7 +471,9 @@ class _SubjectCard extends StatelessWidget {
   String _pretty(String k) {
     final map = {
       'mid': 'Mid',
+      'mid_exam': 'Mid Exam',
       'final': 'Final',
+      'final_exam': 'Final Exam',
       'test1': 'Test 1',
       'test_1': 'Test 1',
       'test2': 'Test 2',
@@ -472,9 +482,25 @@ class _SubjectCard extends StatelessWidget {
       'practical_1': 'Practical 1',
       'practical2': 'Practical 2',
       'practical_2': 'Practical 2',
+      'group_mark_1': 'Group Mark 1',
+      'group_mark_2': 'Group Mark 2',
+      'group_work': 'Group Work',
+      'exercise_book': 'Exercise Book',
+      'exerc_book': 'Exercise Book',
+      'ex_book': 'Exercise Book',
+      'attendance': 'Attendance',
+      'conduct': 'Conduct',
+      'discipline': 'Discipline',
       'book': 'Book',
     };
-    return map[k.toLowerCase()] ?? k;
+    final key = k.toLowerCase();
+    if (map.containsKey(key)) return map[key]!;
+    // Fallback: model_1 -> Model 1, test_3 -> Test 3, some_component -> Some Component
+    return key
+        .split(RegExp(r'[_ ]+'))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .join(' ');
   }
 }
 
