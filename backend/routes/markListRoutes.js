@@ -2654,36 +2654,90 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
     
     const classes = tablesResult.rows.map(row => row.table_name);
     const wards = [];
-    
-    // Find all wards for this guardian
+
+    // The guardian app groups a family by the guardian's primary phone number
+    // (see /api/students/guardian-profile), so siblings can have different
+    // guardian_username values. Marks must use the same grouping, otherwise a
+    // child registered under another username of the same parent shows
+    // "No marks for selected ward".
+    const tableMeta = [];
     for (const className of classes) {
       try {
         const columnsCheck = await client.query(`
-          SELECT column_name 
-          FROM information_schema.columns 
-          WHERE table_schema = 'classes_schema' 
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'classes_schema'
             AND table_name = $1
-            AND column_name IN ('is_active','school_id','class_id','age','gender','class')
+            AND column_name IN ('guardian_username','guardian_phone','is_active','school_id','class_id','age','gender','class')
         `, [className]);
-
         const available = new Set(columnsCheck.rows.map((r) => r.column_name));
-        const hasIsActive = available.has('is_active');
-        const whereClause = hasIsActive
-          ? `WHERE guardian_username = $1 AND (is_active = TRUE OR is_active IS NULL)`
-          : `WHERE guardian_username = $1`;
+        if (!available.has('guardian_username')) continue;
+        tableMeta.push({ className, available });
+      } catch (err) {
+        console.warn(`Error reading columns for ${className}:`, err.message);
+      }
+    }
+
+    // 1) primary phone: the phone used by most rows of this login username
+    const phoneCounts = new Map();
+    for (const { className, available } of tableMeta) {
+      if (!available.has('guardian_phone')) continue;
+      try {
+        const phoneRows = await client.query(`
+          SELECT TRIM(guardian_phone::text) AS phone
+          FROM classes_schema."${className}"
+          WHERE LOWER(guardian_username) = LOWER($1)
+            AND guardian_phone IS NOT NULL
+            AND TRIM(guardian_phone::text) <> ''
+            ${available.has('is_active') ? 'AND (is_active = TRUE OR is_active IS NULL)' : ''}
+        `, [guardianUsername]);
+        for (const row of phoneRows.rows) {
+          const phone = String(row.phone || '').trim();
+          if (!phone) continue;
+          phoneCounts.set(phone, (phoneCounts.get(phone) || 0) + 1);
+        }
+      } catch (err) { /* keep going */ }
+    }
+    let primaryPhone = '';
+    for (const [phone, count] of phoneCounts.entries()) {
+      if (!primaryPhone || count > phoneCounts.get(primaryPhone)) primaryPhone = phone;
+    }
+
+    // 2) every student under that phone + rows without a phone that share the login
+    const seenWards = new Set();
+    for (const { className, available } of tableMeta) {
+      try {
         const selectFields = ['student_name', ...['school_id', 'class_id', 'age', 'gender'].filter((f) => available.has(f))];
         const classExpr = available.has('class') ? 'class' : `'${className}' AS class`;
+        const activeClause = available.has('is_active') ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
+
+        let whereClause;
+        let params;
+        if (primaryPhone) {
+          whereClause = available.has('guardian_phone')
+            ? `WHERE (TRIM(guardian_phone::text) = $1
+                      OR (LOWER(guardian_username) = LOWER($2)
+                          AND (guardian_phone IS NULL OR TRIM(guardian_phone::text) = '')))
+               ${activeClause}`
+            : `WHERE LOWER(guardian_username) = LOWER($2) ${activeClause}`;
+          params = [primaryPhone, guardianUsername];
+        } else {
+          whereClause = `WHERE LOWER(guardian_username) = LOWER($1) ${activeClause}`;
+          params = [guardianUsername];
+        }
 
         const result = await client.query(`
           SELECT ${selectFields.join(', ')}, ${classExpr}
           FROM classes_schema."${className}"
           ${whereClause}
-        `, [guardianUsername]);
-        
-        wards.push(...result.rows.map(row => ({
-          ...row,
-          class: row.class || className
-        })));
+        `, params);
+
+        for (const row of result.rows) {
+          const key = `${String(row.student_name || '').trim().toLowerCase()}|${row.class || className}`;
+          if (seenWards.has(key)) continue;
+          seenWards.add(key);
+          wards.push({ ...row, class: row.class || className });
+        }
       } catch (err) {
         console.warn(`Error fetching from ${className}:`, err.message);
       }

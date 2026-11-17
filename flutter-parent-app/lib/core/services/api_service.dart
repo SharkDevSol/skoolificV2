@@ -296,9 +296,9 @@ class ApiService {
     return [];
   }
 
-  // 4.1: like a post — POST /api/posts/{id}/like
+  // 4.1: like a post - PUT /api/posts/{id}/like (server also accepts POST)
   Future<void> likePost(String postId) async {
-    final res = await http.post(
+    final res = await http.put(
       Uri.parse('${ApiConstants.baseUrl}${ApiConstants.postLike}/$postId/like'),
       headers: _headers(),
     );

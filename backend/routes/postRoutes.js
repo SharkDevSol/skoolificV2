@@ -220,7 +220,9 @@ router.post('/', authenticateWithBranch, uploadLimiter, uploadSafe, async (req, 
   }
 });
 
-router.put('/:id/like', async (req, res) => {
+// Like a post. The web admin uses PUT; the parent apps use POST — support both
+// so already-installed APKs keep working without an update.
+const likePostHandler = async (req, res) => {
   const { id } = req.params;
   const db = req.branchPool || pool;
   const client = await db.connect();
@@ -236,7 +238,10 @@ router.put('/:id/like', async (req, res) => {
   } finally {
     client.release();
   }
-});
+};
+
+router.put('/:id/like', likePostHandler);
+router.post('/:id/like', likePostHandler);
 
 // DELETE /api/posts/:id - Delete a post and its media files
 router.delete('/:id', authenticateWithBranch, async (req, res) => {
