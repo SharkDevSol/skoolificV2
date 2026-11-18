@@ -38,6 +38,19 @@ class _SuperAdminAppState extends State<SuperAdminApp> {
     super.initState();
     Api.onUnauthorized = _handleUnauthorized;
     _initPush();
+    _refreshProfile();
+  }
+
+  Future<void> _refreshProfile() async {
+    if ((Api.token ?? '').isEmpty) return;
+    final ok = await Api.fetchMe();
+    if (!mounted) return;
+    if (!ok) {
+      await Api.logout();
+      setState(() => _loggedIn = false);
+      return;
+    }
+    setState(() {});
   }
 
   void _handleUnauthorized() {
@@ -93,6 +106,7 @@ class _SuperAdminAppState extends State<SuperAdminApp> {
     setState(() => _loggedIn = v);
     if (v) {
       _registerToken();
+      _refreshProfile();
     }
   }
 

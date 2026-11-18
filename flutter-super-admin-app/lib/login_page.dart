@@ -25,26 +25,9 @@ class _LoginPageState extends State<LoginPage> {
   final _user = TextEditingController();
   final _pass = TextEditingController();
   final _passFocus = FocusNode();
-  bool _remember = true;
   bool _loading = false;
   bool _obscure = true;
   String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPrefs();
-  }
-
-  Future<void> _loadPrefs() async {
-    final remember = await Api.getRemember();
-    final user = await Api.getRememberUser();
-    if (!mounted) return;
-    setState(() {
-      _remember = remember;
-      _user.text = user;
-    });
-  }
 
   @override
   void dispose() {
@@ -69,7 +52,6 @@ class _LoginPageState extends State<LoginPage> {
     final err = await Api.login(u, p);
     if (!mounted) return;
     if (err == null) {
-      await Api.saveRemember(_remember, u);
       if (!mounted) return;
       widget.onLoggedIn();
     } else {
@@ -211,35 +193,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             onSubmitted: (_) => _submit(),
                           ),
-                          const SizedBox(height: 6),
-                          InkWell(
-                            onTap: () => setState(() => _remember = !_remember),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: Checkbox(
-                                      value: _remember,
-                                      onChanged: (v) => setState(() => _remember = v ?? false),
-                                      activeColor: c.primary,
-                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Remember me',
-                                    style: TextStyle(fontSize: 13, color: c.muted),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 16),
                           SizedBox(
                             height: 52,
                             child: FilledButton(

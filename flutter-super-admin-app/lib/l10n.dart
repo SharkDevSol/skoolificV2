@@ -20,6 +20,8 @@ const Map<String, Map<String, String>> kI18N = {
     'faults': 'Faults',
     'finance': 'Finance',
     'sms': 'SMS',
+    'payroll': 'Payroll',
+    'users': 'Accounts',
     'settings': 'Settings',
     'totalStudents': 'Total Students',
     'boys': 'boys',

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'l10n.dart';
@@ -8,9 +11,11 @@ import 'tabs/faults_tab.dart';
 import 'tabs/finance_tab.dart';
 import 'tabs/home_tab.dart';
 import 'tabs/marks_tab.dart';
+import 'tabs/payroll_tab.dart';
 import 'tabs/settings_tab.dart';
 import 'tabs/sms_tab.dart';
 import 'tabs/students_tab.dart';
+import 'tabs/users_tab.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -22,6 +27,8 @@ const _allTabKeys = [
   'faults',
   'finance',
   'sms',
+  'payroll',
+  'users',
   'settings',
 ];
 
@@ -45,7 +52,7 @@ class Shell extends StatefulWidget {
   State<Shell> createState() => _ShellState();
 }
 
-class _ShellState extends State<Shell> {
+class _ShellState extends State<Shell> with WidgetsBindingObserver {
   int _tab = 0;
   String _branch = 'ALL';
   List<Map<String, String>> _branches = [];
@@ -54,28 +61,90 @@ class _ShellState extends State<Shell> {
     for (final k in _allTabKeys) k: TabHandle(),
   };
 
+  // 10-minute inactivity logout
+  static const _idleLimit = Duration(minutes: 10);
+  DateTime _lastActivity = DateTime.now();
+  DateTime? _pausedAt;
+  Timer? _idleTimer;
+
   bool get _hideFinance => (Api.username ?? '').toLowerCase() == 'abdi';
 
-  List<String> get _primaryKeys =>
-      ['home', 'students', if (!_hideFinance) 'finance'];
+  bool _canSee(String key) => Api.canSee(key) && !(_hideFinance && key == 'finance');
 
-  static const _secondaryKeys = ['attendance', 'marks', 'faults', 'sms', 'settings'];
+  List<String> get _visibleKeys => _allTabKeys.where(_canSee).toList();
+
+  List<String> get _primaryKeys {
+    final keys = <String>[];
+    if (_canSee('home')) keys.add('home');
+    if (_canSee('students')) keys.add('students');
+    if (_canSee('finance')) keys.add('finance');
+    if (keys.isEmpty && _visibleKeys.isNotEmpty) keys.add(_visibleKeys.first);
+    return keys;
+  }
+
+  List<String> get _secondaryKeys =>
+      _visibleKeys.where((k) => !_primaryKeys.contains(k)).toList();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    HardwareKeyboard.instance.addHandler(_onHardwareKey);
+    _startIdleTimer();
     _loadBranches();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    HardwareKeyboard.instance.removeHandler(_onHardwareKey);
+    _idleTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _pausedAt = DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      final gap = _pausedAt == null ? Duration.zero : DateTime.now().difference(_pausedAt!);
+      _pausedAt = null;
+      if (gap >= _idleLimit) {
+        widget.onLogout();
+        return;
+      }
+      _touch();
+    }
+  }
+
+  bool _onHardwareKey(KeyEvent event) {
+    _touch();
+    return false;
+  }
+
+  void _touch() => _lastActivity = DateTime.now();
+
+  void _startIdleTimer() {
+    _idleTimer?.cancel();
+    _idleTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!mounted) return;
+      if (DateTime.now().difference(_lastActivity) >= _idleLimit) {
+        _idleTimer?.cancel();
+        widget.onLogout();
+      }
+    });
   }
 
   Future<void> _loadBranches() async {
     final res = await Api.getJson('/super-admin/branches');
-    final data = res.data;
-    final raw = data?['branches'];
+    // The endpoint returns { success, branches: [...] } without a `data` wrapper.
+    final root = res.map;
+    final raw = root?['branches'] ?? res.data?['branches'];
     final list = <Map<String, String>>[];
     if (raw is List) {
       for (final b in raw.whereType<Map>()) {
-        final code = (b['branch_code'] ?? '').toString();
-        final name = (b['branch_name'] ?? code).toString();
+        final code = (b['branch_code'] ?? b['branchCode'] ?? '').toString();
+        final name = (b['branch_name'] ?? b['branchName'] ?? code).toString();
         if (isAllowedBranch(code)) list.add({'code': code, 'name': name});
       }
     }
@@ -93,7 +162,7 @@ class _ShellState extends State<Shell> {
           _branch);
 
   void _go(String key) {
-    final i = _allTabKeys.indexOf(key);
+    final i = _visibleKeys.indexOf(key);
     if (i < 0) return;
     setState(() {
       _tab = i;
@@ -102,7 +171,9 @@ class _ShellState extends State<Shell> {
   }
 
   void _refresh() {
-    _handles[_allTabKeys[_tab]]?.refresh?.call();
+    final keys = _visibleKeys;
+    final idx = _tab.clamp(0, keys.length - 1).toInt();
+    _handles[keys[idx]]?.refresh?.call();
   }
 
   Future<void> _pickBranch() async {
@@ -135,7 +206,7 @@ class _ShellState extends State<Shell> {
                   ),
                 ),
                 Text(
-                  T.t('allBranches'),
+                  'Select branch',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: c.text),
                 ),
                 const SizedBox(height: 8),
@@ -217,58 +288,88 @@ class _ShellState extends State<Shell> {
         return Icons.payments_rounded;
       case 'sms':
         return Icons.sms_rounded;
+      case 'payroll':
+        return Icons.account_balance_wallet_rounded;
+      case 'users':
+        return Icons.manage_accounts_rounded;
       default:
         return Icons.settings_rounded;
     }
   }
 
+  String get _activeKey => _visibleKeys[_tab.clamp(0, _visibleKeys.length - 1).toInt()];
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    return Scaffold(
-      backgroundColor: c.scaffold,
-      body: Column(
-        children: [
-          _header(c),
-          Expanded(
-            child: Stack(
-              children: [
-                IndexedStack(
-                  index: _tab,
-                  children: [
-                    HomeTab(branch: _branch, active: _tab == 0, handle: _handles['home']!),
-                    StudentsTab(branch: _branch, active: _tab == 1, handle: _handles['students']!),
-                    AttendanceTab(branch: _branch, active: _tab == 2, handle: _handles['attendance']!),
-                    MarksTab(branch: _branch, active: _tab == 3, handle: _handles['marks']!),
-                    FaultsTab(branch: _branch, active: _tab == 4, handle: _handles['faults']!),
-                    FinanceTab(branch: _branch, active: _tab == 5, handle: _handles['finance']!),
-                    SmsTab(active: _tab == 6, handle: _handles['sms']!),
-                    SettingsTab(
-                      active: _tab == 7,
-                      handle: _handles['settings']!,
-                      dark: widget.dark,
-                      onThemeChanged: widget.onThemeChanged,
-                      lang: widget.lang,
-                      onLangChanged: widget.onLangChanged,
-                      onLogout: widget.onLogout,
-                    ),
-                  ],
-                ),
-                if (_moreOpen)
-                  Positioned.fill(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _moreOpen = false),
-                      child: Container(color: Colors.black.withValues(alpha: 0.36)),
-                    ),
+    final keys = _visibleKeys;
+    final index = _tab.clamp(0, keys.length - 1).toInt();
+    return Listener(
+      onPointerDown: (_) => _touch(),
+      onPointerMove: (_) => _touch(),
+      onPointerSignal: (_) => _touch(),
+      child: Scaffold(
+        backgroundColor: c.scaffold,
+        body: Column(
+          children: [
+            _header(c),
+            Expanded(
+              child: Stack(
+                children: [
+                  IndexedStack(
+                    index: index,
+                    children: keys.map((k) => _tabWidget(k)).toList(),
                   ),
-                if (_moreOpen) _moreSheet(c),
-                _bottomNav(c),
-              ],
+                  if (_moreOpen)
+                    Positioned.fill(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _moreOpen = false),
+                        child: Container(color: Colors.black.withValues(alpha: 0.36)),
+                      ),
+                    ),
+                  if (_moreOpen) _moreSheet(c),
+                  _bottomNav(c),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _tabWidget(String key) {
+    final active = _visibleKeys[_tab.clamp(0, _visibleKeys.length - 1).toInt()] == key;
+    switch (key) {
+      case 'home':
+        return HomeTab(branch: _branch, active: active, handle: _handles['home']!);
+      case 'students':
+        return StudentsTab(branch: _branch, active: active, handle: _handles['students']!);
+      case 'attendance':
+        return AttendanceTab(branch: _branch, active: active, handle: _handles['attendance']!);
+      case 'marks':
+        return MarksTab(branch: _branch, active: active, handle: _handles['marks']!);
+      case 'faults':
+        return FaultsTab(branch: _branch, active: active, handle: _handles['faults']!);
+      case 'finance':
+        return FinanceTab(branch: _branch, active: active, handle: _handles['finance']!);
+      case 'sms':
+        return SmsTab(active: active, handle: _handles['sms']!);
+      case 'payroll':
+        return PayrollTab(branch: _branch, active: active, handle: _handles['payroll']!);
+      case 'users':
+        return UsersTab(active: active, handle: _handles['users']!);
+      default:
+        return SettingsTab(
+          active: active,
+          handle: _handles['settings']!,
+          dark: widget.dark,
+          onThemeChanged: widget.onThemeChanged,
+          lang: widget.lang,
+          onLangChanged: widget.onLangChanged,
+          onLogout: widget.onLogout,
+        );
+    }
   }
 
   Widget _header(AppColors c) {
@@ -426,7 +527,7 @@ class _ShellState extends State<Shell> {
                         child: _navItem(
                           c,
                           key: key,
-                          active: _tab == _allTabKeys.indexOf(key),
+                          active: _activeKey == key,
                           onTap: () => _go(key),
                         ),
                       ),
@@ -444,13 +545,13 @@ class _ShellState extends State<Shell> {
                     height: 60,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: _secondaryKeys.contains(_allTabKeys[_tab])
+                      gradient: _secondaryKeys.contains(_activeKey)
                           ? const LinearGradient(colors: [Color(0xFFB21E23), Color(0xFFE5484D)])
                           : const LinearGradient(colors: [Color(0xFFF7941E), Color(0xFFFFB04D)]),
                       border: Border.all(color: c.card, width: 4),
                       boxShadow: [
                         BoxShadow(
-                          color: (_secondaryKeys.contains(_allTabKeys[_tab])
+                          color: (_secondaryKeys.contains(_activeKey)
                                   ? const Color(0xFFB21E23)
                                   : const Color(0xFFF7941E))
                               .withValues(alpha: 0.45),
@@ -465,7 +566,7 @@ class _ShellState extends State<Shell> {
                       child: Icon(
                         Icons.add_rounded,
                         size: 28,
-                        color: _secondaryKeys.contains(_allTabKeys[_tab])
+                        color: _secondaryKeys.contains(_activeKey)
                             ? Colors.white
                             : const Color(0xFF8B1A1A),
                       ),
@@ -535,7 +636,7 @@ class _ShellState extends State<Shell> {
                 spacing: gap,
                 runSpacing: gap,
                 children: _secondaryKeys.map((key) {
-                  final active = _allTabKeys[_tab] == key;
+                  final active = _activeKey == key;
                   return SizedBox(
                     width: w,
                     child: InkWell(

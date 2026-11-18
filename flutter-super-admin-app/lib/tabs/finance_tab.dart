@@ -36,8 +36,10 @@ class _FinanceTabState extends State<FinanceTab> {
   final _unassignedSearch = TextEditingController();
   String _unpaidBranch = 'ALL';
   String _unpaidMonths = 'ALL';
+  String _unpaidMonthName = ''; // Ethiopian month (e.g. Tikimt) — empty = any month
   int _page = 1;
   static const _pageSize = 15;
+  static final _unpaidMonthOptions = ethMonths.take(10).toList();
 
   @override
   void initState() {
@@ -131,8 +133,12 @@ class _FinanceTabState extends State<FinanceTab> {
       if (_unpaidBranch != 'ALL' && s['branch'] != _unpaidBranch) return false;
       final cnt = toNum(s['unpaidMonthsCount']);
       if (_unpaidMonths == '>1' && cnt <= 1) return false;
-      if (_unpaidMonths == '1' && cnt != 1) return false;
-      if (_unpaidMonths == '2' && cnt != 2) return false;
+      if (RegExp(r'^\d+$').hasMatch(_unpaidMonths) && cnt != int.parse(_unpaidMonths)) return false;
+      if (_unpaidMonthName.isNotEmpty) {
+        final months = s['unpaidMonths'];
+        final list = months is List ? months.map((e) => e.toString()).toList() : <String>[];
+        if (!list.any((m) => m.toLowerCase() == _unpaidMonthName.toLowerCase())) return false;
+      }
       if (pq.isNotEmpty) {
         final name = (s['studentName'] ?? '').toString().toLowerCase();
         final cls = (s['class'] ?? '').toString().toLowerCase();
@@ -147,6 +153,45 @@ class _FinanceTabState extends State<FinanceTab> {
     final expectedTotal = toNum(f?['grandExpected']);
     final rate = toNum(f?['grandCollectedUnlocked'] ?? f?['grandCollected']) /
         (expectedTotal == 0 ? 1 : expectedTotal);
+
+    // One card per unlocked month (Meskerem, Tikimt, Hidar, ...)
+    final grandMonths = mapList(f?['grandMonths']);
+    final monthCards = <Widget>[];
+    for (final m in grandMonths) {
+      monthCards.add(_monthBox(
+        c,
+        'Month ${m['month']} · ${m['monthName'] ?? ''}',
+        c.primaryDeep,
+        [
+          KV('Students paid', fmt(m['paidCount'])),
+          KV('Expected', birr(m['expected'])),
+          KV('Collected', birr(m['collected']), color: c.green),
+          KV('Rate', '${_pct(m['collected'], m['expected'])}%', color: c.green),
+        ],
+      ));
+      monthCards.add(const SizedBox(height: 8));
+    }
+    monthCards.add(_monthBox(
+      c,
+      'Total unlocked months (${grandMonths.length})',
+      c.blue,
+      [
+        KV('Expected', birr(f?['grandExpectedUnlocked'] ?? f?['grandExpected'])),
+        KV('Collected', birr(f?['grandCollectedUnlocked'] ?? f?['grandCollected']), color: c.green),
+        KV('Outstanding', birr(f?['grandPendingUnlocked'] ?? f?['grandPending']), color: c.red),
+      ],
+    ));
+    monthCards.add(const SizedBox(height: 8));
+    monthCards.add(_monthBox(
+      c,
+      'All Months & Advance',
+      const Color(0xFF7C3AED),
+      [
+        KV('Cash Collected', birr(f?['grandCollected']), color: c.green),
+        KV('Advance Prepayments', birr(f?['grandAdvance']), color: c.gold),
+        KV('Full Year Pending', birr(f?['grandPendingAll']), color: c.red),
+      ],
+    ));
 
     return TabScroll(
       onRefresh: _load,
@@ -288,57 +333,7 @@ class _FinanceTabState extends State<FinanceTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CardTitle(T.t('monthPerformance')),
-                _monthBox(
-                  c,
-                  'Month 1 · Meskerem',
-                  c.primaryDeep,
-                  [
-                    KV('Expected', birr(f?['grandM1Expected'])),
-                    KV('Collected', birr(f?['grandM1Collected']), color: c.green),
-                    KV(
-                      'Rate',
-                      '${_pct(f?['grandM1Collected'], f?['grandM1Expected'])}%',
-                      color: c.green,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _monthBox(
-                  c,
-                  'Month 2 · Tikimt',
-                  c.primaryDeep,
-                  [
-                    KV('Expected', birr(f?['grandM2Expected'])),
-                    KV('Collected', birr(f?['grandM2Collected']), color: c.green),
-                    KV(
-                      'Rate',
-                      '${_pct(f?['grandM2Collected'], f?['grandM2Expected'])}%',
-                      color: c.green,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _monthBox(
-                  c,
-                  'Total Unlocked Months (M1 + M2)',
-                  c.blue,
-                  [
-                    KV('Expected', birr(f?['grandExpectedUnlocked'] ?? f?['grandExpected'])),
-                    KV('Collected', birr(f?['grandCollectedUnlocked'] ?? f?['grandCollected']), color: c.green),
-                    KV('Outstanding', birr(f?['grandPendingUnlocked'] ?? f?['grandPending']), color: c.red),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _monthBox(
-                  c,
-                  'All Months & Advance',
-                  const Color(0xFF7C3AED),
-                  [
-                    KV('Cash Collected', birr(f?['grandCollected']), color: c.green),
-                    KV('Advance Prepayments', birr(f?['grandAdvance']), color: c.gold),
-                    KV('Full Year Pending', birr(f?['grandPendingAll']), color: c.red),
-                  ],
-                ),
+                ...monthCards,
               ],
             ),
           ),
@@ -461,8 +456,16 @@ class _FinanceTabState extends State<FinanceTab> {
 
   Widget _branchCard(AppColors c, Map<String, dynamic> b) {
     final classes = mapList(b['classes']).where((x) => toNum(x['totalStudents'] ?? x['students']) > 0).toList();
-    final m1 = classes.fold<num>(0, (s, x) => s + toNum(x['m1PaidCount']));
-    final m2 = classes.fold<num>(0, (s, x) => s + toNum(x['m2PaidCount']));
+    final branchMonths = mapList(b['months']);
+
+    String paidByMonth(Map<String, dynamic> cls) {
+      final months = mapList(cls['months']);
+      if (months.isEmpty) {
+        // fallback for older payloads
+        return 'M1 ${fmt(cls['m1PaidCount'])} · M2 ${fmt(cls['m2PaidCount'])}';
+      }
+      return months.map((m) => 'M${m['month']} ${fmt(m['paidCount'])}').join(' · ');
+    }
 
     return CardBox(
       child: Column(
@@ -474,7 +477,12 @@ class _FinanceTabState extends State<FinanceTab> {
           ),
           const SizedBox(height: 3),
           Text(
-            '${fmt(b['totalStudents'])} students · collected ${birr(b['collected'])}',
+            '${fmt(b['totalStudents'])} students enrolled · ${fmt(b['oldStudents'])} old · '
+            '${fmt(b['newStudents'])} new · ${fmt(b['freeStudents'])} free',
+            style: TextStyle(fontSize: 10.5, color: c.muted),
+          ),
+          Text(
+            'Collected ${birr(b['collected'])} in total — this is the money received, not an amount per student',
             style: TextStyle(fontSize: 10.5, color: c.muted),
           ),
           const SizedBox(height: 8),
@@ -497,8 +505,8 @@ class _FinanceTabState extends State<FinanceTab> {
           else ...[
             DataTableX(
               headers: const [
-                'Class', 'Total', 'Old', 'New', 'Free', 'Paying', 'Fee', 'Reg O/N',
-                'M1', 'M1 E/C', 'M2', 'M2 E/C', 'Unpaid', 'Expected', 'Collected', 'Rate',
+                'Class', 'Total', 'Old', 'New', 'Free', 'Paying', 'Fee',
+                'Unpaid', 'Expected', 'Collected', 'Rate', 'Paid / month',
               ],
               columnSpacing: 11,
               rows: classes.map((cls) {
@@ -511,18 +519,46 @@ class _FinanceTabState extends State<FinanceTab> {
                   cellText(fmt(cls['freeStudents']), color: toNum(cls['freeStudents']) > 0 ? c.green : null),
                   cellText(fmt(cls['payingStudents'])),
                   cellText(fmt(cls['monthlyFee'])),
-                  cellText('${fmt(cls['oldRegFee'])}/${fmt(cls['newRegFee'])}', size: 9.5),
-                  cellText(fmt(cls['m1PaidCount'])),
-                  cellText('${fmt(cls['m1Expected'])}/${fmt(cls['m1Collected'])}', size: 9.5),
-                  cellText(fmt(cls['m2PaidCount'])),
-                  cellText('${fmt(cls['m2Expected'])}/${fmt(cls['m2Collected'])}', size: 9.5),
                   cellText(fmt(unpaid), color: unpaid > 0 ? c.red : c.green, bold: true),
                   cellText(fmt(cls['expectedUnlocked'] ?? cls['expected']), bold: true),
                   cellText(fmt(cls['collectedUnlocked'] ?? cls['collected']), bold: true, color: c.green),
                   Pill('${fmt(cls['rate'])}%'),
+                  cellText(paidByMonth(cls), size: 9.5, color: c.muted),
                 ];
               }).toList(),
             ),
+            const SizedBox(height: 8),
+            if (branchMonths.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: c.input,
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: c.line),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Each unlocked month (count paid · expected / collected)',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: c.muted),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        for (final m in branchMonths)
+                          Text(
+                            '${m['monthName']}: ${fmt(m['paidCount'])} paid · '
+                            '${fmt(m['expected'])}/${fmt(m['collected'])}',
+                            style: TextStyle(fontSize: 10.5, color: c.muted),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -536,8 +572,6 @@ class _FinanceTabState extends State<FinanceTab> {
                 runSpacing: 4,
                 children: [
                   Text('TOTAL ${fmt(b['totalStudents'])}', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: c.text)),
-                  Text('M1 paid ${fmt(m1)}', style: TextStyle(fontSize: 10.5, color: c.muted)),
-                  Text('M2 paid ${fmt(m2)}', style: TextStyle(fontSize: 10.5, color: c.muted)),
                   Text('Expected ${birr(b['expectedUnlocked'] ?? b['expected'])}', style: TextStyle(fontSize: 10.5, color: c.text)),
                   Text('Collected ${birr(b['collectedUnlocked'] ?? b['collected'])}', style: TextStyle(fontSize: 10.5, color: c.green, fontWeight: FontWeight.w700)),
                   Text('${b['rate']}%', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: c.primary)),
@@ -661,10 +695,10 @@ class _FinanceTabState extends State<FinanceTab> {
                 child: _miniDropdown(
                   c,
                   value: _unpaidMonths,
-                  items: const [
+                  items: [
                     {'value': 'ALL', 'label': 'Any months'},
-                    {'value': '1', 'label': '1 month'},
-                    {'value': '2', 'label': '2 months'},
+                    for (var i = 1; i <= 10; i++)
+                      {'value': '$i', 'label': i == 1 ? '1 month' : '$i months'},
                     {'value': '>1', 'label': '2+ months'},
                   ],
                   onChanged: (v) => setState(() {
@@ -674,6 +708,19 @@ class _FinanceTabState extends State<FinanceTab> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          _miniDropdown(
+            c,
+            value: _unpaidMonthName.isEmpty ? 'ALL' : _unpaidMonthName,
+            items: [
+              {'value': 'ALL', 'label': 'All unpaid months'},
+              for (final m in _unpaidMonthOptions) {'value': m, 'label': 'Unpaid in $m only'},
+            ],
+            onChanged: (v) => setState(() {
+              _unpaidMonthName = (v == null || v == 'ALL') ? '' : v;
+              _page = 1;
+            }),
           ),
           const SizedBox(height: 10),
           if (filtered.isEmpty)

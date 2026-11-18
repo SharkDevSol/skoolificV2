@@ -33,10 +33,37 @@ async function ensureSuperAdminsTable(pool) {
       full_name VARCHAR(150),
       email VARCHAR(150),
       is_active BOOLEAN DEFAULT true,
+      permissions JSONB DEFAULT '{}'::jsonb,
       last_login TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(`ALTER TABLE super_admins ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb`);
+}
+
+const OWNER_USERNAMES = ['khalif'];
+const ALL_TABS = ['home', 'students', 'attendance', 'marks', 'faults', 'finance', 'sms', 'payroll', 'users', 'settings'];
+const DEFAULT_TABS = ['home', 'students', 'attendance', 'marks', 'faults', 'sms', 'settings'];
+
+function isOwnerUsername(username) {
+  return OWNER_USERNAMES.includes(String(username || '').trim().toLowerCase());
+}
+
+// Permissions: { tabs: [...], manageUsers: bool }
+function normalizePermissions(row) {
+  let p = row && row.permissions;
+  if (typeof p === 'string') {
+    try { p = JSON.parse(p); } catch (e) { p = {}; }
+  }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) p = {};
+  const owner = isOwnerUsername(row && row.username);
+  const rawTabs = Array.isArray(p.tabs) ? p.tabs.filter((t) => ALL_TABS.includes(t)) : [];
+  const tabs = rawTabs.length ? rawTabs : (owner ? ALL_TABS : DEFAULT_TABS);
+  return {
+    tabs,
+    manageUsers: p.manageUsers === true || owner,
+    owner
+  };
 }
 
 // ============================================
@@ -80,6 +107,8 @@ router.post('/login', async (req, res) => {
 
     await pool.query('UPDATE super_admins SET last_login = CURRENT_TIMESTAMP WHERE id = $1', [admin.id]);
 
+    const permissions = normalizePermissions(admin);
+
     res.json({
       success: true,
       token,
@@ -87,7 +116,8 @@ router.post('/login', async (req, res) => {
         id: admin.id,
         username: admin.username,
         fullName: admin.full_name || admin.username,
-        role: 'super_admin'
+        role: 'super_admin',
+        permissions
       }
     });
   } catch (error) {
@@ -876,8 +906,8 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
         let bTotalPendingUnlocked = 0;
         let bTotalPendingAll = 0;
         let bTotalAdvance = 0;
-        let bM1Expected = 0, bM1Collected = 0;
-        let bM2Expected = 0, bM2Collected = 0;
+        const bMonthStats = {};
+        for (let m = 1; m <= currentEthMonth; m++) bMonthStats[m] = { expected: 0, collected: 0, paidCount: 0 };
         let bFreeRegPaidTotal = 0;
 
         for (const className of classNames) {
@@ -909,11 +939,11 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
 
           let cOld = 0, cNew = 0, cNull = 0, cFree = 0;
           let cUnpaidUnlocked = 0;
-          let cM1PaidCount = 0, cM2PaidCount = 0;
           let cExpectedUnlocked = 0, cCollectedUnlocked = 0, cTotalPendingUnlocked = 0, cTotalPendingAll = 0;
-          let cM1Expected = 0, cM1Collected = 0;
-          let cM2Expected = 0, cM2Collected = 0;
           let cAdvance = 0;
+          // Per-month stats for every unlocked month (Meskerem .. current month)
+          const cMonthStats = {};
+          for (let m = 1; m <= currentEthMonth; m++) cMonthStats[m] = { expected: 0, collected: 0, paidCount: 0 };
 
           const feeInfo = feeMap.get(className) || { monthlyFee: 0, oldRegFee: 0, newRegFee: 0 };
 
@@ -951,37 +981,25 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
 
             const invoices = studentInvoices.get(sid) || [];
 
-            const m1Inv = invoices.find(inv => inv.monthNumber === 1);
-            if (m1Inv) {
-              if (isFree) {
-                // Free students are exempt from monthly tuition; track their registration fee
-                cFreeRegPaid += parseFloat(m1Inv.paidAmount || 0);
-              } else {
-                cM1Expected += m1Inv.netAmount;
-                cM1Collected += m1Inv.paidAmount;
-                if (m1Inv.status === 'PAID') cM1PaidCount++;
-              }
-            }
-
-            const m2Inv = invoices.find(inv => inv.monthNumber === 2);
-            if (m2Inv) {
-              if (!isFree) {
-                // Only paying students have expected monthly tuition
-                cM2Expected += m2Inv.netAmount;
-                cM2Collected += m2Inv.paidAmount;
-                if (m2Inv.status === 'PAID') cM2PaidCount++;
-              }
-            }
-
             const studentUnpaidMonths = [];
             let studentTotalDue = 0;
 
             for (const inv of invoices) {
+              if (isFree && inv.monthNumber === 1) {
+                // Free students are exempt from monthly tuition; track their registration fee
+                cFreeRegPaid += parseFloat(inv.paidAmount || 0);
+              }
               if (inv.monthNumber <= currentEthMonth) {
                 if (!isFree) {
                   // Only paying students are billed for monthly tuition
                   cExpectedUnlocked += inv.netAmount;
                   cCollectedUnlocked += inv.paidAmount;
+                  const ms = cMonthStats[inv.monthNumber];
+                  if (ms) {
+                    ms.expected += inv.netAmount;
+                    ms.collected += inv.paidAmount;
+                    if (inv.status === 'PAID') ms.paidCount++;
+                  }
                   const due = Math.max(inv.netAmount - inv.paidAmount, 0);
                   if (due > 0) {
                     studentUnpaidMonths.push(ETH_MONTH_NAMES[inv.monthNumber - 1] || `Month ${inv.monthNumber}`);
@@ -1038,10 +1056,14 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
           bCollectedUnlocked += cCollectedUnlocked;
           bTotalPendingUnlocked += cTotalPendingUnlocked;
           bTotalPendingAll += cTotalPendingAll;
-          bM1Expected += cM1Expected;
-          bM1Collected += cM1Collected;
-          bM2Expected += cM2Expected;
-          bM2Collected += cM2Collected;
+          for (const m of Object.keys(cMonthStats)) {
+            const src = cMonthStats[m];
+            const dst = bMonthStats[m];
+            if (!dst) continue;
+            dst.expected += src.expected;
+            dst.collected += src.collected;
+            dst.paidCount += src.paidCount;
+          }
           bFreeRegPaidTotal += cFreeRegPaid;
 
           const cTotalCollected = cCollectedUnlocked + cAdvance + cFreeRegPaid;
@@ -1058,13 +1080,20 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
             monthlyFee: feeInfo.monthlyFee || 0,
             oldRegFee: feeInfo.oldRegFee || 0,
             newRegFee: feeInfo.newRegFee || 0,
-            m1PaidCount: cM1PaidCount,
-            m2PaidCount: cM2PaidCount,
+            months: Object.keys(cMonthStats).map((m) => ({
+              month: Number(m),
+              monthName: ETH_MONTH_NAMES[Number(m) - 1] || `Month ${m}`,
+              expected: Math.round(cMonthStats[m].expected * 100) / 100,
+              collected: Math.round(cMonthStats[m].collected * 100) / 100,
+              paidCount: cMonthStats[m].paidCount
+            })),
+            m1PaidCount: cMonthStats[1] ? cMonthStats[1].paidCount : 0,
+            m2PaidCount: cMonthStats[2] ? cMonthStats[2].paidCount : 0,
             unpaidUnlockedCount: cUnpaidUnlocked,
-            m1Expected: Math.round(cM1Expected * 100) / 100,
-            m1Collected: Math.round(cM1Collected * 100) / 100,
-            m2Expected: Math.round(cM2Expected * 100) / 100,
-            m2Collected: Math.round(cM2Collected * 100) / 100,
+            m1Expected: cMonthStats[1] ? Math.round(cMonthStats[1].expected * 100) / 100 : 0,
+            m1Collected: cMonthStats[1] ? Math.round(cMonthStats[1].collected * 100) / 100 : 0,
+            m2Expected: cMonthStats[2] ? Math.round(cMonthStats[2].expected * 100) / 100 : 0,
+            m2Collected: cMonthStats[2] ? Math.round(cMonthStats[2].collected * 100) / 100 : 0,
             expected: Math.round(cExpectedUnlocked * 100) / 100,
             collected: Math.round(cTotalCollected * 100) / 100,
             collectedUnlocked: Math.round(cCollectedUnlocked * 100) / 100,
@@ -1099,10 +1128,17 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
             pendingAll: Math.round(bTotalPendingAll * 100) / 100,
             advanceCollected: Math.round(bTotalAdvance * 100) / 100,
             collectedToday: Math.round(collectedToday * 100) / 100,
-            m1Expected: Math.round(bM1Expected * 100) / 100,
-            m1Collected: Math.round(bM1Collected * 100) / 100,
-            m2Expected: Math.round(bM2Expected * 100) / 100,
-            m2Collected: Math.round(bM2Collected * 100) / 100,
+            months: Object.keys(bMonthStats).map((m) => ({
+              month: Number(m),
+              monthName: ETH_MONTH_NAMES[Number(m) - 1] || `Month ${m}`,
+              expected: Math.round(bMonthStats[m].expected * 100) / 100,
+              collected: Math.round(bMonthStats[m].collected * 100) / 100,
+              paidCount: bMonthStats[m].paidCount
+            })),
+            m1Expected: bMonthStats[1] ? Math.round(bMonthStats[1].expected * 100) / 100 : 0,
+            m1Collected: bMonthStats[1] ? Math.round(bMonthStats[1].collected * 100) / 100 : 0,
+            m2Expected: bMonthStats[2] ? Math.round(bMonthStats[2].expected * 100) / 100 : 0,
+            m2Collected: bMonthStats[2] ? Math.round(bMonthStats[2].collected * 100) / 100 : 0,
             rate: bRate,
             classes: branchClasses,
             lockedMonthPayments,
@@ -1124,10 +1160,16 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
             pendingAll: bTotalPendingAll,
             advanceCollected: bTotalAdvance,
             collectedToday,
-            m1Expected: bM1Expected,
-            m1Collected: bM1Collected,
-            m2Expected: bM2Expected,
-            m2Collected: bM2Collected
+            months: Object.keys(bMonthStats).map((m) => ({
+              month: Number(m),
+              expected: bMonthStats[m].expected,
+              collected: bMonthStats[m].collected,
+              paidCount: bMonthStats[m].paidCount
+            })),
+            m1Expected: bMonthStats[1] ? bMonthStats[1].expected : 0,
+            m1Collected: bMonthStats[1] ? bMonthStats[1].collected : 0,
+            m2Expected: bMonthStats[2] ? bMonthStats[2].expected : 0,
+            m2Collected: bMonthStats[2] ? bMonthStats[2].collected : 0
           }
         };
       } catch (err) {
@@ -1138,8 +1180,8 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
 
     let grandExpectedUnlocked = 0;
     let grandCollectedUnlocked = 0;
-    let grandM1Expected = 0, grandM1Collected = 0;
-    let grandM2Expected = 0, grandM2Collected = 0;
+    const grandMonthStats = {};
+    for (let m = 1; m <= currentEthMonth; m++) grandMonthStats[m] = { expected: 0, collected: 0, paidCount: 0 };
     const allUnassignedStudents = [];
     const allUnpaidStudents = [];
 
@@ -1168,10 +1210,13 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
         grandPendingAll += r.branchTotals.pendingAll;
         grandAdvance += r.branchTotals.advanceCollected;
         grandCollectedToday += r.branchTotals.collectedToday;
-        grandM1Expected += r.branchTotals.m1Expected;
-        grandM1Collected += r.branchTotals.m1Collected;
-        grandM2Expected += r.branchTotals.m2Expected;
-        grandM2Collected += r.branchTotals.m2Collected;
+        for (const m of r.branchTotals.months || []) {
+          const dst = grandMonthStats[m.month];
+          if (!dst) continue;
+          dst.expected += m.expected || 0;
+          dst.collected += m.collected || 0;
+          dst.paidCount += m.paidCount || 0;
+        }
       }
       for (const c of r.entry?.classes || []) {
         if (!classTotals[c.className]) {
@@ -1234,10 +1279,17 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
         grandPendingAll: Math.round(grandPendingAll * 100) / 100,
         grandAdvance: Math.round(grandAdvance * 100) / 100,
         grandCollectedToday: Math.round(grandCollectedToday * 100) / 100,
-        grandM1Expected: Math.round(grandM1Expected * 100) / 100,
-        grandM1Collected: Math.round(grandM1Collected * 100) / 100,
-        grandM2Expected: Math.round(grandM2Expected * 100) / 100,
-        grandM2Collected: Math.round(grandM2Collected * 100) / 100,
+        grandMonths: Object.keys(grandMonthStats).map((m) => ({
+          month: Number(m),
+          monthName: ETH_MONTH_NAMES[Number(m) - 1] || `Month ${m}`,
+          expected: Math.round(grandMonthStats[m].expected * 100) / 100,
+          collected: Math.round(grandMonthStats[m].collected * 100) / 100,
+          paidCount: grandMonthStats[m].paidCount
+        })),
+        grandM1Expected: grandMonthStats[1] ? Math.round(grandMonthStats[1].expected * 100) / 100 : 0,
+        grandM1Collected: grandMonthStats[1] ? Math.round(grandMonthStats[1].collected * 100) / 100 : 0,
+        grandM2Expected: grandMonthStats[2] ? Math.round(grandMonthStats[2].expected * 100) / 100 : 0,
+        grandM2Collected: grandMonthStats[2] ? Math.round(grandMonthStats[2].collected * 100) / 100 : 0,
         grandRate,
         feeSchedule,
         byBranch,
@@ -1617,6 +1669,33 @@ router.post('/daily-report/send', authenticateToken, authorizeRoles('super_admin
   }
 });
 
+// ---- WHO AM I: permissions for the signed-in super admin ----
+router.get('/me', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  const pool = getMasterPool();
+  try {
+    await ensureSuperAdminsTable(pool);
+    const r = await pool.query('SELECT id, username, full_name, email, is_active, permissions FROM super_admins WHERE id = $1', [req.user?.id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Account not found' });
+    const row = r.rows[0];
+    res.json({
+      success: true,
+      data: {
+        id: row.id,
+        username: row.username,
+        fullName: row.full_name || row.username,
+        email: row.email,
+        isActive: row.is_active !== false,
+        permissions: normalizePermissions(row)
+      }
+    });
+  } catch (error) {
+    console.error('Super admin me error:', error);
+    res.status(500).json({ error: 'Failed to load the account', message: error.message });
+  } finally {
+    await pool.end().catch(() => {});
+  }
+});
+
 // ---- ACCOUNT: change username / password ----
 router.put('/account', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
   const pool = getMasterPool();
@@ -1672,6 +1751,291 @@ router.put('/account', authenticateToken, authorizeRoles('super_admin'), async (
     res.status(500).json({ error: 'Failed to update account', message: error.message });
   } finally {
     await pool.end().catch(() => {});
+  }
+});
+
+// ============================================
+// PAYROLL (all branches) — visible to khalif / accounts with the payroll tab
+// ============================================
+router.get('/report/payroll', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  try {
+    const branches = await getSelectedBranches(req.query.branchCode);
+    const ETH_MONTH_NAMES = [
+      'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
+      'Megabit', 'Miazia', 'Ginbot', 'Sene'
+    ];
+    const ethiopianCalendar = require('../utils/ethiopianCalendar');
+    const shifted = new Date(Date.now() + 3 * 3600 * 1000);
+    const ethiopiaLocal = new Date(Date.UTC(
+      shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(), 12, 0, 0
+    ));
+    let currentEthMonth = 2;
+    let currentEthYear = 2019;
+    try {
+      const eth = ethiopianCalendar.toEthiopian(ethiopiaLocal);
+      currentEthYear = eth.year;
+      currentEthMonth = eth.year < 2019 ? 1 : eth.month;
+    } catch (e) {
+      currentEthMonth = 2;
+    }
+    const year = parseInt(req.query.ethYear, 10) || currentEthYear;
+    // For the current year only show months that have started; past years show all 10.
+    const lastMonth = year === currentEthYear ? currentEthMonth : 10;
+
+    const result = await Promise.all(branches.map(async (b) => {
+      const entry = {
+        branchCode: b.branch_code,
+        branchName: b.branch_name || b.branch_code,
+        months: [],
+        doneCount: 0,
+        pendingCount: 0,
+        totalNet: 0,
+        staffTotal: 0
+      };
+      const pool = await getPoolSafe(b);
+      if (!pool) { entry.error = 'Database unreachable'; return entry; }
+      try {
+        const exists = await pool.query(
+          `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='hr_payroll_runs') AS e`
+        );
+        if (!exists.rows[0].e) {
+          entry.error = 'Payroll table not created in this branch yet';
+          return entry;
+        }
+        const runs = await pool.query(
+          `SELECT id, ethiopian_year, ethiopian_month, status, locked, total_gross, total_deductions, total_net,
+                  done_by, done_at, created_at
+             FROM hr_payroll_runs
+            WHERE ethiopian_year = $1
+            ORDER BY ethiopian_month DESC`,
+          [year]
+        );
+        const byMonth = new Map();
+        for (const r of runs.rows) {
+          const prev = byMonth.get(r.ethiopian_month);
+          if (prev) {
+            // keep the most advanced run for the month
+            const rank = { POSTED: 4, PAID: 3, APPROVED: 2, DRAFT: 1 };
+            if ((rank[r.status] || 0) <= (rank[prev.status] || 0)) continue;
+          }
+          byMonth.set(r.ethiopian_month, r);
+        }
+        for (let m = 1; m <= lastMonth; m++) {
+          const run = byMonth.get(m);
+          let staffCount = 0;
+          if (run) {
+            try {
+              const c = await pool.query('SELECT COUNT(*)::int AS c FROM hr_payroll_items WHERE run_id = $1', [run.id]);
+              staffCount = c.rows[0].c;
+            } catch (e) { /* ignore */ }
+          }
+          const isDone = !!run && (run.status === 'PAID' || run.status === 'POSTED' || run.locked === true || !!run.done_at);
+          if (run) {
+            if (isDone) entry.doneCount++; else entry.pendingCount++;
+            entry.totalNet += parseFloat(run.total_net || 0);
+            entry.staffTotal += staffCount;
+          } else {
+            entry.pendingCount++;
+          }
+          entry.months.push({
+            month: m,
+            monthName: ETH_MONTH_NAMES[m - 1] || `Month ${m}`,
+            started: m <= currentEthMonth && year === currentEthYear || year < currentEthYear,
+            done: isDone,
+            status: run ? run.status : null,
+            runId: run ? run.id : null,
+            staffCount,
+            totalGross: run ? parseFloat(run.total_gross || 0) : 0,
+            totalDeductions: run ? parseFloat(run.total_deductions || 0) : 0,
+            totalNet: run ? parseFloat(run.total_net || 0) : 0,
+            doneBy: run ? run.done_by : null,
+            doneAt: run && run.done_at ? run.done_at : null
+          });
+        }
+        entry.totalNet = Math.round(entry.totalNet * 100) / 100;
+      } catch (err) {
+        entry.error = err.message;
+      }
+      return entry;
+    }));
+
+    const grandDone = result.reduce((s, b) => s + (b.doneCount || 0), 0);
+    const grandPending = result.reduce((s, b) => s + (b.pendingCount || 0), 0);
+    const grandNet = result.reduce((s, b) => s + (b.totalNet || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        ethYear: year,
+        currentEthYear,
+        currentEthMonth,
+        currentEthMonthName: ETH_MONTH_NAMES[currentEthMonth - 1] || `Month ${currentEthMonth}`,
+        branches: result,
+        grandDone,
+        grandPending,
+        grandNet: Math.round(grandNet * 100) / 100
+      }
+    });
+  } catch (error) {
+    console.error('Payroll report error:', error);
+    res.status(500).json({ error: 'Failed to build the payroll report', message: error.message });
+  }
+});
+
+// ============================================
+// SUPER ADMIN ACCOUNTS (create / edit access) — khalif only
+// ============================================
+async function loadRequester(req) {
+  const pool = getMasterPool();
+  await ensureSuperAdminsTable(pool);
+  const r = await pool.query('SELECT * FROM super_admins WHERE id = $1', [req.user?.id]);
+  if (!r.rows.length) { await pool.end().catch(() => {}); return null; }
+  const perms = normalizePermissions(r.rows[0]);
+  if (!perms.manageUsers) { await pool.end().catch(() => {}); return null; }
+  return { pool, me: r.rows[0], perms };
+}
+
+router.get('/users', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  let ctx = null;
+  try {
+    ctx = await loadRequester(req);
+    if (!ctx) return res.status(403).json({ error: 'You do not have permission to manage accounts' });
+    const r = await ctx.pool.query(
+      'SELECT id, username, full_name, email, is_active, last_login, created_at, permissions FROM super_admins ORDER BY id'
+    );
+    res.json({
+      success: true,
+      data: r.rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        fullName: row.full_name || row.username,
+        email: row.email,
+        isActive: row.is_active !== false,
+        lastLogin: row.last_login,
+        createdAt: row.created_at,
+        permissions: normalizePermissions(row)
+      }))
+    });
+  } catch (error) {
+    console.error('List super admins error:', error);
+    res.status(500).json({ error: 'Failed to load accounts', message: error.message });
+  } finally {
+    if (ctx) await ctx.pool.end().catch(() => {});
+  }
+});
+
+router.post('/users', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  let ctx = null;
+  try {
+    ctx = await loadRequester(req);
+    if (!ctx) return res.status(403).json({ error: 'You do not have permission to manage accounts' });
+    const username = String(req.body.username || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    const fullName = String(req.body.fullName || req.body.full_name || '').trim() || username;
+    const perms = req.body.permissions && typeof req.body.permissions === 'object' ? req.body.permissions : {};
+    if (!/^[a-z0-9._-]{3,50}$/.test(username)) {
+      return res.status(400).json({ error: 'Username must be 3-50 characters (letters, numbers, . _ -)' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    const dup = await ctx.pool.query('SELECT id FROM super_admins WHERE LOWER(username) = $1', [username]);
+    if (dup.rows.length) return res.status(400).json({ error: 'Username already exists' });
+    const hash = await bcrypt.hash(password, 10);
+    const tabs = Array.isArray(perms.tabs) ? perms.tabs.filter((t) => ALL_TABS.includes(t)) : DEFAULT_TABS;
+    const stored = { tabs, manageUsers: perms.manageUsers === true };
+    const ins = await ctx.pool.query(
+      `INSERT INTO super_admins (username, password_hash, full_name, permissions)
+       VALUES ($1, $2, $3, $4::jsonb)
+       RETURNING id, username, full_name, is_active, permissions`,
+      [username, hash, fullName, JSON.stringify(stored)]
+    );
+    res.json({ success: true, data: ins.rows[0] });
+  } catch (error) {
+    console.error('Create super admin error:', error);
+    res.status(500).json({ error: 'Failed to create the account', message: error.message });
+  } finally {
+    if (ctx) await ctx.pool.end().catch(() => {});
+  }
+});
+
+router.put('/users/:id', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  let ctx = null;
+  try {
+    ctx = await loadRequester(req);
+    if (!ctx) return res.status(403).json({ error: 'You do not have permission to manage accounts' });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Invalid account id' });
+    const target = await ctx.pool.query('SELECT * FROM super_admins WHERE id = $1', [id]);
+    if (!target.rows.length) return res.status(404).json({ error: 'Account not found' });
+    const row = target.rows[0];
+    if (isOwnerUsername(row.username) && id !== ctx.me.id) {
+      return res.status(400).json({ error: 'The owner account cannot be edited here' });
+    }
+
+    const updates = [];
+    const values = [];
+    if (req.body.fullName !== undefined || req.body.full_name !== undefined) {
+      updates.push(`full_name = $${values.length + 1}`);
+      values.push(String(req.body.fullName ?? req.body.full_name));
+    }
+    if (req.body.isActive !== undefined || req.body.is_active !== undefined) {
+      const active = req.body.isActive ?? req.body.is_active;
+      if (!(isOwnerUsername(row.username) && active === false)) {
+        updates.push(`is_active = $${values.length + 1}`);
+        values.push(!!active);
+      }
+    }
+    if (req.body.password) {
+      const pw = String(req.body.password);
+      if (pw.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      updates.push(`password_hash = $${values.length + 1}`);
+      values.push(await bcrypt.hash(pw, 10));
+    }
+    if (req.body.permissions && typeof req.body.permissions === 'object') {
+      const tabs = Array.isArray(req.body.permissions.tabs)
+        ? req.body.permissions.tabs.filter((t) => ALL_TABS.includes(t))
+        : DEFAULT_TABS;
+      const stored = { tabs, manageUsers: req.body.permissions.manageUsers === true };
+      updates.push(`permissions = $${values.length + 1}::jsonb`);
+      values.push(JSON.stringify(stored));
+    }
+    if (!updates.length) return res.status(400).json({ error: 'Nothing to change' });
+    values.push(id);
+    const upd = await ctx.pool.query(
+      `UPDATE super_admins SET ${updates.join(', ')} WHERE id = $${values.length}
+       RETURNING id, username, full_name, is_active, permissions`,
+      values
+    );
+    res.json({ success: true, data: upd.rows[0] });
+  } catch (error) {
+    console.error('Update super admin error:', error);
+    res.status(500).json({ error: 'Failed to update the account', message: error.message });
+  } finally {
+    if (ctx) await ctx.pool.end().catch(() => {});
+  }
+});
+
+router.delete('/users/:id', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
+  let ctx = null;
+  try {
+    ctx = await loadRequester(req);
+    if (!ctx) return res.status(403).json({ error: 'You do not have permission to manage accounts' });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Invalid account id' });
+    if (id === ctx.me.id) return res.status(400).json({ error: 'You cannot delete your own account' });
+    const target = await ctx.pool.query('SELECT username FROM super_admins WHERE id = $1', [id]);
+    if (!target.rows.length) return res.status(404).json({ error: 'Account not found' });
+    if (isOwnerUsername(target.rows[0].username)) {
+      return res.status(400).json({ error: 'The owner account cannot be deleted' });
+    }
+    await ctx.pool.query('DELETE FROM super_admins WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete super admin error:', error);
+    res.status(500).json({ error: 'Failed to delete the account', message: error.message });
+  } finally {
+    if (ctx) await ctx.pool.end().catch(() => {});
   }
 });
 
