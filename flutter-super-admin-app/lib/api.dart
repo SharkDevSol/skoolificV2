@@ -86,6 +86,7 @@ class Api {
         if (decoded is Map) permissions = Map<String, dynamic>.from(decoded);
       }
     } catch (_) {}
+    await _loadCache();
   }
 
   /// Refreshes the signed-in account + permissions from the server.
@@ -168,26 +169,104 @@ class Api {
 
   // ---------------- HTTP ----------------
 
+  /// One shared client = the TLS connection is reused for every request.
+  /// On a weak network this alone removes 1-3s of handshake per call.
+  static final http.Client _client = http.Client();
+
+  // Small on-device cache so a tab paints instantly, then refreshes.
+  static final Map<String, dynamic> _cache = {};
+  static const _cachePrefix = 'sa_cache_v1_';
+  static const _cacheMaxBytes = 900000;
+
+  static String _cacheKey(String path, Map<String, String>? params) {
+    if (params == null || params.isEmpty) return path;
+    final keys = params.keys.toList()..sort();
+    return '$path?${keys.map((k) => '$k=${params[k]}').join('&')}';
+  }
+
+  static dynamic cachedData(String path, {Map<String, String>? params}) =>
+      _cache[_cacheKey(path, params)];
+
+  static void _putCache(String key, dynamic data) {
+    _cache[key] = data;
+    try {
+      final raw = jsonEncode(data);
+      if (raw.length > _cacheMaxBytes) return;
+      SharedPreferences.getInstance().then((p) => p.setString('$_cachePrefix$key', raw)).catchError((_) {});
+    } catch (_) {}
+  }
+
+  static Future<void> _loadCache() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      for (final k in p.getKeys()) {
+        if (!k.startsWith(_cachePrefix)) continue;
+        final raw = p.getString(k);
+        if (raw == null) continue;
+        final decoded = jsonDecode(raw);
+        if (decoded != null) _cache[k.substring(_cachePrefix.length)] = decoded;
+      }
+    } catch (_) {}
+  }
+
+  static Future<ApiResult> _getOnce(
+    String path,
+    Map<String, String>? params,
+    Duration timeout,
+  ) async {
+    var uri = Uri.parse('$base$path');
+    if (params != null && params.isNotEmpty) {
+      final clean = <String, String>{};
+      params.forEach((k, v) {
+        if (v.isNotEmpty) clean[k] = v;
+      });
+      uri = uri.replace(queryParameters: clean);
+    }
+    final r = await _client.get(uri, headers: _headers()).timeout(timeout);
+    _checkAuth(r.statusCode);
+    return ApiResult(r.statusCode, _decode(r.body));
+  }
+
   static Future<ApiResult> getJson(
     String path, {
     Map<String, String>? params,
-    Duration timeout = const Duration(seconds: 90),
+    Duration timeout = const Duration(seconds: 45),
   }) async {
+    final key = _cacheKey(path, params);
     try {
-      var uri = Uri.parse('$base$path');
-      if (params != null && params.isNotEmpty) {
-        final clean = <String, String>{};
-        params.forEach((k, v) {
-          if (v.isNotEmpty) clean[k] = v;
-        });
-        uri = uri.replace(queryParameters: clean);
+      final first = await _getOnce(path, params, timeout);
+      if (first.status >= 200 && first.status < 300 && first.body != null) {
+        _putCache(key, first.body);
       }
-      final r = await http.get(uri, headers: _headers()).timeout(timeout);
-      _checkAuth(r.statusCode);
-      return ApiResult(r.statusCode, _decode(r.body));
+      return first;
     } catch (_) {
-      return ApiResult(0, null);
+      // one quick retry, then fall back to the last good copy
+      try {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        final second = await _getOnce(path, params, timeout);
+        if (second.status >= 200 && second.status < 300 && second.body != null) {
+          _putCache(key, second.body);
+        }
+        return second;
+      } catch (_) {
+        final cached = _cache[key];
+        if (cached != null) return ApiResult(200, cached);
+        return ApiResult(0, null);
+      }
     }
+  }
+
+  /// Fetches [path] but hands the last cached copy to [onCached] first, so the
+  /// screen shows data immediately while the fresh copy loads in the background.
+  static Future<ApiResult> getJsonCached(
+    String path, {
+    Map<String, String>? params,
+    void Function(dynamic data)? onCached,
+    Duration timeout = const Duration(seconds: 45),
+  }) async {
+    final cached = _cache[_cacheKey(path, params)];
+    if (cached != null && onCached != null) onCached(cached);
+    return getJson(path, params: params, timeout: timeout);
   }
 
   static Future<ApiResult> postJson(
@@ -196,7 +275,7 @@ class Api {
     Duration timeout = const Duration(seconds: 120),
   ]) async {
     try {
-      final r = await http
+      final r = await _client
           .post(Uri.parse('$base$path'), headers: _headers(), body: jsonEncode(body ?? {}))
           .timeout(timeout);
       _checkAuth(r.statusCode);
@@ -212,7 +291,7 @@ class Api {
     Duration timeout = const Duration(seconds: 60),
   }) async {
     try {
-      final r = await http
+      final r = await _client
           .put(Uri.parse('$base$path'), headers: _headers(), body: jsonEncode(body))
           .timeout(timeout);
       _checkAuth(r.statusCode);
@@ -224,7 +303,7 @@ class Api {
 
   static Future<ApiResult> deleteJson(String path) async {
     try {
-      final r = await http.delete(Uri.parse('$base$path'), headers: _headers())
+      final r = await _client.delete(Uri.parse('$base$path'), headers: _headers())
           .timeout(const Duration(seconds: 60));
       _checkAuth(r.statusCode);
       return ApiResult(r.statusCode, _decode(r.body));

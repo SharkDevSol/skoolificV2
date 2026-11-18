@@ -55,23 +55,71 @@ class _HomeTabState extends State<HomeTab> {
       _loading = true;
       _error = null;
     });
+    Map<String, dynamic>? asMap(dynamic d) =>
+        d is Map ? Map<String, dynamic>.from(d) : null;
+
     final results = await Future.wait([
-      Api.getJson('/super-admin/report/students', params: {'branchCode': widget.branch}),
-      Api.getJson('/super-admin/report/attendance', params: {
-        'branchCode': widget.branch,
-        'viewMode': 'month',
-        'year': '2019',
-        'month': '2',
-      }),
-      Api.getJson('/super-admin/report/finance', params: {'branchCode': widget.branch}),
-      Api.getJson('/super-admin/report/faults', params: {'branchCode': widget.branch}),
+      Api.getJsonCached(
+        '/super-admin/report/students',
+        params: {'branchCode': widget.branch},
+        onCached: (d) {
+          final m = asMap(d);
+          if (!mounted || m == null) return;
+          setState(() {
+            _students = m;
+            _loaded = true;
+          });
+        },
+      ),
+      Api.getJsonCached(
+        '/super-admin/report/attendance',
+        params: {
+          'branchCode': widget.branch,
+          'viewMode': 'month',
+          'year': '2019',
+          'month': '2',
+        },
+        onCached: (d) {
+          final m = asMap(d);
+          if (!mounted || m == null) return;
+          setState(() {
+            _attendance = m;
+            _loaded = true;
+          });
+        },
+      ),
+      // light=1 -> summary only (no per-student lists): much smaller download
+      Api.getJsonCached(
+        '/super-admin/report/finance',
+        params: {'branchCode': widget.branch, 'light': '1'},
+        onCached: (d) {
+          final m = asMap(d);
+          if (!mounted || m == null) return;
+          setState(() {
+            _finance = m;
+            _loaded = true;
+          });
+        },
+      ),
+      Api.getJsonCached(
+        '/super-admin/report/faults',
+        params: {'branchCode': widget.branch},
+        onCached: (d) {
+          final m = asMap(d);
+          if (!mounted || m == null) return;
+          setState(() {
+            _faults = m;
+            _loaded = true;
+          });
+        },
+      ),
     ]);
     if (!mounted) return;
     setState(() {
-      _students = results[0].data;
-      _attendance = results[1].data;
-      _finance = results[2].data;
-      _faults = results[3].data;
+      _students = results[0].data ?? _students;
+      _attendance = results[1].data ?? _attendance;
+      _finance = results[2].data ?? _finance;
+      _faults = results[3].data ?? _faults;
       _loading = false;
       _loaded = true;
       if (_students == null) _error = 'Could not load the reports. Pull down to retry.';

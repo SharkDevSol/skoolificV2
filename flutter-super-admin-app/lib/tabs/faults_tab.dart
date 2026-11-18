@@ -72,17 +72,29 @@ class _FaultsTabState extends State<FaultsTab> {
       _loading = true;
       _error = null;
     });
-    final res = await Api.getJson('/super-admin/report/faults', params: {
-      'branchCode': widget.branch,
-      'year': _year.text.trim(),
-      'month': _month,
-    });
+    final res = await Api.getJsonCached(
+      '/super-admin/report/faults',
+      params: {
+        'branchCode': widget.branch,
+        'year': _year.text.trim(),
+        'month': _month,
+      },
+      onCached: (d) {
+        if (!mounted || d is! Map) return;
+        setState(() {
+          _data = Map<String, dynamic>.from(d);
+          _loaded = true;
+        });
+      },
+    );
     if (!mounted) return;
     setState(() {
-      _data = res.data;
+      _data = res.data ?? _data;
       _loading = false;
       _loaded = true;
-      if (res.data == null) _error = 'Could not load faults. Pull down to retry.';
+      if (res.data == null && _data == null) {
+        _error = 'Could not load faults. Pull down to retry.';
+      }
     });
   }
 

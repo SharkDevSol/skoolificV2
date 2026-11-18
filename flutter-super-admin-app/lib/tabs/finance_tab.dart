@@ -74,16 +74,30 @@ class _FinanceTabState extends State<FinanceTab> {
       _loading = true;
       _error = null;
     });
-    final res = await Api.getJson('/super-admin/report/finance', params: {
+    final params = {
       'branchCode': widget.branch,
       'month': _month,
-    });
+    };
+    final res = await Api.getJsonCached(
+      '/super-admin/report/finance',
+      params: params,
+      onCached: (d) {
+        if (!mounted || d is! Map) return;
+        setState(() {
+          _data = Map<String, dynamic>.from(d);
+          _loaded = true;
+          _loading = false;
+        });
+      },
+    );
     if (!mounted) return;
     setState(() {
-      _data = res.data;
+      _data = res.data ?? _data;
       _loading = false;
       _loaded = true;
-      if (res.data == null) _error = 'Could not load finance. Pull down to retry.';
+      if (res.data == null && _data == null) {
+        _error = 'Could not load finance. Pull down to retry.';
+      }
     });
   }
 

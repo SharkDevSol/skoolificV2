@@ -10,12 +10,11 @@ import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp();
-  } catch (_) {}
   await Api.load();
   final dark = await Api.getDark();
   T.lang = await Api.getLang();
+  // Firebase is initialised after the first screen (see _initPush) so a weak
+  // network never delays the app from opening.
   runApp(SuperAdminApp(initialDark: dark));
 }
 
@@ -61,6 +60,7 @@ class _SuperAdminAppState extends State<SuperAdminApp> {
 
   Future<void> _initPush() async {
     try {
+      await Firebase.initializeApp();
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission();
       FirebaseMessaging.onMessage.listen((message) {

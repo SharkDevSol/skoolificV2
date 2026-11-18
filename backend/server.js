@@ -285,6 +285,35 @@ app.use('/api/staff/login', loginLimiter);
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 
+// 6b. gzip JSON responses. Report payloads are large and the super-admin app is
+// often used on a weak mobile network — this cuts transfer size by ~90%.
+const zlib = require('zlib');
+app.use((req, res, next) => {
+  const accept = String(req.headers['accept-encoding'] || '');
+  if (!/\bgzip\b/.test(accept)) return next();
+  const sendJson = res.json.bind(res);
+  res.json = (body) => {
+    if (res.headersSent) return res;
+    let buf;
+    try {
+      buf = Buffer.from(JSON.stringify(body));
+    } catch (e) {
+      return sendJson(body);
+    }
+    if (buf.length < 1024) return sendJson(body);
+    zlib.gzip(buf, (err, out) => {
+      if (err || res.headersSent) return sendJson(body);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Vary', 'Accept-Encoding');
+      res.setHeader('Content-Length', out.length);
+      res.end(out);
+    });
+    return res;
+  };
+  next();
+});
+
 // Branch database context middleware - auto-routes all DB queries to the correct branch
 const { branchContext } = require('./config/db');
 app.use((req, res, next) => {

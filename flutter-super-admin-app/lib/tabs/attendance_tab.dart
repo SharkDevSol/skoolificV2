@@ -93,20 +93,33 @@ class _AttendanceTabState extends State<AttendanceTab> {
       _error = null;
     });
     final mode = _viewMode == 0 ? 'month' : (_viewMode == 1 ? 'week' : 'date');
-    final res = await Api.getJson('/super-admin/report/attendance', params: {
+    final params = {
       'branchCode': widget.branch,
       'viewMode': mode,
       'year': _year.text.trim(),
       'month': _month,
       if (mode == 'week') 'week': _week,
       if (mode == 'date') 'day': _day.text.trim(),
-    });
+    };
+    final res = await Api.getJsonCached(
+      '/super-admin/report/attendance',
+      params: params,
+      onCached: (d) {
+        if (!mounted || d is! Map) return;
+        setState(() {
+          _data = Map<String, dynamic>.from(d);
+          _loaded = true;
+        });
+      },
+    );
     if (!mounted) return;
     setState(() {
-      _data = res.data;
+      _data = res.data ?? _data;
       _loading = false;
       _loaded = true;
-      if (res.data == null) _error = 'Could not load attendance. Pull down to retry.';
+      if (res.data == null && _data == null) {
+        _error = 'Could not load attendance. Pull down to retry.';
+      }
     });
   }
 

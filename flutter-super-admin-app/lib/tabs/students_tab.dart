@@ -60,17 +60,37 @@ class _StudentsTabState extends State<StudentsTab> {
       _error = null;
     });
     final results = await Future.wait([
-      Api.getJson('/super-admin/report/students', params: {'branchCode': widget.branch}),
-      Api.getJson('/super-admin/report/registrations', params: {
-        'branchCode': widget.branch,
-        'from': _date(_from),
-        'to': _date(_to),
-      }),
+      Api.getJsonCached(
+        '/super-admin/report/students',
+        params: {'branchCode': widget.branch},
+        onCached: (d) {
+          if (!mounted || d is! Map) return;
+          setState(() {
+            _students = Map<String, dynamic>.from(d);
+            _loaded = true;
+          });
+        },
+      ),
+      Api.getJsonCached(
+        '/super-admin/report/registrations',
+        params: {
+          'branchCode': widget.branch,
+          'from': _date(_from),
+          'to': _date(_to),
+        },
+        onCached: (d) {
+          if (!mounted || d is! Map) return;
+          setState(() {
+            _registrations = Map<String, dynamic>.from(d);
+            _loaded = true;
+          });
+        },
+      ),
     ]);
     if (!mounted) return;
     setState(() {
-      _students = results[0].data;
-      _registrations = results[1].data;
+      _students = results[0].data ?? _students;
+      _registrations = results[1].data ?? _registrations;
       _loading = false;
       _loaded = true;
       if (_students == null) _error = 'Could not load student reports. Pull down to retry.';

@@ -1257,10 +1257,8 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
 
     const grandRate = grandExpectedUnlocked > 0 ? Math.round((grandCollectedUnlocked / grandExpectedUnlocked) * 100) : 0;
 
-    res.json({
-      success: true,
-      filters: { month: filterMonth },
-      data: {
+    const light = ['1', 'true'].includes(String(req.query.light || '').toLowerCase());
+    const data = {
         academicYear: '2019 E.C. (2026/2027 G.C.)',
         currentEthMonth,
         currentEthMonthName: ETH_MONTH_NAMES[currentEthMonth - 1] || `Month ${currentEthMonth}`,
@@ -1296,7 +1294,37 @@ router.get('/report/finance', authenticateToken, authorizeRoles('super_admin'), 
         byClass: Object.values(classTotals).sort((a, c) => a.className.localeCompare(c.className)),
         unassignedStudents: allUnassignedStudents,
         unpaidStudents: allUnpaidStudents
-      }
+    };
+
+    // Home screen asks for light=1: totals only, no per-student lists.
+    if (light) {
+      data.unpaidStudents = [];
+      data.unassignedStudents = [];
+      data.byClass = [];
+      data.byBranch = (data.byBranch || []).map((b) => ({
+        branchCode: b.branchCode,
+        branchName: b.branchName,
+        error: b.error,
+        totalStudents: b.totalStudents,
+        oldStudents: b.oldStudents,
+        newStudents: b.newStudents,
+        freeStudents: b.freeStudents,
+        payingStudents: b.payingStudents,
+        unpaidUnlocked: b.unpaidUnlocked,
+        expected: b.expected,
+        collected: b.collected,
+        pending: b.pending,
+        advanceCollected: b.advanceCollected,
+        rate: b.rate,
+        months: b.months,
+        classes: []
+      }));
+    }
+
+    res.json({
+      success: true,
+      filters: { month: filterMonth },
+      data
     });
   } catch (error) {
     console.error('Finance report error:', error);
