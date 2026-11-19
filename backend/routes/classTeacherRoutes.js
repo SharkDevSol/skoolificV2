@@ -1237,27 +1237,11 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
         if (inc) {
           setClauses.push(`"${dayName}" = $${setValues.length + 1}`);
           setValues.push(inc);
-        } else if (stored) {
-          // Empty incoming value + a stored mark: only clear it if the teacher
-          // owns it (their own earlier mark), never a machine/admin record.
-          let ownedByTeacher = false;
-          try {
-            const g = new Date(weekMonday); g.setDate(weekMonday.getDate() + dayNames.indexOf(dayName));
-            const e = convertToEthiopian(g);
-            const own = await client.query(
-              `SELECT notes FROM public.academic_student_attendance
-               WHERE TRIM(student_id::text) = TRIM($1::text) AND LOWER(class_name) = LOWER($2)
-                 AND ethiopian_year = $3 AND ethiopian_month = $4 AND ethiopian_day = $5 LIMIT 1`,
-              [String(school_id), className, e.year, e.month, e.day]
-            );
-            const notes = own.rows[0]?.notes || '';
-            ownedByTeacher = /class teacher/i.test(notes);
-          } catch (_) {}
-          if (ownedByTeacher) {
-            setClauses.push(`"${dayName}" = NULL`);
-            clearedDays.push(dayName);
-          }
         }
+        // An empty incoming day is treated as "not loaded on this phone", never
+        // as "delete". A stale/empty local copy used to wipe whole weeks of
+        // attendance days after they were entered (the teacher's own marks are
+        // deletable by this route). Clearing a day is done from the admin page.
       }
 
       // 3. Write the weekly grid (only the days we are allowed to touch)
