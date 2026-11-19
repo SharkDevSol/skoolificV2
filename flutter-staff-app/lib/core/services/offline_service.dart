@@ -96,18 +96,29 @@ class OfflineService {
       if (idx >= 0) {
         final existing = queue.removeAt(idx);
         if (type == 'save_marks') {
-          // Merge the rows: saving different students/forms while offline
-          // must not replace the earlier rows.
+          // Merge per component: saving different students (or different
+          // components of the same student) while offline must never replace
+          // the earlier values with blanks.
           final merged = <String, Map<String, dynamic>>{};
-          for (final r in (existing['rows'] as List? ?? [])) {
-            final m = Map<String, dynamic>.from(r as Map);
-            merged['${m['studentName']}'] = m;
+          void take(List? rows) {
+            for (final r in (rows ?? const [])) {
+              final m = Map<String, dynamic>.from(r as Map);
+              final name = '${m['studentName']}';
+              final marks = <String, dynamic>{};
+              final prev = merged[name];
+              if (prev != null && prev['marks'] is Map) {
+                marks.addAll(Map<String, dynamic>.from(prev['marks'] as Map));
+              }
+              if (m['marks'] is Map) {
+                marks.addAll(Map<String, dynamic>.from(m['marks'] as Map));
+              }
+              merged[name] = {...?prev, ...m, 'marks': marks};
+            }
           }
-          for (final r in (payload['rows'] as List? ?? [])) {
-            final m = Map<String, dynamic>.from(r as Map);
-            merged['${m['studentName']}'] = m;
-          }
+          take(existing['rows'] as List?);
+          take(payload['rows'] as List?);
           op['rows'] = merged.values.toList();
+          op['changedOnly'] = true;
         }
       }
     }
@@ -147,6 +158,7 @@ class OfflineService {
                 rows: (op['rows'] as List)
                     .map((r) => Map<String, dynamic>.from(r as Map))
                     .toList(),
+                changedOnly: op['changedOnly'] == true,
               );
               break;
             case 'weekly_attendance':

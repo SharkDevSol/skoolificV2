@@ -68,8 +68,79 @@ const StudentExamPlayer = () => {
   const submittingRef = useRef(false);
   const lastViolatedRef = useRef(false);
   const flagViolationRef = useRef(() => {});
+  // Restored-exam support: the deadline is an absolute timestamp, so a reload
+  // (slow network, service-worker update, accidental refresh) never restarts
+  // the clock, and answers are saved on the device as they are typed.
+  const deadlineRef = useRef(null);
+  const timeUpRef = useRef(false);
+  const answersRef = useRef({});
+  const testRef = useRef(null);
+  const studentRef = useRef(null);
+  const [resumed, setResumed] = useState(false);
+  const storageKey = `exam_state_${username}_${publishedId}`;
 
   useEffect(() => { stepRef.current = step; }, [step]);
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+  useEffect(() => { testRef.current = test; }, [test]);
+  useEffect(() => { studentRef.current = student; }, [student]);
+
+  // Tell the rest of the app (service worker reload, chunk-error reload) that an
+  // exam is running so nothing forces a page refresh mid-test.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.__examInProgress = step === 'exam' || step === 'ready';
+  }, [step]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    return () => {
+      window.__examInProgress = false;
+      window.dispatchEvent(new Event('exam-finished'));
+    };
+  }, []);
+
+  // ── restore a saved exam after a reload / dropped connection ─────
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (!s || !s.test || s.step !== 'exam') return;
+      const tl = parseInt(s.test.timeLimit, 10) || 0;
+      const remaining = s.deadline ? Math.max(0, Math.round((s.deadline - Date.now()) / 1000)) : null;
+      setTest(s.test);
+      setQuestions(Array.isArray(s.questions) ? s.questions : []);
+      setAnswers(s.answers && typeof s.answers === 'object' ? s.answers : {});
+      setCurrent(Number(s.current) || 0);
+      setFlagged(s.flagged && typeof s.flagged === 'object' ? s.flagged : {});
+      setViolations(Number(s.violations) || 0);
+      violationsRef.current = Number(s.violations) || 0;
+      deadlineRef.current = s.deadline || null;
+      timeUpRef.current = false;
+      setTimeLeft(tl > 0 ? (remaining ?? tl * 60) : null);
+      setStep('exam');
+      setResumed(true);
+    } catch { /* ignore a corrupt entry */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save the whole exam on every change (answers, page, flags, warnings).
+  useEffect(() => {
+    if (step !== 'exam' || !test) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        step,
+        test,
+        questions,
+        answers,
+        current,
+        flagged,
+        violations,
+        deadline: deadlineRef.current,
+        savedAt: Date.now()
+      }));
+    } catch { /* storage full / private mode */ }
+  }, [step, test, questions, answers, current, flagged, violations, storageKey]);
 
   // ── student identity ─────────────────────────────────────────────
   useEffect(() => {
@@ -118,14 +189,22 @@ const StudentExamPlayer = () => {
     }
   };
 
-  // ── timer ────────────────────────────────────────────────────────
+  // ── timer: always measured against the saved deadline ────────────
   useEffect(() => {
-    if (step !== 'exam' || timeLeft === null) return;
-    if (timeLeft <= 0) { doSubmit(false, 'Time is up — your answers were submitted automatically.'); return; }
-    const t = setTimeout(() => setTimeLeft((s) => (s ?? 1) - 1), 1000);
-    return () => clearTimeout(t);
+    if (step !== 'exam' || deadlineRef.current == null) return;
+    const tick = () => {
+      const rem = Math.max(0, Math.round((deadlineRef.current - Date.now()) / 1000));
+      setTimeLeft(rem);
+      if (rem <= 0 && !timeUpRef.current && !submittingRef.current) {
+        timeUpRef.current = true;
+        doSubmit(false, 'Time is up — your answers were submitted automatically.');
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, timeLeft]);
+  }, [step]);
 
   // ── fullscreen / tab-switch lock (2 violations → 0 marks) ────────
   const flagViolation = (reason) => {
@@ -263,9 +342,11 @@ const StudentExamPlayer = () => {
     setImmersive(!active);
     violationsRef.current = 0;
     lastViolationRef.current = 0;
+    timeUpRef.current = false;
     setViolations(0);
     setWarning('');
     const tl = parseInt(test.timeLimit, 10) || 0;
+    deadlineRef.current = tl > 0 ? Date.now() + tl * 60 * 1000 : null;
     setTimeLeft(tl > 0 ? tl * 60 : null);
     setStep('exam');
   };
@@ -273,7 +354,8 @@ const StudentExamPlayer = () => {
   const setAnswer = (qId, value) => setAnswers((a) => ({ ...a, [qId]: value }));
 
   const doSubmit = async (violated, message) => {
-    if (!test || submittingRef.current) return;
+    const t = testRef.current;
+    if (!t || submittingRef.current) return;
     submittingRef.current = true;
     lastViolatedRef.current = !!violated;
     setSubmitting(true);
@@ -285,23 +367,25 @@ const StudentExamPlayer = () => {
       if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
     } catch { /* ignore */ }
     try {
+      const stu = studentRef.current;
       const res = await axios.post('/api/ai/submit-exam', {
-        schemaName: test.schemaName,
-        tableName: test.tableName,
-        subjectName: test.subject,
-        className: test.className,
-        termNumber: test.termNumber,
-        componentName: test.componentName,
-        totalMarks: test.totalMarks,
-        studentId: student?.id || '',
-        studentName: student?.student_name || '',
-        studentUsername: student?.username || username,
-        answers,
-        publishedId: test.publishedId,
+        schemaName: t.schemaName,
+        tableName: t.tableName,
+        subjectName: t.subject,
+        className: t.className,
+        termNumber: t.termNumber,
+        componentName: t.componentName,
+        totalMarks: t.totalMarks,
+        studentId: stu?.id || '',
+        studentName: stu?.student_name || '',
+        studentUsername: stu?.username || username,
+        answers: answersRef.current,
+        publishedId: t.publishedId,
         violated: !!violated
       });
       setDoneResult({ ...(res.data || {}), localMessage: message || '' });
       setStep('done');
+      try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
       setFsBlocked(false);
       fsRequiredRef.current = false;
       try { if (document.fullscreenElement) await document.exitFullscreen(); } catch { /* ignore */ }
@@ -549,6 +633,11 @@ const StudentExamPlayer = () => {
         </div>
       </div>
 
+      {resumed && (
+        <div className={styles.warningBanner}>
+          ✅ Your answers were restored after the page reloaded — the timer continued, it did not restart.
+        </div>
+      )}
       {violations > 0 && violations < 2 && (
         <div className={styles.warningBanner}>⚠️ Warning {violations}/2 — do not leave the exam screen.</div>
       )}

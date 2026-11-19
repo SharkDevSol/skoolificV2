@@ -29,6 +29,34 @@ class _MarksTabState extends State<MarksTab> {
   bool _offlineData = false;
   int _pendingSync = 0;
 
+  /// Focus nodes per (student, component) so the keyboard "next" key can jump
+  /// to the same component on the next student.
+  final Map<String, FocusNode> _fieldFocus = {};
+
+  FocusNode _focusFor(String studentId, String component) {
+    final key = '$studentId|$component';
+    return _fieldFocus.putIfAbsent(key, () => FocusNode());
+  }
+
+  void _focusNextField(int rowIndex, int compIndex) {
+    if (_students.isEmpty) return;
+    final comp = compIndex >= 0 && compIndex < _components.length ? _components[compIndex].name : null;
+    if (comp == null) return;
+    var nextRow = rowIndex + 1;
+    if (nextRow >= _students.length) {
+      // last student: move to the first student of the next component
+      if (compIndex + 1 < _components.length) {
+        nextRow = 0;
+        final nextComp = _components[compIndex + 1].name;
+        _focusFor(_students[0].studentId, nextComp).requestFocus();
+        return;
+      }
+      FocusScope.of(context).unfocus();
+      return;
+    }
+    _focusFor(_students[nextRow].studentId, comp).requestFocus();
+  }
+
   List<StudentMarkRow> _students = [];
   List<MarkComponentConfig> _components = [];
   bool _formFound = true;
@@ -274,14 +302,16 @@ class _MarksTabState extends State<MarksTab> {
     final rows = <Map<String, dynamic>>[];
     for (final row in _students) {
       final saved = _saved[row.studentId] ?? const <String, double>{};
-      var changed = false;
+      final changedComps = <String>{};
       for (final comp in _components) {
         if (((saved[comp.name] ?? 0.0) - (row.marks[comp.name] ?? 0.0)).abs() > 0.0001) {
-          changed = true;
-          break;
+          changedComps.add(comp.name);
         }
       }
-      if (changed) rows.add(row.toSaveRow(components: _components));
+      // Send ONLY the components this teacher changed — never zeros for the rest.
+      if (changedComps.isNotEmpty) {
+        rows.add(row.toSaveRow(components: _components, only: changedComps));
+      }
     }
 
     final payload = {
@@ -290,6 +320,7 @@ class _MarksTabState extends State<MarksTab> {
       'termNumber': _selectedTerm,
       'subjectClass': _selectedAssignment!.subjectClass,
       'formId': _selectedAssignment!.formId,
+      'changedOnly': true,
       'rows': rows,
     };
 
@@ -307,11 +338,15 @@ class _MarksTabState extends State<MarksTab> {
     }
 
     try {
+      // Push anything already queued for this form first, so an old queued
+      // save can never overwrite the marks we are about to write.
+      await OfflineService.flush();
       final ok = await ApiService().updateMarks(
         subjectName: _selectedAssignment!.subjectName,
         className: _selectedAssignment!.className,
         termNumber: _selectedTerm,
         rows: rows,
+        changedOnly: true,
       );
       if (ok) {
         _snapshotCurrent();
@@ -1235,7 +1270,9 @@ class _MarksTabState extends State<MarksTab> {
             ),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 12,
+                ),
                 itemCount: students.length,
                 itemBuilder: (context, idx) {
                   final student = students[idx];
@@ -1291,6 +1328,7 @@ class _MarksTabState extends State<MarksTab> {
                         ...comps.map((c) {
                           final locked = _isLocked(student, c);
                           final val = student.marks[c.name] ?? 0.0;
+                          final compIndex = comps.indexOf(c);
                           return SizedBox(
                             width: cellWidth,
                             child: Padding(
@@ -1299,10 +1337,13 @@ class _MarksTabState extends State<MarksTab> {
                                 height: 34,
                                 child: TextFormField(
                                   key: ValueKey('${student.studentId}_${c.name}'),
+                                  focusNode: _focusFor(student.studentId, c.name),
                                   initialValue: val > 0 ? _fmt(val) : '',
                                   enabled: !locked && !_formLocked,
                                   keyboardType:
                                       const TextInputType.numberWithOptions(decimal: true),
+                                  textInputAction: TextInputAction.next,
+                                  scrollPadding: const EdgeInsets.only(bottom: 240, top: 90),
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 13,
@@ -1339,6 +1380,7 @@ class _MarksTabState extends State<MarksTab> {
                                     _recomputeTotal(student);
                                     setState(() {});
                                   },
+                                  onFieldSubmitted: (_) => _focusNextField(idx, compIndex),
                                 ),
                               ),
                             ),
@@ -1463,10 +1505,13 @@ class _MarksTabState extends State<MarksTab> {
                               width: 75,
                               child: TextFormField(
                                 key: ValueKey('${student.studentId}_${comp.name}_oo'),
+                                focusNode: _focusFor('${student.studentId}_oo', comp.name),
                                 initialValue: currentVal > 0 ? _fmt(currentVal) : '',
                                 enabled: !locked && !_formLocked,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(decimal: true),
+                                textInputAction: TextInputAction.next,
+                                scrollPadding: const EdgeInsets.only(bottom: 240, top: 90),
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                     fontSize: 15, fontWeight: FontWeight.w800),
@@ -1484,6 +1529,17 @@ class _MarksTabState extends State<MarksTab> {
                                   student.marks[comp.name] = parsed;
                                   _recomputeTotal(student);
                                   setState(() {});
+                                },
+                                onFieldSubmitted: (_) {
+                                  final ci = comps.indexOf(comp);
+                                  if (ci >= 0 && ci + 1 < comps.length) {
+                                    _focusFor('${student.studentId}_oo', comps[ci + 1].name)
+                                        .requestFocus();
+                                  } else if (_oneByOneIndex + 1 < _students.length) {
+                                    setState(() => _oneByOneIndex++);
+                                  } else {
+                                    FocusScope.of(context).unfocus();
+                                  }
                                 },
                               ),
                             ),

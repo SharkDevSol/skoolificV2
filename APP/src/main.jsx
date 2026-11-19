@@ -46,25 +46,41 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
+// Never force a page reload while a student is taking an exam.
+const examRunning = () => (typeof window !== 'undefined' && window.__examInProgress === true);
+
 // Register service worker for offline support
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
   // New service worker installed (new deploy) → reload once so phones never
-  // keep running yesterday's code after an update.
+  // keep running yesterday's code after an update — but never during an exam.
   let swReloaded = false;
+  let reloadPending = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (examRunning()) { reloadPending = true; return; }
     if (swReloaded) return;
     swReloaded = true;
     window.location.reload();
+  });
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SW_UPDATED' && examRunning()) {
+      reloadPending = true;
+    }
+  });
+  // Apply a deferred reload only after the exam screen is gone.
+  window.addEventListener('exam-finished', () => {
+    if (reloadPending) { reloadPending = false; window.location.reload(); }
   });
 }
 
 // White-screen guard: if a lazy chunk fails to load (stale cache / dropped
 // connection on mobile), reload once instead of showing a blank page.
+// During an exam a reload would lose time, so it is skipped entirely.
 window.addEventListener('vite:preloadError', (e) => {
   e.preventDefault();
+  if (examRunning()) return;
   const key = 'chunkReloadAt';
   const last = parseInt(sessionStorage.getItem(key) || '0', 10);
   if (Date.now() - last > 15000) {

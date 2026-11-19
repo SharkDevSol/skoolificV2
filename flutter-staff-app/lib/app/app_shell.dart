@@ -86,13 +86,13 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   }
 
   Future<void> _silentUpdateCheck() async {
-    final update = await UpdateService.checkForUpdate();
-    if (mounted) {
-      setState(() {
-        _pendingUpdate = update;
-        _updateAvailable = update != null;
-      });
-    }
+    // Updates come from Google Play now. The store applies them itself and
+    // shows the badge on the Play listing, so there is nothing to check here.
+    if (!mounted) return;
+    setState(() {
+      _pendingUpdate = null;
+      _updateAvailable = false;
+    });
   }
 
   /// Header refresh: re-fetch provider data (profile/assignments/posts) and
@@ -153,61 +153,51 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
   }
 
   Future<void> _checkForUpdate() async {
-    final update = await UpdateService.checkForUpdate();
+    // Only Google Play is used for updates — no browser download any more.
     if (!mounted) return;
-    if (update == null) {
-      setState(() => _updateAvailable = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tr(context, 'you_are_up_to_date')),
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-    final url = update['url']?.toString() ?? '';
-    final notes = update['notes']?.toString() ?? '';
-    final version = update['version']?.toString() ?? '';
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('${tr(context, 'update_available')} — v$version'),
+        title: Text(tr(context, 'update_available')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (notes.isNotEmpty) ...[
-              Text(notes, style: const TextStyle(fontSize: 13)),
-              const SizedBox(height: 12),
-            ],
-            Text(tr(context, 'update_tap_note'), style: const TextStyle(fontSize: 13, color: Colors.grey)),
+            Text(
+              'Updates are installed from Google Play. Open the Play Store and tap Update if one is available for this app.',
+              style: const TextStyle(fontSize: 13),
+            ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              UpdateService.markVersionSeen(version);
-              setState(() => _updateAvailable = false);
-            },
+            onPressed: () => Navigator.pop(ctx),
             child: Text(tr(context, 'later')),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              UpdateService.markVersionSeen(version);
-              setState(() => _updateAvailable = false);
-              if (url.isNotEmpty) {
-                launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-              }
+              _openPlayStore();
             },
-            child: Text(tr(context, 'download')),
+            child: const Text('Open Play Store'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _openPlayStore() async {
+    final market = Uri.parse('market://details?id=${UpdateService.packageName}');
+    final web = Uri.parse(
+        'https://play.google.com/store/apps/details?id=${UpdateService.packageName}');
+    try {
+      final ok = await launchUrl(market, mode: LaunchMode.externalApplication);
+      if (!ok) await launchUrl(web, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      try {
+        await launchUrl(web, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
   }
 
   @override

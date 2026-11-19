@@ -10,12 +10,12 @@ self.addEventListener('activate', (e) => {
     }).then(() => {
       return self.clients.claim();
     }).then(() => {
-      // Notify all open tabs to reload to the new version
+      // Tell open tabs a new version is ready — but do NOT navigate them here:
+      // a student may be in the middle of an exam and a forced reload would
+      // wipe their answers and restart the timer. The app decides when to reload.
       return self.clients.matchAll({ type: 'window' }).then((clients) => {
         clients.forEach((client) => {
-          if (client.url && 'navigate' in client) {
-            client.navigate(client.url);
-          }
+          if (client.postMessage) client.postMessage({ type: 'SW_UPDATED' });
         });
       });
     })

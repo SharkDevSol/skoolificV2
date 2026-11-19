@@ -2087,7 +2087,9 @@ router.post('/bulk-update-marks', async (req, res) => {
     
     let updatedCount = 0;
     let skippedCount = 0;
+    let ignoredCount = 0;
     const notifyList = [];
+    const changedOnly = req.body.changedOnly === true;
 
     // Map each config component to the real column in this mark table.
     let actualColumns = new Set();
@@ -2100,6 +2102,15 @@ router.post('/bulk-update-marks', async (req, res) => {
       actualColumns = new Set(cols.rows.map(r => String(r.column_name)));
     } catch (_) {}
     const resolveCol = buildColumnResolver(actualColumns);
+
+    // Components → real columns, resolved once.
+    const componentColumns = [];
+    for (const component of markComponents) {
+      const componentKey = sanitizeComponentKey(component.name);
+      const column = resolveCol(component.name) || resolveCol(componentKey);
+      if (column) componentColumns.push({ component, column, componentKey });
+    }
+    const markColumns = componentColumns.map(x => x.column);
     
     for (const studentMarks of marksData) {
       const { studentName, marks } = studentMarks;
@@ -2145,34 +2156,61 @@ router.post('/bulk-update-marks', async (req, res) => {
         }
       }
       
-      // Build update query
-      const updateColumns = [];
-      const updateValues = [];
-      let total = 0;
-      
-      for (const component of markComponents) {
-        const componentKey = sanitizeComponentKey(component.name);
-        const column = resolveCol(component.name) || resolveCol(componentKey);
-        if (!column) continue;
-        
+      // Build update query — merge with the stored row so components that were
+      // not sent keep their value, and the total is recalculated from ALL
+      // components (not just the ones in this request).
+      const currentRes = await client.query(
+        `SELECT * FROM ${schemaName}.${tableName} WHERE id = $1`,
+        [studentId]
+      );
+      const current = currentRes.rows[0] || {};
+
+      const provided = [];
+      for (const { component, column, componentKey } of componentColumns) {
         const markValue = marks[column] !== undefined ? marks[column] :
           (marks[componentKey] !== undefined ? marks[componentKey] :
           (marks[component.name] !== undefined ? marks[component.name] :
           (marks[componentKey.replace(/_/g, '')])));
 
-        if (markValue !== undefined && markValue !== null && markValue !== '') {
-          const mark = parseFloat(markValue);
-          const maxMark = component.percentage;
-          const finalMark = Math.min(isNaN(mark) ? 0 : mark, maxMark);
-          updateColumns.push(`"${column}" = $${updateValues.length + 1}`);
-          updateValues.push(finalMark);
-          total += finalMark;
-        }
+        if (markValue === undefined || markValue === null || markValue === '') continue;
+
+        const raw = parseFloat(markValue);
+        const max = Number(component.percentage);
+        provided.push({
+          column,
+          value: Number.isFinite(raw) ? raw : 0,
+          max: Number.isFinite(max) && max > 0 ? max : 100
+        });
       }
-      
+
+      // Legacy app versions send EVERY component on each save (0 for the ones
+      // the teacher never touched). If that whole payload is zeros while the
+      // server already holds marks, it is a stale local copy — never erase.
+      const allZero = provided.length > 0 && provided.every(p => p.value === 0);
+      const dbHasMarks = markColumns.some(col => Number(current[col] || 0) > 0);
+      if (!changedOnly && allZero && dbHasMarks) {
+        ignoredCount++;
+        continue;
+      }
+
+      const merged = {};
+      for (const col of markColumns) merged[col] = Number(current[col] || 0);
+      for (const p of provided) {
+        merged[p.column] = Math.max(0, Math.min(p.value, p.max));
+      }
+
+      const updateColumns = [];
+      const updateValues = [];
+      for (const p of provided) {
+        updateColumns.push(`"${p.column}" = $${updateValues.length + 1}`);
+        updateValues.push(merged[p.column]);
+      }
+
       if (updateColumns.length === 0) { skippedCount++; continue; }
-      
+
       // Ensure total doesn't exceed 100
+      let total = 0;
+      for (const col of markColumns) total += Number(merged[col] || 0);
       total = Math.min(total, 100);
       
       // Determine pass status
@@ -2203,7 +2241,7 @@ router.post('/bulk-update-marks', async (req, res) => {
       }
     }
     
-    if (marksData.length > 0 && (updatedCount === 0 || skippedCount > 0)) {
+    if (marksData.length > 0 && updatedCount === 0 && ignoredCount === 0) {
       await client.query('ROLLBACK');
       return res.status(422).json({
         error: skippedCount > 0
@@ -2242,7 +2280,8 @@ router.post('/bulk-update-marks', async (req, res) => {
 
     res.json({ 
       message: `Bulk update completed successfully. ${updatedCount} students updated.`,
-      updatedCount 
+      updatedCount: updatedCount + ignoredCount,
+      ignored: ignoredCount
     });
   } catch (error) {
     await client.query('ROLLBACK');

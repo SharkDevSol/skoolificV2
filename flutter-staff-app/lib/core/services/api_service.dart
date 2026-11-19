@@ -225,6 +225,7 @@ class ApiService {
     required String className,
     required int termNumber,
     required List<Map<String, dynamic>> rows,
+    bool changedOnly = false,
   }) async {
     if (rows.isEmpty) return true;
     final res = await _retry(
@@ -236,6 +237,7 @@ class ApiService {
                 'className': className,
                 'termNumber': termNumber,
                 'marksData': rows,
+                'changedOnly': changedOnly,
               }))
           .timeout(const Duration(seconds: 30)),
       retries: 3,

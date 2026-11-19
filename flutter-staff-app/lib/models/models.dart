@@ -7,6 +7,7 @@ class StaffUser {
   final String staffType;
   final String? className;
   final String branchCode;
+  final List<String> permissions;
   final StaffProfile? profile;
 
   StaffUser({
@@ -18,8 +19,11 @@ class StaffUser {
     required this.staffType,
     this.className,
     required this.branchCode,
+    this.permissions = const [],
     this.profile,
   });
+
+  bool can(String p) => permissions.isEmpty || permissions.contains(p);
 
   bool get isTeacher {
     final t = staffType.toLowerCase();
@@ -39,6 +43,7 @@ class StaffUser {
       staffType: j['staffType']?.toString() ?? j['staff_type']?.toString() ?? 'Staff',
       className: j['className']?.toString() ?? j['class_name']?.toString(),
       branchCode: j['branchCode']?.toString() ?? j['branch_code']?.toString() ?? '',
+      permissions: (j['permissions'] as List?)?.map((e) => e.toString()).toList() ?? const [],
       profile: profile ?? (j['profile'] is Map ? StaffProfile.fromJson(Map<String, dynamic>.from(j['profile'])) : null),
     );
   }
@@ -52,6 +57,7 @@ class StaffUser {
         'staffType': staffType,
         'className': className,
         'branchCode': branchCode,
+        'permissions': permissions,
         if (profile != null) 'profile': profile!.toJson(),
       };
 }
@@ -283,14 +289,19 @@ class StudentMarkRow {
   /// Payload item for POST /api/mark-list/bulk-update-marks
   /// (`{studentName, marks: {componentKey: value}}` — the server looks the
   /// student up by name and clamps each mark to the component percentage).
-  Map<String, dynamic> toSaveRow({List<MarkComponentConfig>? components}) {
+  Map<String, dynamic> toSaveRow({List<MarkComponentConfig>? components, Set<String>? only}) {
     final m = <String, double>{};
     if (components != null) {
       for (final c in components) {
+        // Only send what the teacher actually edited. Sending a 0 for every
+        // untouched component used to wipe marks entered on another device.
+        if (only != null && !only.contains(c.name)) continue;
         m[c.componentKey] = marks[c.name] ?? 0.0;
       }
     } else {
-      marks.forEach((k, v) => m[k] = v);
+      marks.forEach((k, v) {
+        if (only == null || only.contains(k)) m[k] = v;
+      });
     }
     return {
       'studentName': studentName,
