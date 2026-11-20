@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/offline_service.dart';
+import '../../core/services/storage_service.dart';
 import '../../core/utils/class_id.dart';
 import '../../widgets/app_widgets.dart';
 import '../../app/app_provider.dart';
@@ -38,9 +42,68 @@ class _MarksTabState extends State<MarksTab> {
   /// left out because the loaded snapshot was stale.
   final Set<String> _dirty = {};
 
+  /// Unsaved work is written to the phone continuously, so closing the app or
+  /// a failed save never loses what the teacher typed.
+  Timer? _draftTimer;
+  String get _draftKey => 'marks_draft_$_cacheKey';
+
+  void _queueDraft() {
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 300), () {
+      try {
+        final data = <String, dynamic>{};
+        for (final r in _students) {
+          final vals = <String, double>{};
+          for (final c in _components) {
+            final v = r.marks[c.name] ?? 0.0;
+            if (v != 0) vals[c.name] = v;
+          }
+          if (vals.isNotEmpty) data[r.studentId] = vals;
+        }
+        StorageService.setOfflineCache(_draftKey, jsonEncode(data));
+      } catch (_) {}
+    });
+  }
+
+  void _restoreDraft() {
+    try {
+      final raw = StorageService.getOfflineCache(_draftKey);
+      if (raw == null || raw.isEmpty) return;
+      final d = jsonDecode(raw);
+      if (d is! Map) return;
+      for (final r in _students) {
+        final saved = d[r.studentId];
+        if (saved is! Map) continue;
+        saved.forEach((k, v) {
+          final val = v is num ? v.toDouble() : double.tryParse('$v');
+          if (val == null) return;
+          r.marks[k.toString()] = val;
+          _dirty.add('${r.studentId}|$k');
+        });
+        _recomputeTotal(r);
+      }
+    } catch (_) {}
+  }
+
+  void _clearDraft() {
+    _draftTimer?.cancel();
+    try {
+      StorageService.setOfflineCache(_draftKey, '');
+    } catch (_) {}
+  }
+
   FocusNode _focusFor(String studentId, String component) {
     final key = '$studentId|$component';
     return _fieldFocus.putIfAbsent(key, () => FocusNode());
+  }
+
+  @override
+  void dispose() {
+    _draftTimer?.cancel();
+    for (final n in _fieldFocus.values) {
+      n.dispose();
+    }
+    super.dispose();
   }
 
   void _focusNextField(int rowIndex, int compIndex) {
@@ -253,6 +316,8 @@ class _MarksTabState extends State<MarksTab> {
     for (final r in rows) {
       _saved[r.studentId] = Map<String, double>.from(r.marks);
     }
+    // Put back anything the teacher typed but has not saved yet.
+    _restoreDraft();
     _formFound = true;
     _offlineData = fromCache;
 
@@ -367,6 +432,7 @@ class _MarksTabState extends State<MarksTab> {
         changedOnly: true,
       );
       if (ok) {
+        _clearDraft();
         _dirty.clear();
         _snapshotCurrent();
         _updateCachedPayload();
@@ -501,8 +567,8 @@ class _MarksTabState extends State<MarksTab> {
             padding: EdgeInsets.only(bottom: keyboard),
             child: Column(
               children: [
-                _buildHeader(context, prov, isDark),
-                _pageToggle(isDark),
+                if (keyboard == 0) _buildHeader(context, prov, isDark),
+                if (keyboard == 0) _pageToggle(isDark),
                 Expanded(
                   child: _pageTab == 1
                       ? _buildReportView(isDark)
@@ -530,7 +596,7 @@ class _MarksTabState extends State<MarksTab> {
               ],
             ),
           ),
-          if (_formFound && _students.isNotEmpty && _pageTab == 0)
+          if (_formFound && _students.isNotEmpty && _pageTab == 0 && keyboard == 0)
             Positioned(
               left: 16,
               right: 16,
@@ -1405,6 +1471,7 @@ class _MarksTabState extends State<MarksTab> {
                                     final parsed = double.tryParse(txt);
                                     student.marks[c.name] = parsed ?? 0.0;
                                     _dirty.add('${student.studentId}|${c.name}');
+                                    _queueDraft();
                                     _recomputeTotal(student);
                                     setState(() {});
                                   },
@@ -1556,6 +1623,7 @@ class _MarksTabState extends State<MarksTab> {
                                   final parsed = double.tryParse(val) ?? 0.0;
                                   student.marks[comp.name] = parsed;
                                   _dirty.add('${student.studentId}|${comp.name}');
+                                  _queueDraft();
                                   _recomputeTotal(student);
                                   setState(() {});
                                 },
