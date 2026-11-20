@@ -561,6 +561,7 @@ class _MarksTabState extends State<MarksTab> {
     final keyboard = [MediaQuery.of(context).viewInsets.bottom, MediaQueryData.fromView(View.of(context)).viewInsets.bottom].reduce((a, b) => a > b ? a : b);
     final keyboardOpen = keyboard > 50;
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           // When the phone keyboard opens, lift the whole sheet (header + column
@@ -568,7 +569,7 @@ class _MarksTabState extends State<MarksTab> {
           AnimatedPadding(
             duration: const Duration(milliseconds: 120),
             curve: Curves.easeOut,
-            padding: EdgeInsets.only(bottom: keyboard),
+            padding: EdgeInsets.zero,
             child: Column(
               children: [
                 if (!keyboardOpen) _buildHeader(context, prov, isDark),
@@ -1384,7 +1385,7 @@ class _MarksTabState extends State<MarksTab> {
             ),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: EdgeInsets.only(bottom: 12 + MediaQuery.of(context).viewInsets.bottom),
                 itemCount: students.length,
                 itemBuilder: (context, idx) {
                   final student = students[idx];
