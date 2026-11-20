@@ -558,7 +558,7 @@ class _MarksTabState extends State<MarksTab> {
           (s.rollNumber ?? '').contains(q);
     }).toList();
 
-    final keyboard = MediaQueryData.fromView(View.of(context)).viewInsets.bottom;
+    final keyboard = [MediaQuery.of(context).viewInsets.bottom, MediaQueryData.fromView(View.of(context)).viewInsets.bottom].reduce((a, b) => a > b ? a : b);
     final keyboardOpen = keyboard > 50;
     return Scaffold(
       body: Stack(
