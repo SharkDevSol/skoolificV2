@@ -33,6 +33,11 @@ class _MarksTabState extends State<MarksTab> {
   /// to the same component on the next student.
   final Map<String, FocusNode> _fieldFocus = {};
 
+  /// Every cell the teacher actually typed in: "studentId|component".
+  /// The save uses this instead of comparing snapshots, so a mark can never be
+  /// left out because the loaded snapshot was stale.
+  final Set<String> _dirty = {};
+
   FocusNode _focusFor(String studentId, String component) {
     final key = '$studentId|$component';
     return _fieldFocus.putIfAbsent(key, () => FocusNode());
@@ -272,6 +277,7 @@ class _MarksTabState extends State<MarksTab> {
   }
 
   bool get _hasChanges {
+    if (_dirty.isNotEmpty) return true;
     for (final row in _students) {
       final saved = _saved[row.studentId] ?? const <String, double>{};
       for (final comp in _components) {
@@ -299,18 +305,29 @@ class _MarksTabState extends State<MarksTab> {
     }
     setState(() => _saving = true);
 
+    final dirty = <String, Set<String>>{};
+    for (final key in _dirty) {
+      final i = key.indexOf('|');
+      if (i <= 0) continue;
+      dirty.putIfAbsent(key.substring(0, i), () => <String>{}).add(key.substring(i + 1));
+    }
+
     final rows = <Map<String, dynamic>>[];
     for (final row in _students) {
-      final saved = _saved[row.studentId] ?? const <String, double>{};
-      final changedComps = <String>{};
-      for (final comp in _components) {
-        if (((saved[comp.name] ?? 0.0) - (row.marks[comp.name] ?? 0.0)).abs() > 0.0001) {
-          changedComps.add(comp.name);
+      var comps = dirty[row.studentId];
+      if (comps == null || comps.isEmpty) {
+        // no explicit edits recorded for this student: fall back to the diff
+        final saved = _saved[row.studentId] ?? const <String, double>{};
+        comps = <String>{};
+        for (final comp in _components) {
+          if (((saved[comp.name] ?? 0.0) - (row.marks[comp.name] ?? 0.0)).abs() > 0.0001) {
+            comps.add(comp.name);
+          }
         }
       }
       // Send ONLY the components this teacher changed — never zeros for the rest.
-      if (changedComps.isNotEmpty) {
-        rows.add(row.toSaveRow(components: _components, only: changedComps));
+      if (comps.isNotEmpty) {
+        rows.add(row.toSaveRow(components: _components, only: comps));
       }
     }
 
@@ -327,6 +344,7 @@ class _MarksTabState extends State<MarksTab> {
     final online = await OfflineService.isOnline();
     if (!online) {
       await OfflineService.enqueue('save_marks', payload);
+      _dirty.clear();
       _snapshotCurrent();
       _updateCachedPayload();
       if (mounted) {
@@ -349,12 +367,13 @@ class _MarksTabState extends State<MarksTab> {
         changedOnly: true,
       );
       if (ok) {
+        _dirty.clear();
         _snapshotCurrent();
         _updateCachedPayload();
         await OfflineService.flush();
         if (mounted) {
           setState(() => _pendingSync = OfflineService.pendingCount);
-          showSuccess(context, tr(context, 'marks_saved'));
+          showSuccess(context, 'Saved ${rows.length} student${rows.length == 1 ? '' : 's'} ✓');
         }
         await _fetchMarkList(force: true);
       } else if (mounted) {
@@ -369,6 +388,7 @@ class _MarksTabState extends State<MarksTab> {
           // example 0 rows saved for a Tarbiya/Arabic form). The queue retries
           // automatically and the teacher does not have to type it again.
           await OfflineService.enqueue('save_marks', payload);
+          _dirty.clear();
           _snapshotCurrent();
           _updateCachedPayload();
           if (mounted) {
@@ -380,6 +400,7 @@ class _MarksTabState extends State<MarksTab> {
     } catch (e) {
       // Network broke mid-save → keep the work offline.
       await OfflineService.enqueue('save_marks', payload);
+      _dirty.clear();
       _snapshotCurrent();
       _updateCachedPayload();
       if (mounted) {
@@ -1383,6 +1404,7 @@ class _MarksTabState extends State<MarksTab> {
                                   onChanged: (txt) {
                                     final parsed = double.tryParse(txt);
                                     student.marks[c.name] = parsed ?? 0.0;
+                                    _dirty.add('${student.studentId}|${c.name}');
                                     _recomputeTotal(student);
                                     setState(() {});
                                   },
@@ -1533,6 +1555,7 @@ class _MarksTabState extends State<MarksTab> {
                                 onChanged: (val) {
                                   final parsed = double.tryParse(val) ?? 0.0;
                                   student.marks[comp.name] = parsed;
+                                  _dirty.add('${student.studentId}|${comp.name}');
                                   _recomputeTotal(student);
                                   setState(() {});
                                 },
