@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/storage_service.dart';
 import '../../widgets/app_widgets.dart';
 import '../../app/app_shell.dart';
+import '../../app/restricted_shell.dart';
 import '../login/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -24,10 +26,21 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     final loggedIn = StorageService.isLoggedIn;
+    bool restricted = false;
+    try {
+      final raw = StorageService.user;
+      if (raw != null && raw.isNotEmpty) {
+        final j = jsonDecode(raw) as Map<String, dynamic>;
+        final perms = j['permissions'];
+        restricted = perms is List && perms.isNotEmpty;
+      }
+    } catch (_) {}
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => loggedIn ? const AppShell() : const LoginScreen(),
+        builder: (_) => loggedIn
+            ? (restricted ? const RestrictedStaffShell() : const AppShell())
+            : const LoginScreen(),
       ),
     );
   }

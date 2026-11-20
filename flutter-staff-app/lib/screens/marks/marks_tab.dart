@@ -41,6 +41,9 @@ class _MarksTabState extends State<MarksTab> {
   /// The save uses this instead of comparing snapshots, so a mark can never be
   /// left out because the loaded snapshot was stale.
   final Set<String> _dirty = {};
+  String? _activeStudent;
+  String? _activeComponent;
+  num? _activeMax;
 
   /// Unsaved work is written to the phone continuously, so closing the app or
   /// a failed save never loses what the teacher typed.
@@ -555,7 +558,8 @@ class _MarksTabState extends State<MarksTab> {
           (s.rollNumber ?? '').contains(q);
     }).toList();
 
-    final keyboard = MediaQuery.of(context).viewInsets.bottom;
+    final keyboard = MediaQueryData.fromView(View.of(context)).viewInsets.bottom;
+    final keyboardOpen = keyboard > 50;
     return Scaffold(
       body: Stack(
         children: [
@@ -567,8 +571,23 @@ class _MarksTabState extends State<MarksTab> {
             padding: EdgeInsets.only(bottom: keyboard),
             child: Column(
               children: [
-                if (keyboard == 0) _buildHeader(context, prov, isDark),
-                if (keyboard == 0) _pageToggle(isDark),
+                if (!keyboardOpen) _buildHeader(context, prov, isDark),
+                if (!keyboardOpen) _pageToggle(isDark),
+                if (keyboardOpen && _activeStudent != null)
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(color: AppColors.primarySoft, borderRadius: BorderRadius.circular(10)),
+                    child: Row(children: [
+                      Expanded(
+                        child: Text('${_activeStudent}  •  ${_activeComponent} (max ${_activeMax}%)',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.primary)),
+                      ),
+                      TextButton(onPressed: () => FocusScope.of(context).unfocus(), child: const Text('Done')),
+                    ]),
+                  ),
                 Expanded(
                   child: _pageTab == 1
                       ? _buildReportView(isDark)
@@ -592,11 +611,11 @@ class _MarksTabState extends State<MarksTab> {
                 ),
                 // Room for the floating save bar (bottom:104 + ~70px tall
                 // ≈ 174) + nav — sized so the bar never covers the last rows.
-                SizedBox(height: keyboard > 0 ? 8 : 190),
+                SizedBox(height: keyboardOpen ? 8 : 190),
               ],
             ),
           ),
-          if (_formFound && _students.isNotEmpty && _pageTab == 0 && keyboard == 0)
+          if (_formFound && _students.isNotEmpty && _pageTab == 0 && !keyboardOpen)
             Positioned(
               left: 16,
               right: 16,
@@ -1431,12 +1450,13 @@ class _MarksTabState extends State<MarksTab> {
                                 child: TextFormField(
                                   key: ValueKey('${student.studentId}_${c.name}'),
                                   focusNode: _focusFor(student.studentId, c.name),
+                                  onTap: () => setState(() { _activeStudent = student.studentName; _activeComponent = c.name; _activeMax = c.percentage; }),
                                   initialValue: val > 0 ? _fmt(val) : '',
                                   enabled: !locked && !_formLocked,
                                   keyboardType:
                                       const TextInputType.numberWithOptions(decimal: true),
                                   textInputAction: TextInputAction.next,
-                                  scrollPadding: const EdgeInsets.only(bottom: 240, top: 90),
+                                  scrollPadding: const EdgeInsets.only(bottom: 20),
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 13,
@@ -1601,12 +1621,13 @@ class _MarksTabState extends State<MarksTab> {
                               child: TextFormField(
                                 key: ValueKey('${student.studentId}_${comp.name}_oo'),
                                 focusNode: _focusFor('${student.studentId}_oo', comp.name),
+                                onTap: () => setState(() { _activeStudent = student.studentName; _activeComponent = comp.name; _activeMax = comp.percentage; }),
                                 initialValue: currentVal > 0 ? _fmt(currentVal) : '',
                                 enabled: !locked && !_formLocked,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(decimal: true),
                                 textInputAction: TextInputAction.next,
-                                scrollPadding: const EdgeInsets.only(bottom: 240, top: 90),
+                                scrollPadding: const EdgeInsets.only(bottom: 20),
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                     fontSize: 15, fontWeight: FontWeight.w800),
