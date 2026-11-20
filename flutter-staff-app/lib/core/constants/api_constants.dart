@@ -1,7 +1,10 @@
 import '../services/storage_service.dart';
+import '../config/app_flavor.dart';
 
 class ApiConstants {
   static String get baseUrl {
+    // IQRA Staff builds never talk to the Bilal server.
+    if (kIqraOnly) return 'https://iqra.skoolific.com';
     final branch = (StorageService.branchCode ?? StorageService.savedBranchCode ?? '').toUpperCase();
     if (branch.contains('BILAL')) {
       return 'https://bilal.skoolific.com';

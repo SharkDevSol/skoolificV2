@@ -468,38 +468,46 @@ class _MarksTabState extends State<MarksTab> {
           (s.rollNumber ?? '').contains(q);
     }).toList();
 
+    final keyboard = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
       body: Stack(
         children: [
-          Column(
-            children: [
-              _buildHeader(context, prov, isDark),
-              _pageToggle(isDark),
-              Expanded(
-                child: _pageTab == 1
-                    ? _buildReportView(isDark)
-                    : _loading
-                        ? const Center(child: AppLoadingIndicator())
-                        : _cacheMiss
-                            ? EmptyState(
-                                icon: Icons.cloud_off,
-                                message: tr(context, 'not_cached_offline'),
-                              )
-                            : !_formFound
-                                ? _buildCreateFormView()
-                                : filteredStudents.isEmpty
-                                    ? EmptyState(
-                                        icon: Icons.person_search,
-                                        message: 'No students found in mark list',
-                                      )
-                                    : _oneByOne
-                                        ? _buildOneByOneView(filteredStudents)
-                                        : _buildTableView(filteredStudents),
-              ),
-              // Room for the floating save bar (bottom:104 + ~70px tall
-              // ≈ 174) + nav — sized so the bar never covers the last rows.
-              const SizedBox(height: 190),
-            ],
+          // When the phone keyboard opens, lift the whole sheet (header + column
+          // names + rows) above it so the teacher can still see what is typed.
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: keyboard),
+            child: Column(
+              children: [
+                _buildHeader(context, prov, isDark),
+                _pageToggle(isDark),
+                Expanded(
+                  child: _pageTab == 1
+                      ? _buildReportView(isDark)
+                      : _loading
+                          ? const Center(child: AppLoadingIndicator())
+                          : _cacheMiss
+                              ? EmptyState(
+                                  icon: Icons.cloud_off,
+                                  message: tr(context, 'not_cached_offline'),
+                                )
+                              : !_formFound
+                                  ? _buildCreateFormView()
+                                  : filteredStudents.isEmpty
+                                      ? EmptyState(
+                                          icon: Icons.person_search,
+                                          message: 'No students found in mark list',
+                                        )
+                                      : _oneByOne
+                                          ? _buildOneByOneView(filteredStudents)
+                                          : _buildTableView(filteredStudents),
+                ),
+                // Room for the floating save bar (bottom:104 + ~70px tall
+                // ≈ 174) + nav — sized so the bar never covers the last rows.
+                SizedBox(height: keyboard > 0 ? 8 : 190),
+              ],
+            ),
           ),
           if (_formFound && _students.isNotEmpty && _pageTab == 0)
             Positioned(
@@ -1270,9 +1278,7 @@ class _MarksTabState extends State<MarksTab> {
             ),
             Expanded(
               child: ListView.builder(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 12,
-                ),
+                padding: const EdgeInsets.only(bottom: 12),
                 itemCount: students.length,
                 itemBuilder: (context, idx) {
                   final student = students[idx];

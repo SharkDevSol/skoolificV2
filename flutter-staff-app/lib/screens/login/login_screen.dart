@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/config/app_flavor.dart';
+import '../../core/utils/error_text.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../widgets/app_widgets.dart';
 import '../../app/app_provider.dart';
 import '../../app/app_shell.dart';
+import '../../app/restricted_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,14 +28,23 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   String? _error;
 
-  final List<String> _quickBranches = ['IQRA1', 'IQRA2', 'IQRA3', 'IQRA4', 'IQRA5', 'BILAL'];
+  final List<String> _quickBranches = [
+    'IQRA1',
+    'IQRA2',
+    'IQRA3',
+    'IQRA4',
+    'IQRA5',
+    if (!kIqraOnly) 'BILAL',
+  ];
 
   @override
   void initState() {
     super.initState();
     _rememberMe = StorageService.rememberMe;
     final savedBranch = StorageService.branchCode ?? StorageService.savedBranchCode ?? 'IQRA1';
-    _branchCtrl.text = savedBranch;
+    _branchCtrl.text = (kIqraOnly && savedBranch.toUpperCase().contains('BILAL'))
+        ? 'IQRA1'
+        : savedBranch;
 
     if (_rememberMe) {
       _userCtrl.text = StorageService.rememberedUsername ?? '';
@@ -55,6 +67,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (branch.isEmpty) {
       setState(() => _error = tr(context, 'branch_required'));
+      return;
+    }
+    if (kIqraOnly && branch.contains('BILAL')) {
+      setState(() => _error =
+          'This app is for IQRA branches. Bilal staff must use the Bilal Staff app.');
       return;
     }
     await StorageService.setSavedBranchCode(branch);
@@ -105,12 +122,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const AppShell()),
+        MaterialPageRoute(builder: (_) => provider.user?.permissions.isNotEmpty == true ? const RestrictedStaffShell() : const AppShell()),
       );
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString().replaceAll('Exception:', '').trim();
+          _error = friendlyError(e);
         });
       }
     } finally {
