@@ -272,6 +272,21 @@ async function processMachineData(data, headers, query) {
         console.log('⚠️  Could not check late threshold:', err.message);
       }
       
+      // Unpaid rule: a hidden student gets no machine attendance at all
+      // (no row, never "Absent"). Exempt/paid students pass through.
+      try {
+        const _uh = require('../services/unpaidHide');
+        const _branch = req.headers['x-branch-code'] || req.body?.branchCode || req.query?.branchCode || '';
+        const _hidden = await _uh.isHidden(pool, _branch, {
+          name: studentName || req.body?.studentName || req.body?.student_name,
+          schoolId: studentId || req.body?.studentId || req.body?.student_id
+        });
+        if (_hidden) {
+          console.log('⏭️  Skipping attendance for unpaid-hidden student');
+          continue;
+        }
+      } catch (_) { /* rule must never break the webhook */ }
+
       // Insert into academic_student_attendance
       try {
         const attendanceResult = await pool.query(
