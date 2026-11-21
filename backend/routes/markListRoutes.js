@@ -1129,6 +1129,21 @@ const handleGetMarkList = async (req, res) => {
       return String(a.student_name || '').toLowerCase().localeCompare(String(b.student_name || '').toLowerCase());
     });
 
+    // Unpaid rule: hidden students are not part of the mark list at all.
+    try {
+      const unpaidHide = require('../services/unpaidHide');
+      const branch = req.headers['x-branch-code'] || req.query.branchCode || '';
+      const h = await unpaidHide.computeHidden(client, branch);
+      if (h.enabled) {
+        for (let i = responseRows.length - 1; i >= 0; i--) {
+          const row = responseRows[i];
+          const nm = String(row.student_name || '').trim().toLowerCase();
+          const sid = row.school_id !== undefined && row.school_id !== null ? String(row.school_id).trim() : '';
+          if ((nm && h.hiddenNames.has(nm)) || (sid && h.hiddenIds.has(sid))) responseRows.splice(i, 1);
+        }
+      }
+    } catch (_) {}
+
     res.json({
       // Staff app requires formId + components at top level — without them
       // it treats the form as missing and shows no components.
