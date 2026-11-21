@@ -912,6 +912,22 @@ router.post('/login', async (req, res) => {
       }
     }
     
+    // Unpaid rule: a hidden student cannot use the account at all.
+    if (role === 'student' && user) {
+      try {
+        const _hidden = await require('../services/unpaidHide').isHidden(db, req.headers['x-branch-code'] || '', {
+          name: user.student_name,
+          schoolId: user.school_id
+        });
+        if (_hidden) {
+          return res.status(403).json({
+            error: 'Monthly fee not paid',
+            message: 'You have to pay the monthly fee to use your account. Please contact the school.'
+          });
+        }
+      } catch (_) { /* the rule must never break login */ }
+    }
+
     // If not found as student, search for guardian
     if (!user) {
       for (const table of tables) {
