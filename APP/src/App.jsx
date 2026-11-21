@@ -89,6 +89,7 @@ const ClassShiftForm = lazy(() => import('./PAGE/Schedule/ClassShiftForm'));
 // Accounts & Tasks
 const CreateAccounts = lazy(() => import("./PAGE/CreateMarklist/CreateAccounts/CreateAccounts"));
 const AdminSubAccounts = lazy(() => import("./PAGE/AdminSubAccounts/AdminSubAccounts"));
+const UnpaidPage = lazy(() => import("./PAGE/Administration/Unpaid"));
 const TaskPage = lazy(() => import("./PAGE/TaskPage"));
 const TaskDetail = lazy(() => import("./PAGE/TaskDetail"));
 const TaskDetailWrapper = () => {
@@ -361,6 +362,7 @@ function App() {
               <Route path="report-card" element={<LazyRoute component={ReportCard} />} />
               <Route path="create-accounts" element={<LazyRoute component={CreateAccounts} />} />
               <Route path="admin-sub-accounts" element={<LazyRoute component={AdminSubAccounts} />} />
+              <Route path="admin-unpaid" element={<LazyRoute component={UnpaidPage} />} />
               {/* Payment route removed */}
               <Route path="settings" element={<LazyRoute component={Setting} />} />
               <Route path="sms-templates" element={<LazyRoute component={SmsTemplates} />} />
