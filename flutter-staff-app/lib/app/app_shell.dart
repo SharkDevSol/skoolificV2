@@ -373,7 +373,6 @@ class _AppShellState extends State<AppShell> with SingleTickerProviderStateMixin
               ),
 
             // Floating Bottom Bar Layout (hidden while the keyboard is open)
-            if (MediaQuery.of(context).viewInsets.bottom <= 50)
             Expanded(
               child: BottomBar(
                 layout: BottomBarLayout.adaptive(
