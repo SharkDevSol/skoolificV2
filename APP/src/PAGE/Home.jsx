@@ -492,6 +492,11 @@ const Home = () => {
           icon: <FiUsers />,
           label: t('nav.subAccounts', 'Admin Sub-Accounts'),
         },
+        {
+          path: "/admin-unpaid",
+          icon: <FiDollarSign />,
+          label: t('nav.unpaid', 'Unpaid'),
+        },
       ],
     },
     {
