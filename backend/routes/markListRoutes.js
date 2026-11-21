@@ -2899,6 +2899,31 @@ router.get('/guardian-marks/:guardianUsername', async (req, res) => {
       }
     }
     
+    // Unpaid rule: the child's name stays visible, but no marks / report card data.
+    try {
+      const _uh = await require('../services/unpaidHide').computeHidden(client, req.headers['x-branch-code'] || '');
+      if (_uh.enabled) {
+        for (let i = marksData.length - 1; i >= 0; i--) {
+          const _nm = String(marksData[i].ward || '').trim().toLowerCase();
+          if (_nm && _uh.hiddenNames.has(_nm)) marksData.splice(i, 1);
+        }
+      }
+    } catch (_) {}
+
+    // Unpaid rule: the child's name stays visible, but no marks / report card data.
+    try {
+      const _uh = await require('../services/unpaidHide').computeHidden(
+        client,
+        req.headers['x-branch-code'] || ''
+      );
+      if (_uh.enabled) {
+        for (let i = marksData.length - 1; i >= 0; i--) {
+          const _nm = String(marksData[i].ward || '').trim().toLowerCase();
+          if (_nm && _uh.hiddenNames.has(_nm)) marksData.splice(i, 1);
+        }
+      }
+    } catch (_) {}
+
     res.json({
       success: true,
       data: {
