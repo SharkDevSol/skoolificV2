@@ -572,8 +572,8 @@ class _MarksTabState extends State<MarksTab> {
             padding: EdgeInsets.zero,
             child: Column(
               children: [
-                _buildHeader(context, prov, isDark),
-                _pageToggle(isDark),
+                Offstage(offstage: keyboardOpen, child: _buildHeader(context, prov, isDark)),
+                Offstage(offstage: keyboardOpen, child: _pageToggle(isDark)),
                 if (keyboardOpen && _activeStudent != null)
                   Container(
                     margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
