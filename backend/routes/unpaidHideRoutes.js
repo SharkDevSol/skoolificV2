@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { expireReasons } = require('../services/unpaidHide');
+const pool = require('../config/db');
 
 function branchOf(req) {
   return String(req.headers['x-branch-code'] || req.query.branchCode || req.body.branchCode || '').toUpperCase();
@@ -13,7 +14,7 @@ function actorOf(req) {
 // ---- settings -------------------------------------------------------------
 router.get('/settings', async (req, res) => {
   try {
-    const db = req.branchPool || req.app.locals.pool;
+    const db = req.branchPool || pool;
     const code = branchOf(req);
     if (!code) return res.status(400).json({ error: 'branch required' });
     await db.query(
@@ -27,7 +28,7 @@ router.get('/settings', async (req, res) => {
 
 router.put('/settings', async (req, res) => {
   try {
-    const db = req.branchPool || req.app.locals.pool;
+    const db = req.branchPool || pool;
     const code = branchOf(req);
     const enabled = req.body.enabled === true;
     const months = Math.max(1, Math.min(12, parseInt(req.body.monthsThreshold ?? req.body.months_threshold, 10) || 2));
@@ -50,7 +51,7 @@ router.put('/settings', async (req, res) => {
 // ---- reasons --------------------------------------------------------------
 router.get('/reasons', async (req, res) => {
   try {
-    const db = req.branchPool || req.app.locals.pool;
+    const db = req.branchPool || pool;
     const code = branchOf(req);
     const status = req.query.status === 'history' ? 'all' : 'active';
     await expireReasons(db, code);
@@ -67,7 +68,7 @@ router.get('/reasons', async (req, res) => {
 
 router.post('/reasons', async (req, res) => {
   try {
-    const db = req.branchPool || req.app.locals.pool;
+    const db = req.branchPool || pool;
     const code = branchOf(req);
     const students = Array.isArray(req.body.students) ? req.body.students : [];
     const reason = String(req.body.reason || '').trim();
@@ -98,7 +99,7 @@ router.post('/reasons', async (req, res) => {
 
 router.delete('/reasons/:id', async (req, res) => {
   try {
-    const db = req.branchPool || req.app.locals.pool;
+    const db = req.branchPool || pool;
     const code = branchOf(req);
     const r = await db.query(
       `DELETE FROM unpaid_hide_reasons WHERE id = $1 AND branch_code = $2 RETURNING student_name`,
