@@ -20,7 +20,16 @@ class MarksTab extends StatefulWidget {
   State<MarksTab> createState() => _MarksTabState();
 }
 
-class _MarksTabState extends State<MarksTab> {
+class _MarksTabState extends State<MarksTab> with WidgetsBindingObserver {
+  double _kbInset = 0;
+
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final kb = MediaQueryData.fromView(View.of(context)).viewInsets.bottom;
+    if ((kb - _kbInset).abs() > 1) setState(() => _kbInset = kb);
+  }
+
   TeacherAssignment? _selectedAssignment;
   int _selectedTerm = 1;
   String? _selectedClass;
@@ -162,6 +171,7 @@ class _MarksTabState extends State<MarksTab> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     OfflineService.init();
     _pendingSync = OfflineService.pendingCount;
     final prov = Provider.of<AppProvider>(context, listen: false);
@@ -558,7 +568,7 @@ class _MarksTabState extends State<MarksTab> {
           (s.rollNumber ?? '').contains(q);
     }).toList();
 
-    final keyboard = [MediaQuery.of(context).viewInsets.bottom, MediaQueryData.fromView(View.of(context)).viewInsets.bottom].reduce((a, b) => a > b ? a : b);
+    final keyboard = [MediaQuery.of(context).viewInsets.bottom, MediaQueryData.fromView(View.of(context)).viewInsets.bottom, _kbInset].reduce((a, b) => a > b ? a : b);
     final keyboardOpen = keyboard > 50;
     return Scaffold(
       resizeToAvoidBottomInset: false,
