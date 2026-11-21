@@ -9,7 +9,7 @@ plugins {
 android {
     namespace = "com.skoolific.superadmin"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -37,6 +37,12 @@ android {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
             }
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            keepDebugSymbols -= "**/*.so"
         }
     }
 
