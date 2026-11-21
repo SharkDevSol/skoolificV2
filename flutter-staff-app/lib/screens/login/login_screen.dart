@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -27,6 +28,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = false;
   bool _loading = false;
   String? _error;
+  int _failed = 0;
+  DateTime? _lockUntil;
+  Timer? _lockTimer;
+  bool get _locked => _lockUntil != null && DateTime.now().isBefore(_lockUntil!);
 
   final List<String> _quickBranches = [
     'IQRA1',
@@ -61,6 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    if (_locked) { setState(() => _error = 'Too many wrong attempts. Locked for 1 minute.'); return; }
     final branch = _branchCtrl.text.trim().toUpperCase();
     final username = _userCtrl.text.trim();
     final password = _passCtrl.text;
@@ -127,7 +133,9 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = friendlyError(e);
+          _failed++;
+          if (_failed >= 5) { _failed = 0; _lockUntil = DateTime.now().add(const Duration(minutes: 1)); _lockTimer?.cancel(); _lockTimer = Timer.periodic(const Duration(seconds: 1), (tm) { if (!mounted) return; if (!_locked) { tm.cancel(); setState(() => _lockUntil = null); } else { setState(() {}); } }); }
+          _error = _locked ? 'Too many wrong attempts. Locked for 1 minute.' : friendlyError(e);
         });
       }
     } finally {

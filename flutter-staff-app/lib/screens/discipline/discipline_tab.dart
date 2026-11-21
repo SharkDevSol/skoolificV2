@@ -331,7 +331,7 @@ class _DisciplineTabState extends State<DisciplineTab> with SingleTickerProvider
         if (ok) {
           showSuccess(context, 'Fault record submitted successfully');
         } else {
-          showSuccess(context, tr(context, 'saved_offline_pending'));
+          showError(context, 'Not sent to the server yet - kept on this phone and will retry automatically.');
         }
         _descCtrl.clear();
         if (ok) {
