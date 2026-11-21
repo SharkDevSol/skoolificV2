@@ -28,6 +28,32 @@ router.use(cors({
 // Apply input sanitization
 router.use(sanitizeInputs);
 
+// Unpaid rule: a hidden student cannot use any student API (results, profile,
+// attendance...). Runs on every request so a reason that expires mid-session
+// cuts access immediately, not only at the next login.
+router.use(async (req, res, next) => {
+  try {
+    if (req.path === '/login') return next();
+    const ident = {
+      name: req.user?.student_name || req.user?.name || req.body?.studentName || req.query?.studentName,
+      schoolId: req.user?.school_id || req.body?.schoolId || req.query?.schoolId || req.query?.studentId,
+    };
+    if (!ident.name && !ident.schoolId) return next();
+    const hidden = await require('../services/unpaidHide').isHidden(
+      req.branchPool || db,
+      req.headers['x-branch-code'] || '',
+      ident
+    );
+    if (hidden) {
+      return res.status(403).json({
+        error: 'Monthly fee not paid',
+        message: 'You have to pay the monthly fee to use your account. Please contact the school.',
+      });
+    }
+  } catch (_) { /* never break the endpoint because of the rule */ }
+  next();
+});
+
 // Configure multer for file uploads - support multiple file types
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'Uploads/'),
