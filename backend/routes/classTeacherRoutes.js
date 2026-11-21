@@ -1174,6 +1174,10 @@ router.put('/weekly-attendance/:className/:weekStart', async (req, res) => {
     // Update each record in weekly table + sync to academic_student_attendance
     for (const record of records) {
       const { school_id, class_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday } = record;
+      try {
+        const _hid = await require('../services/unpaidHide').isHidden(client, req.headers['x-branch-code'] || '', { name: record.student_name, schoolId: school_id });
+        if (_hid) continue;
+      } catch (_) {}
       if (school_id === undefined || school_id === null || String(school_id).trim() === '') continue;
 
       // 1. Verify student is currently active in classes_schema and get live name + class_id

@@ -2105,6 +2105,8 @@ router.post('/bulk-update-marks', async (req, res) => {
     let ignoredCount = 0;
     const notifyList = [];
     const changedOnly = req.body.changedOnly === true;
+    let _hidden = { enabled: false, hiddenNames: new Set(), hiddenIds: new Set() };
+    try { _hidden = await require('../services/unpaidHide').computeHidden(client, req.headers['x-branch-code'] || req.body.branchCode || ''); } catch (_) {}
 
     // Map each config component to the real column in this mark table.
     let actualColumns = new Set();
@@ -2131,6 +2133,11 @@ router.post('/bulk-update-marks', async (req, res) => {
       const { studentName, marks } = studentMarks;
       
       if (!studentName || !marks) continue;
+      if (_hidden.enabled) {
+        const _nm = String(studentName).trim().toLowerCase();
+        const _sid = studentMarks.school_id || studentMarks.studentId;
+        if ((_nm && _hidden.hiddenNames.has(_nm)) || (_sid && _hidden.hiddenIds.has(String(_sid).trim()))) { ignoredCount++; continue; }
+      }
       
       // Find the student by NAME first. Mark tables have no student-id
       // column, so their row ids are not stable across add/remove — trusting
