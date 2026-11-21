@@ -283,7 +283,7 @@ async function processMachineData(data, headers, query) {
         });
         if (_hidden) {
           console.log('⏭️  Skipping attendance for unpaid-hidden student');
-          continue;
+          return res.status(200).json({ success: true, skipped: true, reason: 'unpaid' });
         }
       } catch (_) { /* rule must never break the webhook */ }
 
