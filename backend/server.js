@@ -515,8 +515,10 @@ app.use('/api/finance-app', financeAppRoutes); // Finance App login
 app.use('/api/super-finance', superFinanceRoutes); // Super Finance App login (all branches)
 app.use('/api/super-admin', superAdminRoutes); // Super Admin aggregation routes
 const unpaidHideRoutes = require('./routes/unpaidHideRoutes');
+const teacherEvaluationRoutes = require('./routes/teacherEvaluationRoutes');
 const { authenticateToken } = require('./middleware/auth');
 app.use('/api/admin-unpaid', authenticateToken, unpaidHideRoutes); // Unpaid-student hiding (settings + reasons)
+app.use('/api/teacher-evaluations', authenticateToken, teacherEvaluationRoutes); // Teacher evaluation forms + history (admin app)
 app.use('/api/v2/auth', require('./routes/authRoutes')); // Auth refresh + logout
 app.use('/api/ai', aiRoutes); // SKOOLIFIC AI Module
 app.use('/api/year-rollover', yearRolloverRoutes); // Year Rollover
