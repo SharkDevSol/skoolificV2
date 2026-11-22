@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "619928412898",
+    "project_id": "iqra-staff1",
+    "storage_bucket": "iqra-staff1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:619928412898:android:0ed9bd7be87a09d3e8b4bb",
+        "android_client_info": {
+          "package_name": "com.skoolific.staff"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApOra7tzBeOvWujUJOJQiGD33W__Q2gyw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

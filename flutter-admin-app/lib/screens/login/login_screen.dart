@@ -150,7 +150,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(isDark ? 0.45 : 0.12),
+                            color: Theme.of(context).shadowColor.withOpacity(isDark ? 0.45 : 0.12),
                             blurRadius: 20,
                             offset: const Offset(0, 6),
                           ),
@@ -366,7 +366,9 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : Colors.black.withOpacity(0.06),
+          color: isSelected
+              ? AppColors.primary
+              : Theme.of(context).colorScheme.onSurface.withOpacity(0.10),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
