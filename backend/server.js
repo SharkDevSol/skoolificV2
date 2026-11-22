@@ -448,6 +448,8 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/school-setup', schoolSetupRoutes);
 app.use('/api/task6', task6Routes);
 app.use('/api/dashboard', dashboardRoutes); // This is CORRECT - dashboardRoutes will have routes like '/stats'
+const staffAccessRoutes = require('./routes/staffAccessRoutes');
+app.use('/api/admin/staff-access', staffAccessRoutes); // Staff app access + admin account permissions
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/registration-report', registrationReportRoutes);
 app.use('/api/user-profile', require('./routes/userProfileRoutes')); // Username and password change for all user types
