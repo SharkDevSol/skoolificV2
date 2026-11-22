@@ -296,22 +296,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 12),
 
-                          // Remember Me
-                          Row(
-                            children: [
-                              Checkbox(
-                                value: _rememberMe,
-                                activeColor: AppColors.primary,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                                onChanged: (v) => setState(() => _rememberMe = v ?? false),
-                              ),
-                              Text(
-                                tr(context, 'remember_me'),
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                              ),
-                            ],
-                          ),
-
                           if (_error != null) ...[
                             const SizedBox(height: 8),
                             Container(
