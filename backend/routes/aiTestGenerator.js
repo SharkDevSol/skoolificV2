@@ -8,6 +8,14 @@ const path = require('path');
 const fs = require('fs');
 const { multerFileFilter } = require('../middleware/fileValidation');
 
+// Question marks may be fractional (e.g. 1.5). Round to 2 decimals so
+// totals do not drift with binary floating point.
+const roundMarks = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const numMarks = (v, fallback = 0) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 
 // ─── Auto Migration: Create published_ai_tests table + update student_exams ───
 const runAiTestMigration = async () => {
@@ -21,7 +29,7 @@ const runAiTestMigration = async () => {
         class_name VARCHAR(100) NOT NULL,
         term_number INTEGER NOT NULL,
         component_name VARCHAR(100) NOT NULL,
-        total_marks INTEGER DEFAULT 0,
+        total_marks NUMERIC(10,2) DEFAULT 0,
         time_limit INTEGER DEFAULT 0,
         excluded_students JSONB DEFAULT '[]'::jsonb,
         result_publish_at TIMESTAMPTZ,
@@ -50,6 +58,8 @@ const runAiTestMigration = async () => {
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS result_publish_at TIMESTAMPTZ`);
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`);
     await db.query(`ALTER TABLE published_ai_tests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    // Allow fractional totals (e.g. 3 questions x 1.5 marks = 4.5)
+    await db.query(`ALTER TABLE published_ai_tests ALTER COLUMN total_marks TYPE NUMERIC(10,2) USING total_marks::numeric`).catch(() => {});
     await db.query(`ALTER TABLE student_exams ADD COLUMN IF NOT EXISTS student_username VARCHAR(255)`);
     await db.query(`ALTER TABLE student_exams ADD COLUMN IF NOT EXISTS result_available_at TIMESTAMP`);
     await db.query(`ALTER TABLE student_exams ADD COLUMN IF NOT EXISTS violation_ended BOOLEAN DEFAULT false`);
@@ -246,7 +256,7 @@ function sanitizeGenerated(questions, questionTypes, bonusArr) {
     .find(x => x && x.type === 'matching' && (parseInt(x.count) || 0) > 0);
   if (matchSpec) {
     const wantPairs = parseInt(matchSpec.count) || 0;
-    const per = parseInt(matchSpec.marksPerQuestion) || 1;
+    const per = numMarks(matchSpec.marksPerQuestion, 1);
     const first = kept.find(q => q.type === 'matching');
     if (first) {
       const pairs = Array.isArray(first.correctMatches) ? first.correctMatches : [];
@@ -258,7 +268,7 @@ function sanitizeGenerated(questions, questionTypes, bonusArr) {
         use.forEach(m => { const r = String(m.right); if (!rights.includes(r)) rights.push(r); });
         first.rightColumn = rights;
       }
-      first.marks = wantPairs * per;
+      first.marks = roundMarks(wantPairs * per);
     }
   }
   return { questions: kept, dropped };
@@ -318,7 +328,7 @@ function validateQuestions(questions, expectedTypes) {
     }
 
     // Marks must be positive
-    if (!q.marks || q.marks < 1) {
+    if (!q.marks || q.marks <= 0) {
       errors.push(`Question ${i + 1}: Invalid marks value`);
     }
 
@@ -409,10 +419,10 @@ function buildPrompt({ subjectName, className, termNumber, componentName, totalM
   }
 
   const bonusList = bonusQuestions ? (Array.isArray(bonusQuestions) ? bonusQuestions : [bonusQuestions]) : [];
-  const bonusMarks = bonusList.reduce((s, b) => s + ((parseInt(b.count) || 0) * (parseInt(b.marksPerQuestion) || 0)), 0);
+  const bonusMarks = bonusList.reduce((s, b) => s + ((parseInt(b.count) || 0) * numMarks(b.marksPerQuestion)), 0);
   const bonusCount = countExpectedQuestions(bonusList);
   const expectedCount = countExpectedQuestions(questionTypes) + bonusCount;
-  const grandTotalMarks = (parseInt(totalMarks) || 0) + bonusMarks;
+  const grandTotalMarks = roundMarks(numMarks(totalMarks) + bonusMarks);
 
   prompt += `\n\nDIFFICULTY LEVELS (selected: ${difficulty || 'medium'}):`;
   prompt += `\n- Easy: direct recall, definitions, single-step "what is / which of these" questions`;
@@ -427,7 +437,7 @@ function buildPrompt({ subjectName, className, termNumber, componentName, totalM
   prompt += `\n\nQUESTION DISTRIBUTION (REQUIRED questions must total exactly ${totalMarks} marks):`;
   for (const qt of questionTypes) {
     const c = parseInt(qt.count) || 0;
-    const m = parseInt(qt.marksPerQuestion) || 1;
+    const m = numMarks(qt.marksPerQuestion, 1);
     if (qt.type === 'matching') {
       if (c > 0) prompt += `\n- Matching: EXACTLY ONE question containing ${c} pairs × ${m} mark each = ${c * m} marks total (NOT ${c} separate questions)`;
     } else {
@@ -438,7 +448,7 @@ function buildPrompt({ subjectName, className, termNumber, componentName, totalM
     prompt += `\n- BONUS QUESTIONS (EXTRA marks on top of the required ${totalMarks}):`;
     bonusList.forEach(b => {
       const c = parseInt(b.count) || 0;
-      const m = parseInt(b.marksPerQuestion) || 1;
+      const m = numMarks(b.marksPerQuestion, 1);
       if (b.type === 'matching') prompt += `\n  - Matching: ONE question with ${c} pairs × ${m} mark = ${c * m} marks`;
       else prompt += `\n  - ${getTypeLabel(b.type)}: ${c} questions × ${m} marks = ${c * m}`;
     });
@@ -462,7 +472,7 @@ function buildPrompt({ subjectName, className, termNumber, componentName, totalM
   prompt += `\nFORMAT each question EXACTLY:`;
   prompt += `\n[QUESTION_START]`;
   prompt += `\nTYPE: [question type from the list above]`;
-  prompt += `\nMARKS: [number]`;
+  prompt += `\nMARKS: [number — decimals allowed, e.g. 1.5]`;
   prompt += `\nQUESTION: [clear question text appropriate for Grade ${gradeLevel}]`;
   prompt += `\nOPTIONS: [for MCQ: A) option1 | B) option2 | C) option3 | D) option4 — write EVERYTHING on ONE single line, never break an option across lines]`;
   prompt += `\nANSWER: [correct answer - must be accurate]`;
@@ -472,7 +482,7 @@ function buildPrompt({ subjectName, className, termNumber, componentName, totalM
   prompt += `\n\nMATCHING QUESTIONS ONLY: Use this format instead:`;
   prompt += `\n[QUESTION_START]`;
   prompt += `\nTYPE: matching`;
-  prompt += `\nMARKS: [TOTAL marks of this one question = number of pairs × marks per pair]`;
+  prompt += `\nMARKS: [TOTAL marks of this one question = number of pairs × marks per pair; decimals allowed, e.g. 3]`;
   prompt += `\nQUESTION: [instructions like "Match each item in Column A with the correct item in Column B"]`;
   prompt += `\nLEFT_COLUMN: ["item1", "item2", "item3"]`;
   prompt += `\nRIGHT_COLUMN: ["optionA", "optionB", "optionC"]`;
@@ -532,7 +542,7 @@ function parseGeneratedQuestions(text) {
     if (!content) continue;
     
     const typeMatch = content.match(/TYPE:\s*(.+)/i);
-    const marksMatch = content.match(/MARKS:\s*(\d+)/i);
+    const marksMatch = content.match(/MARKS:\s*([0-9]+(?:\.[0-9]+)?)/i);
     
     // Extract question text (everything between QUESTION: and OPTIONS:|ANSWER:|EXPLANATION:|end)
     const questionMatch = content.match(/QUESTION:\s*(.+?)(?:\nOPTIONS:|\nANSWER:|\nEXPLANATION:|$)/is);
@@ -548,7 +558,7 @@ function parseGeneratedQuestions(text) {
     const correctMatchMatch = content.match(/CORRECT_MATCHES:\s*(\[.+?\])\s*(?:\nEXPLANATION:|\[QUESTION_END\]|$)/is);
     
     const type = (typeMatch?.[1] || 'mcq').trim().toLowerCase();
-    const marks = parseInt(marksMatch?.[1]) || 1;
+    const marks = numMarks(marksMatch?.[1], 1);
     
     let options = [];
     if (optionsMatch) {
@@ -671,7 +681,7 @@ router.post('/generate-test', async (req, res) => {
 
     const bonusArr = bonusQuestions ? (Array.isArray(bonusQuestions) ? bonusQuestions : [bonusQuestions]) : [];
     const expectedCount = countExpectedQuestions(questionTypes) + countExpectedQuestions(bonusArr);
-    const expectedMarks = (parseInt(totalMarks) || 0) + bonusArr.reduce((s, b) => s + ((parseInt(b.count) || 0) * (parseInt(b.marksPerQuestion) || 0)), 0);
+    const expectedMarks = roundMarks(numMarks(totalMarks) + bonusArr.reduce((s, b) => s + ((parseInt(b.count) || 0) * numMarks(b.marksPerQuestion)), 0));
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
@@ -737,7 +747,7 @@ router.post('/generate-test', async (req, res) => {
       const san = sanitizeGenerated(parseGeneratedQuestions(generatedText), questionTypes, bonusArr);
       questions = san.questions;
       errors = [...san.dropped, ...validateQuestions(questions, questionTypes)];
-      const gotMarks = questions.reduce((s, q) => s + (parseInt(q.marks) || 0), 0);
+      const gotMarks = roundMarks(questions.reduce((s, q) => s + numMarks(q.marks), 0));
       if (questions.length >= expectedCount && gotMarks >= expectedMarks) break;
     }
 
@@ -748,7 +758,7 @@ router.post('/generate-test', async (req, res) => {
       });
     }
 
-    const gotMarks = questions.reduce((s, q) => s + (parseInt(q.marks) || 0), 0);
+    const gotMarks = roundMarks(questions.reduce((s, q) => s + numMarks(q.marks), 0));
     const warnings = [...errors];
     if (questions.length < expectedCount || gotMarks < expectedMarks) {
       warnings.unshift(`The AI produced ${questions.length} of ${expectedCount} questions (${gotMarks} of ${expectedMarks} marks)${finish === 'length' ? ' because the answer was cut off' : ''} — press Regenerate to retry.`);
@@ -1015,14 +1025,17 @@ router.post('/save-test', async (req, res) => {
         id SERIAL PRIMARY KEY,
         question_data JSONB NOT NULL,
         question_type VARCHAR(50) NOT NULL,
-        marks INTEGER NOT NULL DEFAULT 1,
+        marks NUMERIC(6,2) NOT NULL DEFAULT 1,
         time_limit INTEGER,
         language VARCHAR(50) DEFAULT 'English',
         is_published BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`);
-      
+      // Existing test tables were created with INTEGER marks. Widen them so
+      // 1.5-mark questions keep their exact value.
+      await client.query(`ALTER TABLE ${schemaName}.${tableName} ALTER COLUMN marks TYPE NUMERIC(6,2) USING marks::numeric`);
+
       await client.query(`DELETE FROM ${schemaName}.${tableName}`);
       
       for (const rawQ of questions) {
@@ -1032,7 +1045,7 @@ router.post('/save-test', async (req, res) => {
         await client.query(`
           INSERT INTO ${schemaName}.${tableName} (question_data, question_type, marks, time_limit, language)
           VALUES ($1, $2, $3, $4, $5)
-        `, [JSON.stringify(q), q.type, q.marks || 1, timeLimit || null, language || 'English']);
+        `, [JSON.stringify(q), q.type, roundMarks(numMarks(q.marks, 1)), timeLimit || null, language || 'English']);
       }
       
       if (isPublished) {
@@ -1349,10 +1362,13 @@ router.post('/publish-test', async (req, res) => {
       : { username: s.username || null, schoolId: s.schoolId || s.school_id || null, name: s.name || s.student_name || null }));
 
   try {
-    const chk = await db.query(`SELECT COUNT(*)::int AS c, COALESCE(SUM(marks),0)::int AS m, MAX(time_limit)::int AS tl FROM "${schemaName}"."${tableName}"`);
+    const chk = await db.query(`SELECT COUNT(*)::int AS c, COALESCE(SUM(marks),0)::numeric AS m, MAX(time_limit)::int AS tl FROM "${schemaName}"."${tableName}"`);
     if (!chk.rows[0] || !chk.rows[0].c) return res.status(400).json({ error: 'Save the test before publishing it' });
-    const calcTotalMarks = parseInt(totalMarks, 10) || chk.rows[0].m || 0;
+    const calcTotalMarks = roundMarks(numMarks(totalMarks) || numMarks(chk.rows[0].m) || 0);
     const calcTimeLimit = parseInt(timeLimit, 10) || chk.rows[0].tl || 0;
+
+    // Fractional totals need a numeric column on this branch DB.
+    await db.query(`ALTER TABLE published_ai_tests ALTER COLUMN total_marks TYPE NUMERIC(10,2) USING total_marks::numeric`).catch(() => {});
 
     const client = await db.connect();
     try {
@@ -1565,7 +1581,7 @@ router.post('/start-exam', async (req, res) => {
         className: p.class_name,
         termNumber: p.term_number,
         componentName: p.component_name,
-        totalMarks: p.total_marks || qRes.rows.reduce((s, r) => s + (parseInt(r.marks, 10) || 1), 0),
+        totalMarks: p.total_marks || qRes.rows.reduce((s, r) => s + numMarks(r.marks, 1), 0),
         timeLimit: parseInt(timeLimit, 10) || 0,
         practice: !!p.practice,
         language,

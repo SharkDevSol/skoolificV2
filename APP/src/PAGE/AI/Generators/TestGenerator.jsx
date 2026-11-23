@@ -16,6 +16,12 @@ const QUESTION_TYPES = [
   { type: 'short_answer', label: 'Short Answer' },
 ];
 const typeLabel = (t) => (QUESTION_TYPES.find(x => x.type === t) || { label: t }).label;
+// Marks can be fractional (e.g. 1.5). Keep totals free of binary-float noise.
+const roundMarks = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const marksValue = (v) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+};
 
 const emptyDraft = (type) => ({
   type: type || 'mcq',
@@ -73,7 +79,7 @@ const toDraft = (q) => {
 };
 
 const fromDraft = (d, base = {}) => {
-  const q = { ...base, type: d.type, question: d.question.trim(), questionImage: d.questionImage || '', marks: Math.max(1, parseInt(d.marks) || 1), explanation: d.explanation.trim() };
+  const q = { ...base, type: d.type, question: d.question.trim(), questionImage: d.questionImage || '', marks: Math.max(0.5, parseFloat(d.marks) || 1), explanation: d.explanation.trim() };
   delete q.options; delete q.optionImages; delete q.leftColumn; delete q.rightColumn; delete q.correctMatches;
   delete q.leftImages; delete q.rightImages; delete q.pairImages;
   if (d.type === 'mcq') {
@@ -214,7 +220,7 @@ const QuestionEditor = ({ initial, isNew, onSave, onCancel }) => {
       <ImageField label="Question image (graph, diagram…)" value={d.questionImage} onChange={v => set({ questionImage: v })} />
 
       <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Marks</label>
-      <input type="number" min="1" style={{ ...inp, width: '110px' }} value={d.marks} onChange={e => set({ marks: e.target.value })} />
+      <input type="number" min="0.5" step="0.5" inputMode="decimal" style={{ ...inp, width: '110px' }} value={d.marks} onChange={e => set({ marks: e.target.value })} />
 
       {d.type === 'mcq' && (
         <div style={{ marginTop: '6px' }}>
@@ -294,7 +300,7 @@ const QuestionEditor = ({ initial, isNew, onSave, onCancel }) => {
 const withStats = (questions) => {
   const stats = { total: questions.length };
   questions.forEach(q => { stats[q.type] = (stats[q.type] || 0) + 1; });
-  return { stats, totalMarks: questions.reduce((s, q) => s + (parseInt(q.marks) || 0), 0) };
+  return { stats, totalMarks: roundMarks(questions.reduce((s, q) => s + marksValue(q.marks), 0)) };
 };
 
 const TestGenerator = () => {
@@ -483,8 +489,8 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
   };
 
   const componentMarks = componentMarkValue || 0;
-  const distTotal = questionTypes.reduce((s, q) => s + q.count * q.marksPerQuestion, 0);
-  const bonusTotal = bonusTypes.reduce((s, b) => s + b.count * b.marksPerQuestion, 0);
+  const distTotal = roundMarks(questionTypes.reduce((s, q) => s + (parseInt(q.count, 10) || 0) * marksValue(q.marksPerQuestion), 0));
+  const bonusTotal = roundMarks(bonusTypes.reduce((s, b) => s + (parseInt(b.count, 10) || 0) * marksValue(b.marksPerQuestion), 0));
   const effectiveTotal = distTotal > 0 ? distTotal : componentMarks;
 
   const setField = (k, v) => {
@@ -504,11 +510,20 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
   };
 
   const setQt = (type, field, val) => {
-    setQuestionTypes(qs => qs.map(q => q.type === type ? { ...q, [field]: Math.max(0, parseInt(val) || 0) } : q));
+    setQuestionTypes(qs => qs.map(q => q.type === type ? {
+      ...q,
+      // Keep the raw marks text while typing so "1.5" can be entered.
+      [field]: field === 'count' ? Math.max(0, parseInt(val, 10) || 0) : val,
+    } : q));
   };
 
   const setBonus = (index, field, val) => {
-    setBonusTypes(bs => bs.map((b, i) => i === index ? { ...b, [field]: field === 'type' ? val : Math.max(0, parseInt(val) || 0) } : b));
+    setBonusTypes(bs => bs.map((b, i) => i === index ? {
+      ...b,
+      [field]: field === 'type'
+        ? val
+        : (field === 'count' ? Math.max(0, parseInt(val, 10) || 0) : val),
+    } : b));
   };
 
   const addBonusType = () => setBonusTypes(bs => [...bs, { type: 'mcq', label: 'Multiple Choice', count: 1, marksPerQuestion: 1 }]);
@@ -553,6 +568,11 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
     }
     if (bonusTotal > 5) {
       setError('Bonus marks cannot exceed 5'); return;
+    }
+    const badMarks = questionTypes.some(q => (parseInt(q.count, 10) || 0) > 0 && marksValue(q.marksPerQuestion) <= 0)
+      || bonusTypes.some(b => (parseInt(b.count, 10) || 0) > 0 && marksValue(b.marksPerQuestion) <= 0);
+    if (badMarks) {
+      setError('Marks each must be greater than 0 — decimals such as 1.5 are allowed'); return;
     }
     if (!String(form.teacherNotes || '').trim()) {
       setError('About Exam is required — describe what the test should cover'); return;
@@ -599,8 +619,8 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
         materialText: material || null,
         totalMarks: effectiveTotal || distTotal,
         difficulty: form.difficulty.length ? form.difficulty.map(d => d.toLowerCase()).join(', ') : 'medium',
-        questionTypes: activeTypes.map(q => ({ type: q.type, count: q.count, marksPerQuestion: q.marksPerQuestion })),
-        bonusQuestions: bonusTotal > 0 ? bonusTypes.map(b => ({ type: b.type, count: b.count, marksPerQuestion: b.marksPerQuestion })) : null,
+        questionTypes: activeTypes.map(q => ({ type: q.type, count: q.count, marksPerQuestion: roundMarks(marksValue(q.marksPerQuestion)) })),
+        bonusQuestions: bonusTotal > 0 ? bonusTypes.map(b => ({ type: b.type, count: b.count, marksPerQuestion: roundMarks(marksValue(b.marksPerQuestion)) })) : null,
       };
       delete payload.topic;
       const res = await axios.post('/api/ai/generate-test', payload);
@@ -1036,12 +1056,12 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
                   {qt.label}
                   {qt.type === 'matching' && qt.count > 0 && (
                     <small style={{ display: 'block', color: '#7c3aed', fontSize: '0.72rem' }}>
-                      → 1 question with {qt.count} pair{qt.count > 1 ? 's' : ''} ({qt.count * qt.marksPerQuestion} marks, graded per pair)
+                      → 1 question with {qt.count} pair{qt.count > 1 ? 's' : ''} ({roundMarks((parseInt(qt.count, 10) || 0) * marksValue(qt.marksPerQuestion))} marks, graded per pair)
                     </small>
                   )}
                 </span>
-                <input type="number" min="0" value={qt.count} onChange={e => setQt(qt.type, 'count', e.target.value)} />
-                <input type="number" min="1" value={qt.marksPerQuestion} onChange={e => setQt(qt.type, 'marksPerQuestion', e.target.value)} />
+                <input type="number" min="1" step="1" value={qt.count} onChange={e => setQt(qt.type, 'count', e.target.value)} />
+                <input type="number" min="0.5" step="0.5" inputMode="decimal" value={qt.marksPerQuestion} onChange={e => setQt(qt.type, 'marksPerQuestion', e.target.value)} />
               </div>
             ))}
           </div>
@@ -1074,9 +1094,9 @@ const [savedInfo, setSavedInfo] = useState(null); // { schemaName, tableName } f
                 <select value={b.type} onChange={e => setBonus(i, 'type', e.target.value)} style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #d1d5db' }}>
                   {QUESTION_TYPES.map(t => <option key={t.type} value={t.type}>{t.label}</option>)}
                 </select>
-                <input type="number" min="1" value={b.count} onChange={e => setBonus(i, 'count', e.target.value)} style={{ width: '70px', padding: '6px', borderRadius: '6px', border: '1px solid #d1d5db' }} placeholder="Count" />
-                <input type="number" min="1" value={b.marksPerQuestion} onChange={e => setBonus(i, 'marksPerQuestion', e.target.value)} style={{ width: '70px', padding: '6px', borderRadius: '6px', border: '1px solid #d1d5db' }} placeholder="Marks" />
-                <span style={{ fontSize: '0.85rem', color: '#6b7280', minWidth: '50px' }}>= {b.count * b.marksPerQuestion}m</span>
+                <input type="number" min="1" step="1" value={b.count} onChange={e => setBonus(i, 'count', e.target.value)} style={{ width: '70px', padding: '6px', borderRadius: '6px', border: '1px solid #d1d5db' }} placeholder="Count" />
+                <input type="number" min="0.5" step="0.5" inputMode="decimal" value={b.marksPerQuestion} onChange={e => setBonus(i, 'marksPerQuestion', e.target.value)} style={{ width: '70px', padding: '6px', borderRadius: '6px', border: '1px solid #d1d5db' }} placeholder="Marks" />
+                <span style={{ fontSize: '0.85rem', color: '#6b7280', minWidth: '50px' }}>= {roundMarks((parseInt(b.count, 10) || 0) * marksValue(b.marksPerQuestion))}m</span>
                 <button type="button" onClick={() => removeBonusType(i)} style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>✕</button>
               </div>
             ))}
