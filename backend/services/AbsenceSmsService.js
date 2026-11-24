@@ -57,6 +57,7 @@ async function sendAbsenceAlertSms(db, { className, studentId, studentName, ethD
         `SELECT id FROM sms_logs 
          WHERE template_key = 'absence_alert' 
            AND phone = $1 
+           AND status = 'sent'
            AND created_at >= CURRENT_DATE 
            AND message LIKE $2 
          LIMIT 1`,
