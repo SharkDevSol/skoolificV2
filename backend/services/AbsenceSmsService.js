@@ -52,16 +52,17 @@ async function sendAbsenceAlertSms(db, { className, studentId, studentName, ethD
 
     // 3. Prevent duplicate absence SMS on the same day for this phone & student
     const dateToday = ethDateStr || new Date().toISOString().split('T')[0];
+    const normPhone = SMSService.normalizePhone ? SMSService.normalizePhone(phone) : phone;
     try {
       const dupCheck = await db.query(
         `SELECT id FROM sms_logs 
          WHERE template_key = 'absence_alert' 
-           AND phone = $1 
+           AND (phone = $1 OR phone = $2)
            AND status = 'sent'
            AND created_at >= CURRENT_DATE 
-           AND message LIKE $2 
+           AND message LIKE $3 
          LIMIT 1`,
-        [phone, `%${finalStudentName}%`]
+        [String(phone).trim(), String(normPhone).trim(), `%${finalStudentName}%`]
       );
       if (dupCheck.rows.length > 0) {
         console.log(`[Absence SMS] Already sent absence SMS today for ${finalStudentName} to ${phone}. Skipping.`);
