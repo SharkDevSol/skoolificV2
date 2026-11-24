@@ -97,7 +97,7 @@ const DEFAULT_TEMPLATES = [
   },
   {
     template_key: 'guardian_welcome',
-    template_text: 'Ku soo dhawoow {school_name}. Koontadaada waalidka waa: Username: {guardian_username}, Password: {guardian_password}. Fadlan gal portal-ka si aad ula socoto ardaygaaga.',
+    template_text: 'Ku soo dhawoow {school_name}! Waalidka sharafta leh, waad ku mahadsan tahay diwaan-gelinta ardayga {student_name}. Link: {guardian_app_link} | Branch: {branch_code} | User: {guardian_username} | Pass: {guardian_password}',
     is_active: true
   },
   {

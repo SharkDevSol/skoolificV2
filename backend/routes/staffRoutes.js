@@ -141,8 +141,13 @@ const initializeStaffCounter = async (targetDb = pool) => {
 const getNextGlobalStaffId = async (targetDb = pool) => {
   const db = targetDb || pool;
   await initializeStaffCounter(db);
+  const maxSsp = await db.query(
+    'SELECT COALESCE(MAX(global_staff_id), 0) AS max_id FROM school_schema_points.teachers'
+  ).catch(() => ({ rows: [{ max_id: 0 }] }));
+  const maxExisting = maxSsp.rows[0]?.max_id || 0;
   const { rows } = await db.query(
-    'UPDATE staff_counter SET count = count + 1 WHERE id = 1 RETURNING count'
+    'UPDATE staff_counter SET count = GREATEST(count, $1) + 1 WHERE id = 1 RETURNING count',
+    [maxExisting]
   );
   return rows[0].count;
 };
@@ -593,6 +598,11 @@ const addTeacherToScheduleSystem = async (
       }
     });
 
+    await client.query(`
+      DELETE FROM schedule_schema.teachers 
+      WHERE global_staff_id = $1 OR LOWER(TRIM(teacher_name)) = LOWER(TRIM($2))
+    `, [globalStaffId, teacherName]);
+
     const { rows } = await client.query(
       `INSERT INTO schedule_schema.teachers
          (global_staff_id, teacher_name, teacher_type,
@@ -734,10 +744,27 @@ router.get('/classes', async (req, res) => {
     const { rows } = await branchPool.query(
       `SELECT table_name
        FROM information_schema.tables
-       WHERE table_schema = $1 AND table_name <> 'staff_counter'`,
+       WHERE table_schema = $1 
+         AND table_name <> 'staff_counter'
+         AND table_name NOT LIKE '%backup%'
+         AND table_name NOT LIKE '%bak%'
+       ORDER BY table_name`,
       [schema]
     );
-    res.json(rows.map((r) => r.table_name));
+
+    let tableNames = rows.map((r) => r.table_name);
+    // If Teachers schema has both 'teachers' and 'teacher', return only the canonical single form
+    if (schema === 'staff_teachers' && tableNames.length > 1) {
+      if (tableNames.includes('teachers')) {
+        tableNames = ['teachers'];
+      } else if (tableNames.includes('Teacher')) {
+        tableNames = ['Teacher'];
+      } else {
+        tableNames = [tableNames[0]];
+      }
+    }
+
+    res.json(tableNames);
   } catch (e) {
     res
       .status(500)
@@ -1141,6 +1168,10 @@ router.post('/add-staff', upload, async (req, res) => {
     if (colRes.rowCount === 0)
       throw new Error('Target table does not exist');
 
+    const tableCols = colRes.rows.map((r) => r.column_name);
+    const hasIsActive = tableCols.includes('is_active');
+    const activeCondition = hasIsActive ? ' AND (is_active = TRUE OR is_active IS NULL)' : '';
+
     // ---- Duplicate Prevention Checks ----
     const staffName = (formData.name || '').trim();
     if (staffName) {
@@ -1148,7 +1179,7 @@ router.post('/add-staff', upload, async (req, res) => {
       const nameCheck = await client.query(
         `SELECT id, name, global_staff_id 
          FROM "${schema}"."${className}" 
-         WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND (is_active = TRUE OR is_active IS NULL)`,
+         WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) ${activeCondition}`,
         [staffName]
       );
       if (nameCheck.rowCount > 0) {
@@ -1161,21 +1192,31 @@ router.post('/add-staff', upload, async (req, res) => {
          FROM information_schema.tables 
          WHERE table_schema LIKE 'staff_%' 
            AND table_name <> 'staff_counter' 
+           AND table_name NOT LIKE '%backup%'
+           AND table_name NOT LIKE '%bak%'
            AND NOT (table_schema = $1 AND table_name = $2)`,
         [schema, className]
       );
       for (const ot of otherTablesRes.rows) {
         try {
+          const otColRes = await client.query(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
+            [ot.table_schema, ot.table_name]
+          );
+          const otCols = otColRes.rows.map(r => r.column_name);
+          const otActive = otCols.includes('is_active') ? ' AND (is_active = TRUE OR is_active IS NULL)' : '';
           const crossCheck = await client.query(
             `SELECT id, name, global_staff_id 
              FROM "${ot.table_schema}"."${ot.table_name}" 
-             WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND (is_active = TRUE OR is_active IS NULL)`,
+             WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) ${otActive}`,
             [staffName]
           );
           if (crossCheck.rowCount > 0) {
             throw new Error(`A staff member named "${staffName}" is already registered under ${ot.table_schema.replace('staff_', '').replace(/_/g, ' ')} (${ot.table_name}).`);
           }
-        } catch (e) {}
+        } catch (e) {
+          if (e.message && e.message.includes('already registered under')) throw e;
+        }
       }
     }
 
@@ -1185,7 +1226,7 @@ router.post('/add-staff', upload, async (req, res) => {
       if (cleanPhone.length >= 9) {
         const phoneCheck = await client.query(
           `SELECT name FROM "${schema}"."${className}" 
-           WHERE REPLACE(COALESCE(phone, ''), ' ', '') LIKE $1 AND (is_active = TRUE OR is_active IS NULL)`,
+           WHERE REPLACE(COALESCE(phone::text, ''), ' ', '') LIKE $1 ${activeCondition}`,
           [`%${cleanPhone.slice(-9)}`]
         );
         if (phoneCheck.rowCount > 0) {
@@ -1194,10 +1235,24 @@ router.post('/add-staff', upload, async (req, res) => {
       }
     }
 
-    const tableCols = colRes.rows.map((r) => r.column_name);
     const insertData = {};
     for (const c of tableCols) {
       if (formData.hasOwnProperty(c)) insertData[c] = formData[c];
+    }
+
+    // ---- Clean up and sanitize phone field for Postgres BIGINT ----
+    if (tableCols.includes('phone')) {
+      if (insertData.phone !== undefined && insertData.phone !== null) {
+        const cleanDigits = String(insertData.phone).replace(/\D/g, '');
+        insertData.phone = cleanDigits ? cleanDigits : null;
+      } else {
+        insertData.phone = null;
+      }
+    }
+
+    // ---- Set default is_active if column exists ----
+    if (tableCols.includes('is_active') && insertData.is_active === undefined) {
+      insertData.is_active = true;
     }
 
     // ---- Ensure shift_assignment has a valid value (set default if empty) ----
@@ -1347,6 +1402,45 @@ router.post('/add-staff', upload, async (req, res) => {
     }
     
     await client.query('COMMIT');
+
+    // ---- Send Staff Welcome Login Credentials SMS ----
+    const staffPhone = insertData.phone || formData.phone;
+    if (staffPhone && userCredentials && userCredentials.username) {
+      try {
+        const { sendSMS } = require('../services/SMSService');
+        const { getRenderedTemplate } = require('./smsRoutes');
+        const branchCode = (req._branchCode || req.headers['x-branch-code'] || req.headers['branchcode'] || 'IQRA1').toUpperCase();
+        const branchMatch = branchCode.match(/(\d+)$/);
+        const branchName = branchMatch ? `BRANCH ${branchMatch[1]}` : branchCode;
+        const isBilal = branchCode.includes('BILAL');
+        const schoolName = isBilal ? 'BILAL ACADEMY' : 'IQRA ACADEMY';
+
+        const vars = {
+          staff_name: formData.name || insertData.name || 'Staff',
+          Branch: branchName,
+          branchcode: branchCode,
+          staff_username: userCredentials.username,
+          staff_password: userCredentials.password || '',
+          school_name: schoolName
+        };
+
+        let welcomeMsg = await getRenderedTemplate('staff_welcome', vars);
+        if (!welcomeMsg) {
+          welcomeMsg = `${schoolName}: Ku soo dhawaaw ${vars.staff_name}. Code: ${branchCode} | User: ${vars.staff_username} | Pass: ${vars.staff_password}`;
+        }
+
+        sendSMS(staffPhone, welcomeMsg, null, {
+          templateKey: 'staff_welcome',
+          recipientName: vars.staff_name,
+          branchCode
+        }).then(result => {
+          if (result?.success) console.log(`✅ Welcome SMS sent to staff ${vars.staff_name} at ${staffPhone}`);
+          else console.warn(`⚠️ Welcome SMS failed for staff ${vars.staff_name}:`, result?.error);
+        }).catch(e => console.warn('Staff welcome SMS error:', e.message));
+      } catch (smsErr) {
+        console.warn('Could not send staff welcome SMS:', smsErr.message);
+      }
+    }
 
     res.json({
       message: 'Staff added successfully',

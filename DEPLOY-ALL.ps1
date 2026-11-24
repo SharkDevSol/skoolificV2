@@ -10,6 +10,7 @@ Write-Host "Server alive" -ForegroundColor Green
 
 Write-Host "=== Step 2: Deploy backend files ===" -ForegroundColor Cyan
 $backendFiles = @(
+  "routes\studentRoutes.js",
   "routes\classTeacherRoutes.js",
   "routes\studentListRoutes.js",
   "routes\markListRoutes.js",

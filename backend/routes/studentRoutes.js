@@ -1,13 +1,51 @@
 const express = require('express');
 const router = express.Router();
 const cors = require('cors');
-const db = require('../config/db');
+const defaultPool = require('../config/db');
+const db = defaultPool; // For background startup / fallback
+const DatabaseConnectionManager = require('../services/DatabaseConnectionManager');
+const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs').promises;
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { getEndpointPath, API_ENDPOINTS } = require('../config/api.config');
 require('dotenv').config();
+
+// Helper function to resolve database pool based on branch code
+const getPool = async (req) => {
+  if (req && req.branchPool) return req.branchPool;
+  let branchCode = req?.headers?.['x-branch-code'] || req?.headers?.['X-Branch-Code'] || req?.headers?.['branchcode'] || req?.query?.branchCode;
+  if (!branchCode && req?.headers?.authorization) {
+    try {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      const decoded = jwt.decode(token);
+      if (decoded && (decoded.branchCode || decoded.branch_code)) {
+        branchCode = decoded.branchCode || decoded.branch_code;
+      }
+    } catch (e) {}
+  }
+  if (!branchCode && req?.headers?.host) {
+    const host = req.headers.host.toLowerCase();
+    if (host.includes('bilal')) {
+      branchCode = 'BILAL';
+    }
+  }
+  if (branchCode) {
+    try {
+      const dbManager = DatabaseConnectionManager.getInstance ? DatabaseConnectionManager.getInstance() : DatabaseConnectionManager;
+      if (dbManager && typeof dbManager.getPool === 'function') {
+        const branchPool = await dbManager.getPool(branchCode.toUpperCase());
+        if (branchPool) {
+          return branchPool;
+        }
+      }
+    } catch (e) {
+      console.warn(`[StudentRoutes getPool] Could not get pool for branch "${branchCode}":`, e.message);
+    }
+  }
+  return defaultPool;
+};
 
 // Security middleware
 const { authorizeRoles } = require('../middleware/auth');
@@ -39,8 +77,9 @@ router.use(async (req, res, next) => {
       schoolId: req.user?.school_id || req.body?.schoolId || req.query?.schoolId || req.query?.studentId,
     };
     if (!ident.name && !ident.schoolId) return next();
+    const pool = await getPool(req);
     const hidden = await require('../services/unpaidHide').isHidden(
-      req.branchPool || db,
+      pool,
       req.headers['x-branch-code'] || '',
       ident
     );
@@ -114,7 +153,8 @@ initGlobalMachineIds();
 // Get all classes
 router.get('/classes', async (req, res) => {
   try {
-    const result = await db.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema']);
+    const pool = await getPool(req);
+    const result = await pool.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema']);
     res.json(result.rows.map(row => row.table_name));
   } catch (err) {
     console.error('Error fetching classes:', err);
@@ -126,7 +166,8 @@ router.get('/classes', async (req, res) => {
 router.get('/columns/:className', async (req, res) => {
   const { className } = req.params;
   try {
-    const result = await db.query(
+    const pool = await getPool(req);
+    const result = await pool.query(
       'SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2',
       ['classes_schema', className]
     );
@@ -140,8 +181,9 @@ router.get('/columns/:className', async (req, res) => {
 // Get form structure including custom field metadata
 router.get('/form-structure', async (req, res) => {
   try {
+    const pool = await getPool(req);
     // First check if the table exists
-    const tableExists = await db.query(`
+    const tableExists = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'school_schema_points' 
@@ -154,7 +196,7 @@ router.get('/form-structure', async (req, res) => {
     }
     
     // Check if custom_fields column exists
-    const columnCheck = await db.query(`
+    const columnCheck = await pool.query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_schema = 'school_schema_points' 
@@ -164,7 +206,7 @@ router.get('/form-structure', async (req, res) => {
     
     if (columnCheck.rows.length === 0) {
       // Column doesn't exist, return empty custom fields
-      const result = await db.query('SELECT class_names FROM school_schema_points.classes WHERE id = 1');
+      const result = await pool.query('SELECT class_names FROM school_schema_points.classes WHERE id = 1');
       if (result.rows.length > 0) {
         return res.json({
           classes: result.rows[0].class_names,
@@ -176,7 +218,7 @@ router.get('/form-structure', async (req, res) => {
     }
     
     // Column exists, query with custom_fields
-    const result = await db.query('SELECT class_names, custom_fields FROM school_schema_points.classes WHERE id = 1');
+    const result = await pool.query('SELECT class_names, custom_fields FROM school_schema_points.classes WHERE id = 1');
     if (result.rows.length > 0) {
       let customFields = [];
       try {
@@ -209,11 +251,12 @@ router.get('/form-structure', async (req, res) => {
 router.get('/search-guardian/:phone', async (req, res) => {
   const { phone } = req.params;
   try {
-    const tables = (await db.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
+    const pool = await getPool(req);
+    const tables = (await pool.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
     console.log(`Searching for guardian with phone: ${phone} across tables: ${tables.join(', ')}`);
     for (const table of tables) {
       // Check if is_active column exists
-      const columnCheck = await db.query(`
+      const columnCheck = await pool.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_schema = 'classes_schema' 
@@ -224,7 +267,7 @@ router.get('/search-guardian/:phone', async (req, res) => {
       const hasIsActive = columnCheck.rows.length > 0;
       const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
       
-      const result = await db.query(
+      const result = await pool.query(
         `SELECT guardian_name, guardian_username, guardian_password FROM classes_schema."${table}" WHERE guardian_phone = $1 ${whereClause} LIMIT 1`,
         [phone]
       );
@@ -254,7 +297,8 @@ router.post('/create-form', async (req, res) => {
     return res.status(400).json({ error: 'Classes array is required and cannot be empty' });
   }
 
-  const client = await db.connect();
+  const pool = await getPool(req);
+  const client = await pool.connect();
   
   try {
     await client.query('BEGIN');
@@ -407,10 +451,11 @@ router.post('/create-form', async (req, res) => {
 // Fix constraints for existing tables
 router.post('/fix-constraints', async (req, res) => {
   try {
-    const tables = (await db.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
+    const pool = await getPool(req);
+    const tables = (await pool.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
     
     for (const table of tables) {
-      const constraints = await db.query(`
+      const constraints = await pool.query(`
         SELECT conname 
         FROM pg_constraint 
         WHERE conrelid = (
@@ -419,7 +464,7 @@ router.post('/fix-constraints', async (req, res) => {
       `, [table]);
       
       for (const constraint of constraints.rows) {
-        await db.query(`ALTER TABLE classes_schema."${table}" DROP CONSTRAINT IF EXISTS "${constraint.conname}"`);
+        await pool.query(`ALTER TABLE classes_schema."${table}" DROP CONSTRAINT IF EXISTS "${constraint.conname}"`);
       }
     }
     
@@ -432,7 +477,8 @@ router.post('/fix-constraints', async (req, res) => {
 
 // Delete form structure
 router.delete('/delete-form', async (req, res) => {
-  const client = await db.connect();
+  const pool = await getPool(req);
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
@@ -454,7 +500,8 @@ router.delete('/delete-form', async (req, res) => {
 
 // Initialize global ID tracker (can be called separately to fix the missing table issue)
 router.post('/init-global-tracker', async (req, res) => {
-  const client = await db.connect();
+  const pool = await getPool(req);
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
@@ -495,7 +542,8 @@ router.post('/init-global-tracker', async (req, res) => {
 
 // Add student - UPDATED WITH AUTO-TABLE CREATION AND GLOBAL ID LOGIC
 router.post('/add-student', upload.any(), async (req, res) => {
-  const client = await db.connect();
+  const pool = await getPool(req);
+  const client = await pool.connect();
   
   try {
     await client.query('BEGIN');
@@ -656,6 +704,11 @@ router.post('/add-student', upload.any(), async (req, res) => {
         insertData.student_type = 'regular';
       }
     }
+
+    // Explicitly set is_active to true so newly registered students appear in student lists immediately
+    if (validColumns.includes('is_active') && insertData.is_active === undefined) {
+      insertData.is_active = true;
+    }
     
     // Validate smachine_id uniqueness across ALL classes if provided
     if (formData.smachine_id) {
@@ -768,6 +821,47 @@ router.post('/add-student', upload.any(), async (req, res) => {
     
     await client.query('COMMIT');
     
+    // ---- Send Welcome Login Credentials SMS ----
+    const targetPhone = formData.guardian_phone || formData.guardian_2nd_phone;
+    if (targetPhone && guardianUsername) {
+      try {
+        const { sendSMS } = require('../services/SMSService');
+        const { getRenderedTemplate } = require('./smsRoutes');
+        const branchCode = (req.branchCode || req.headers['x-branch-code'] || req.headers['branchcode'] || 'IQRA1').toUpperCase();
+        const isBilal = branchCode.includes('BILAL');
+        const schoolName = isBilal ? 'BILAL ACADEMY' : 'IQRA ACADEMY';
+        const guardianPortalUrl = isBilal ? 'https://bilal.skoolific.com/app/guardian-login' : 'https://iqra.skoolific.com/app/guardian-login';
+
+        const vars = {
+          student_name: formData.student_name || '',
+          student_username: studentUsername || '',
+          student_password: studentPassword || '',
+          guardian_name: formData.guardian_name || 'Waalid',
+          guardian_username: guardianUsername,
+          guardian_password: guardianPassword,
+          school_name: schoolName,
+          guardian_app_link: guardianPortalUrl,
+          branch_code: branchCode
+        };
+
+        let guardianMsg = await getRenderedTemplate('guardian_welcome', vars);
+        if (!guardianMsg) {
+          guardianMsg = `Kusoo dhawow ${schoolName}! Waalidka sharafta leh, waad ku mahadsan tahay diwaan-gelinta ilmahaaga ${formData.student_name}. Link: ${guardianPortalUrl} | B: ${branchCode} | U: ${guardianUsername} | P: ${guardianPassword}`;
+        }
+
+        sendSMS(targetPhone, guardianMsg, null, {
+          templateKey: 'guardian_welcome',
+          recipientName: formData.guardian_name || formData.student_name,
+          branchCode
+        }).then(res => {
+          if (res?.success) console.log(`✅ Welcome SMS sent to guardian of ${formData.student_name} (${targetPhone})`);
+          else console.warn(`⚠️ Welcome SMS failed for guardian of ${formData.student_name}:`, res?.error);
+        }).catch(err => console.warn('Welcome SMS error:', err.message));
+      } catch (smsErr) {
+        console.warn('Could not dispatch welcome SMS to guardian:', smsErr.message);
+      }
+    }
+
     res.json({
       message: 'Student added successfully',
       student_username: studentUsername,
@@ -804,10 +898,11 @@ router.post('/add-student', upload.any(), async (req, res) => {
 // Get global ID statistics
 router.get('/id-statistics', async (req, res) => {
   try {
+    const pool = await getPool(req);
     // Ensure global_id_tracker table exists first
     try {
-      await db.query('CREATE SCHEMA IF NOT EXISTS school_schema_points');
-      await db.query(`
+      await pool.query('CREATE SCHEMA IF NOT EXISTS school_schema_points');
+      await pool.query(`
         CREATE TABLE IF NOT EXISTS school_schema_points.global_id_tracker (
           id SERIAL PRIMARY KEY,
           last_school_id INTEGER DEFAULT 0,
@@ -820,15 +915,15 @@ router.get('/id-statistics', async (req, res) => {
     }
     
     // Get current global school_id
-    const globalIdResult = await db.query('SELECT last_school_id FROM school_schema_points.global_id_tracker LIMIT 1');
+    const globalIdResult = await pool.query('SELECT last_school_id FROM school_schema_points.global_id_tracker LIMIT 1');
     
     // Get class-wise student counts
-    const tables = (await db.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
+    const tables = (await pool.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
     
     const classStats = [];
     for (const table of tables) {
       // Check if is_active column exists
-      const columnCheck = await db.query(`
+      const columnCheck = await pool.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_schema = 'classes_schema' 
@@ -839,8 +934,8 @@ router.get('/id-statistics', async (req, res) => {
       const hasIsActive = columnCheck.rows.length > 0;
       const whereClause = hasIsActive ? 'WHERE is_active = TRUE OR is_active IS NULL' : '';
       
-      const countResult = await db.query(`SELECT COUNT(*) as student_count FROM classes_schema."${table}" ${whereClause}`);
-      const maxClassIdResult = await db.query(`SELECT COALESCE(MAX(class_id), 0) as max_class_id FROM classes_schema."${table}"`);
+      const countResult = await pool.query(`SELECT COUNT(*) as student_count FROM classes_schema."${table}" ${whereClause}`);
+      const maxClassIdResult = await pool.query(`SELECT COALESCE(MAX(class_id), 0) as max_class_id FROM classes_schema."${table}"`);
       
       classStats.push({
         class_name: table,
@@ -868,7 +963,8 @@ router.post('/reset-global-ids', async (req, res) => {
     return res.status(400).json({ error: 'Confirmation code required to reset global IDs' });
   }
   
-  const client = await db.connect();
+  const pool = await getPool(req);
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
@@ -907,7 +1003,8 @@ router.post('/login', async (req, res) => {
   const { username, password } = req.body;
   
   try {
-    const tables = (await db.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
+    const pool = await getPool(req);
+    const tables = (await pool.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
     
     let user = null;
     let role = null;
@@ -915,7 +1012,7 @@ router.post('/login', async (req, res) => {
     // Search for student
     for (const table of tables) {
       // Check if is_active column exists
-      const columnCheck = await db.query(`
+      const columnCheck = await pool.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_schema = 'classes_schema' 
@@ -926,7 +1023,7 @@ router.post('/login', async (req, res) => {
       const hasIsActive = columnCheck.rows.length > 0;
       const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
       
-      const result = await db.query(
+      const result = await pool.query(
         `SELECT * FROM classes_schema."${table}" WHERE username = $1 AND password = $2 ${whereClause}`,
         [username, password]
       );
@@ -941,7 +1038,7 @@ router.post('/login', async (req, res) => {
     // Unpaid rule: a hidden student cannot use the account at all.
     if (role === 'student' && user) {
       try {
-        const _hidden = await require('../services/unpaidHide').isHidden(db, req.headers['x-branch-code'] || '', {
+        const _hidden = await require('../services/unpaidHide').isHidden(pool, req.headers['x-branch-code'] || '', {
           name: user.student_name,
           schoolId: user.school_id
         });
@@ -958,7 +1055,7 @@ router.post('/login', async (req, res) => {
     if (!user) {
       for (const table of tables) {
         // Check if is_active column exists
-        const columnCheck = await db.query(`
+        const columnCheck = await pool.query(`
           SELECT column_name 
           FROM information_schema.columns 
           WHERE table_schema = 'classes_schema' 
@@ -969,7 +1066,7 @@ router.post('/login', async (req, res) => {
         const hasIsActive = columnCheck.rows.length > 0;
         const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
         
-        const result = await db.query(
+        const result = await pool.query(
           `SELECT * FROM classes_schema."${table}" WHERE guardian_username = $1 AND guardian_password = $2 ${whereClause}`,
           [username, password]
         );
@@ -1002,13 +1099,14 @@ router.get('/profile/:username', async (req, res) => {
   const { username } = req.params;
   
   try {
-    const tables = (await db.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
+    const pool = await getPool(req);
+    const tables = (await pool.query('SELECT table_name FROM information_schema.tables WHERE table_schema = $1', ['classes_schema'])).rows.map(row => row.table_name);
     
     let student = null;
     
     for (const table of tables) {
       // Check if is_active column exists
-      const columnCheck = await db.query(`
+      const columnCheck = await pool.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_schema = 'classes_schema' 
@@ -1019,7 +1117,7 @@ router.get('/profile/:username', async (req, res) => {
       const hasIsActive = columnCheck.rows.length > 0;
       const whereClause = hasIsActive ? 'AND (is_active = TRUE OR is_active IS NULL)' : '';
       
-      const result = await db.query(
+      const result = await pool.query(
         `SELECT * FROM classes_schema."${table}" WHERE username = $1 ${whereClause}`,
         [username]
       );
@@ -1052,7 +1150,8 @@ router.get('/guardian-profile/:username', async (req, res) => {
   if (!uname) return res.status(400).json({ error: 'username is required' });
 
   try {
-    const tables = (await db.query(
+    const pool = await getPool(req);
+    const tables = (await pool.query(
       'SELECT table_name FROM information_schema.tables WHERE table_schema = $1',
       ['classes_schema']
     )).rows.map(row => row.table_name);
@@ -1060,7 +1159,7 @@ router.get('/guardian-profile/:username', async (req, res) => {
     // Only class tables that actually store guardian details.
     const meta = {};
     for (const table of tables) {
-      const cols = (await db.query(
+      const cols = (await pool.query(
         `SELECT column_name FROM information_schema.columns
           WHERE table_schema = 'classes_schema' AND table_name = $1
             AND column_name IN ('guardian_name', 'guardian_phone', 'guardian_username', 'is_active', 'class')`,
@@ -1086,7 +1185,7 @@ router.get('/guardian-profile/:username', async (req, res) => {
       phoneCounts.set(uname, 99); // the app was called with a phone number
     } else {
       for (const table of Object.keys(meta)) {
-        const rows = (await db.query(
+        const rows = (await pool.query(
           `SELECT guardian_phone FROM classes_schema."${table}"
             WHERE LOWER(guardian_username) = LOWER($1) AND ${baseWhere} ${active(table)}`,
           [uname]
@@ -1120,7 +1219,7 @@ router.get('/guardian-profile/:username', async (req, res) => {
         clauses.push('LOWER(guardian_username) = LOWER($1)');
         params.push(uname);
       }
-      const rows = (await db.query(
+      const rows = (await pool.query(
         `SELECT * FROM classes_schema."${table}"
           WHERE (${clauses.join(' OR ')}) AND ${baseWhere} ${active(table)}`,
         params
@@ -1159,7 +1258,8 @@ router.post('/bulk-import', async (req, res) => {
     return res.status(400).json({ error: 'Students array is required' });
   }
   
-  const client = await db.connect();
+  const pool = await getPool(req);
+  const client = await pool.connect();
   
   try {
     await client.query('BEGIN');
@@ -1507,6 +1607,9 @@ router.post('/bulk-import', async (req, res) => {
             }
           });
           
+          if (validColumns.includes('is_active') && insertData.is_active === undefined) {
+            insertData.is_active = true;
+          }
           // Insert student
           const columns = Object.keys(insertData).filter(key => validColumns.includes(key));
           const values = columns.map(key => insertData[key]);
