@@ -37,7 +37,7 @@ const ListGuardian = ({ kgOnly = false } = {}) => {
       // FIX: send the branch header (raw axios missed it -> always showed
       // IQRA1's guardians). Use the same branch source as the app.
       const branch = getBranchCode();
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
       const headers = {
         ...(branch ? { 'X-Branch-Code': branch } : {}),
         ...(token ? { 'Authorization': 'Bearer ' + token } : {})

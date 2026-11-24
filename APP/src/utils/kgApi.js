@@ -10,7 +10,9 @@ export function kgHeaders(extra = {}) {
   const token =
     (branch ? localStorage.getItem(`branch_${branch}_authToken`) : null) ||
     localStorage.getItem('authToken') ||
+    sessionStorage.getItem('authToken') ||
     localStorage.getItem('token') ||
+    sessionStorage.getItem('token') ||
     '';
   return {
     ...(branch ? { 'x-branch-code': branch } : {}),
