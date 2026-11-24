@@ -1127,7 +1127,7 @@ router.get('/get-test', async (req, res) => {
         ...data,
         id: r.id,
         type: typeNormalize(r.question_type || data.type),
-        marks: r.marks,
+        marks: numMarks(r.marks, 1),
       };
       // Repair questions saved by older versions (split options, lettered answers)
       try { fixQuestion(q); } catch (e) { /* keep the question as stored */ }
@@ -1137,7 +1137,7 @@ router.get('/get-test', async (req, res) => {
     res.json({ success: true, data: {
       subject, className, termNumber, componentName,
       questions,
-      totalMarks: questions.reduce((s, q) => s + q.marks, 0),
+      totalMarks: roundMarks(questions.reduce((s, q) => s + numMarks(q.marks, 0), 0)),
       timeLimit: parseInt(result.rows[0]?.time_limit) || 0,
       language: result.rows[0]?.language || 'English'
     } });
@@ -1504,7 +1504,7 @@ router.get('/student-tests', async (req, res) => {
         className: t.class_name,
         termNumber: t.term_number,
         componentName: t.component_name,
-        totalMarks: t.total_marks,
+        totalMarks: numMarks(t.total_marks),
         timeLimit: t.time_limit,
         publishedAt: t.published_at,
         practice: !!t.practice,
@@ -1581,7 +1581,7 @@ router.post('/start-exam', async (req, res) => {
         className: p.class_name,
         termNumber: p.term_number,
         componentName: p.component_name,
-        totalMarks: p.total_marks || qRes.rows.reduce((s, r) => s + numMarks(r.marks, 1), 0),
+        totalMarks: roundMarks(numMarks(p.total_marks) || qRes.rows.reduce((s, r) => s + numMarks(r.marks, 1), 0)),
         timeLimit: parseInt(timeLimit, 10) || 0,
         practice: !!p.practice,
         language,
@@ -1710,7 +1710,7 @@ router.get('/student-result/:examId', async (req, res) => {
       qs.rows.forEach((r) => {
         let qd = r.question_data;
         try { if (typeof qd === 'string') qd = JSON.parse(qd); } catch (e) { qd = {}; }
-        qMeta.set(String(r.id), { type: typeNormalize((qd && qd.type) || r.question_type), marks: r.marks, q: qd || {} });
+        qMeta.set(String(r.id), { type: typeNormalize((qd && qd.type) || r.question_type), marks: numMarks(r.marks, 1), q: qd || {} });
       });
     } catch (e) { /* test table removed — keep answers only */ }
 
