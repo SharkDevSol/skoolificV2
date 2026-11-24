@@ -370,7 +370,7 @@ function validateQuestions(questions, expectedTypes) {
 
     // Matching must have valid columns and matches
     if (q.type === 'matching') {
-      const minItems = (q.marks || 1) >= 2 ? 2 : 1;
+      const minItems = numMarks(q.marks, 1) >= 2 ? 2 : 1;
       if (!q.leftColumn || !Array.isArray(q.leftColumn) || q.leftColumn.length < minItems) {
         errors.push(`Question ${i + 1} (Matching): Must have at least ${minItems} left column item(s)`);
       }
@@ -856,7 +856,7 @@ const stripAnswersForStudent = (rows) => rows.map((raw) => {
     rightColumn: d.rightColumn || null,
     leftImages: d.leftImages || [],
     rightImages: d.rightImages || [],
-    marks: raw.marks || d.marks || 1
+    marks: numMarks(raw.marks ?? d.marks, 1)
   };
 });
 
@@ -1900,11 +1900,11 @@ router.post('/submit-exam', async (req, res) => {
     for (const raw of questionsRes.rows) {
       const data = decodeDeep(raw.question_data || {});
       const type = typeNormalize(data.type || raw.question_type);
-      const q = { ...data, id: raw.id, type, marks: raw.marks || data.marks || 1 };
+      const q = { ...data, id: raw.id, type, marks: numMarks(raw.marks ?? data.marks, 1) };
 
       const studentAnswer = answers[String(raw.id)] !== undefined ? answers[String(raw.id)] : (answers[raw.id] !== undefined ? answers[raw.id] : '');
       const isManual = type === 'essay' || type === 'transformation';
-      const marks = q.marks || 1;
+      const marks = numMarks(q.marks, 1);
 
       let isCorrect = false, earned = 0, correctPairs = null, totalPairs = null;
       if (isManual) {
@@ -1951,7 +1951,7 @@ router.post('/submit-exam', async (req, res) => {
 
     // Calculate bonus marks
     const rawScore = obtainedMarks;
-    const componentMax = parseInt(maxComponentMarks) || examTotalMarks;
+    const componentMax = numMarks(maxComponentMarks) || examTotalMarks;
     const bonusMarks = Math.max(0, rawScore - componentMax);
     const cappedScore = Math.min(rawScore, componentMax);
     const percentage = examTotalMarks > 0 ? ((rawScore / examTotalMarks) * 100).toFixed(1) : 0;
