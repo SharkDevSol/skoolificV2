@@ -316,8 +316,9 @@ router.post('/staff/change-password', authenticateWithBranch, async (req, res) =
       });
     }
 
-    // Validate password strength
-    const passwordValidation = validatePasswordStrength(newPassword);
+    // Staff password rule: same simple rule as admin — at least 8 characters,
+    // any characters (numbers/letters/symbols are all allowed).
+    const passwordValidation = validateAdminPassword(newPassword);
     if (!passwordValidation.isValid) {
       return res.status(400).json({ 
         error: 'Password does not meet strength requirements',
