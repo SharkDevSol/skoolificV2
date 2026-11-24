@@ -1110,11 +1110,14 @@ const SmsTemplates = () => {
                       {s.schedule_key === 'absence_alert' ? (
                         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '16px 20px', borderRadius: '8px', gridColumn: '1 / -1' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', color: '#166534', marginBottom: '6px', fontSize: '15px' }}>
-                            <CheckCircle2 size={18} /> Immediate Event Trigger (No Delayed Calendar Schedule)
+                            <CheckCircle2 size={18} /> 30-Minute Grace Period Buffer (Active)
                           </div>
-                          <p style={{ margin: 0, fontSize: '13px', color: '#15803d', lineHeight: '1.5' }}>
-                            Daily Absence SMS does <strong>not</strong> wait for a scheduled date or delayed time. It triggers <strong>immediately</strong> to the guardian's phone number as soon as an administrator or teacher records an <strong>ABSENT</strong> mark for that student.
+                          <p style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#15803d', lineHeight: '1.5' }}>
+                            When staff marks a student <strong>ABSENT</strong>, the SMS waits <strong>30 minutes</strong> before sending. If the teacher corrects the student status to <strong>Present</strong>, <strong>Late</strong>, or <strong>Permission</strong> within 30 minutes (fixing a mistake), the SMS is <strong>automatically cancelled</strong> and never sent to the guardian.
                           </p>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#dcfce7', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#166534' }}>
+                            <span>⏱️ Grace Period Buffer: 30 minutes after mark entry</span>
+                          </div>
                         </div>
                       ) : (
                         <>
@@ -1199,7 +1202,7 @@ const SmsTemplates = () => {
                       <span className={styles.scheduleStatusNote}>
                         <Clock size={14} />
                         {s.schedule_key === 'absence_alert' ? (
-                          <span>Dispatch Mode: <strong>Instant on mark entry</strong> {edit.auto_send_enabled ? '(Active)' : '(Disabled)'}</span>
+                          <span>Dispatch Mode: <strong>30-Minute Grace Buffer</strong> {edit.auto_send_enabled ? '(Active)' : '(Disabled)'}</span>
                         ) : s.schedule_key === 'payment_reminder' ? (
                           <span>Monthly Trigger: <strong>Day {edit.window_start_day || 26} at {edit.send_time || '09:30'}</strong> (1 time per month)</span>
                         ) : (

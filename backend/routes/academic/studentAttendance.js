@@ -948,18 +948,29 @@ router.put('/update', async (req, res) => {
       const newStatus = String(calculatedStatus || '').toUpperCase();
       const prevStatus = String(existingRecord.rows[0] && existingRecord.rows[0].status || '').toUpperCase();
       
-      // Send SMS to guardian when student is marked ABSENT
+      // Queue SMS to guardian when student is marked ABSENT (with 30-min buffer)
       if (newStatus === 'ABSENT' && newStatus !== prevStatus) {
         try {
-          const { sendAbsenceAlertSms } = require('../../services/AbsenceSmsService');
-          sendAbsenceAlertSms(getDb(req), {
+          const { queueAbsenceSms } = require('../../services/AbsenceSmsService');
+          queueAbsenceSms(getDb(req), {
             className,
             studentId,
-            ethDateStr: `${ethYear}-${String(ethMonth).padStart(2, '0')}-${String(ethDay).padStart(2, '0')}`
-          }).catch(e => console.warn('[Attendance SMS] Failed to trigger absence SMS:', e.message));
+            ethDateStr: `${ethYear}-${String(ethMonth).padStart(2, '0')}-${String(ethDay).padStart(2, '0')}`,
+            delayMinutes: 30
+          }).catch(e => console.warn('[Attendance SMS] Failed to queue absence SMS:', e.message));
         } catch (smsErr) {
           console.warn('[Attendance SMS] Module error:', smsErr.message);
         }
+      } else if (prevStatus === 'ABSENT' && newStatus !== 'ABSENT') {
+        // Corrected mistake away from Absent!
+        try {
+          const { cancelPendingAbsenceSms } = require('../../services/AbsenceSmsService');
+          cancelPendingAbsenceSms(getDb(req), {
+            studentId,
+            ethDateStr: `${ethYear}-${String(ethMonth).padStart(2, '0')}-${String(ethDay).padStart(2, '0')}`,
+            reason: 'Staff changed status from Absent to ' + newStatus
+          }).catch(() => {});
+        } catch (_) {}
       }
 
       if (newStatus) {

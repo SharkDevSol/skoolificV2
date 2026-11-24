@@ -904,9 +904,10 @@ async function ensureScheduleSettingsTable() {
         schedule_key: 'absence_alert',
         title: 'Daily Student Absence Alert SMS',
         category: 'Attendance',
-        send_time: 'Instant',
+        send_time: '30 min buffer',
+        buffer_minutes: 30,
         auto_send_enabled: true,
-        notes: 'Instant dispatch: Sends immediately to guardian whenever a student is marked absent (no delayed calendar schedule).'
+        notes: '30-Minute Grace Period Buffer: When staff marks a student absent, the SMS waits 30 minutes. If the teacher corrects the student status to Present, Late, or Permission within 30 minutes, the SMS is automatically cancelled and not sent.'
       }
     ];
 

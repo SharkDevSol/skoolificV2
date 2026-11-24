@@ -127,6 +127,7 @@ process.on('unhandledRejection', onUnhandledRejection);
 const syncCoordinator = require('./services/SyncCoordinator');
 const deviceUserMonitoringService = require('./services/DeviceUserMonitoringService');
 const { startPaymentReminders } = require('./services/PaymentReminderService');
+const { startAbsenceQueueRunner } = require('./services/AbsenceSmsService');
 const deviceUserBufferService = require('./services/DeviceUserBufferService');
 const backupRestoreService = require('./services/BackupRestoreService');
 
@@ -746,6 +747,7 @@ const attendanceSystemInitializer = require('./services/attendanceSystemInitiali
   // This will also run migration automatically when device comes online
   deviceUserMonitoringService.startMonitoring(5);
   startPaymentReminders();
+  startAbsenceQueueRunner();
   console.log('✅ Device User Monitoring Service started');
 
   // Start automatic backup service (runs every 6 hours)
