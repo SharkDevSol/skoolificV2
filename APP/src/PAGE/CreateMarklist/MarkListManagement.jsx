@@ -73,9 +73,13 @@ const MarkListForm = ({ kgOnly = false, termCountOverride = null }) => {
         configRes.json()
       ]);
 
-      // Derive unique subjects directly from mappings (no dependency on subjects table)
+      // Derive unique subjects directly from mappings (no dependency on subjects table).
+      // For KG, only show subjects that are actually mapped to a KG class.
+      const sourceMappings = kgOnly
+        ? mappingsData.filter((m) => /^KG/i.test(String(m.class_name)))
+        : mappingsData;
       const uniqueSubjects = [...new Map(
-        mappingsData.map(m => [m.subject_name, { id: m.subject_name, subject_name: m.subject_name }])
+        sourceMappings.map(m => [m.subject_name, { id: m.subject_name, subject_name: m.subject_name }])
       ).values()];
 
       const classList = (Array.isArray(classesData) ? classesData : [])
