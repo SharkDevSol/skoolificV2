@@ -40,7 +40,7 @@ const API_BASE_URL = getApiBaseUrl();
 
 const ATTENDANCE_STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'LEAVE'];
 
-const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
+const StudentAttendanceSystem = ({ preSelectedClass = null, kgOnly = false } = {}) => {
   const { t } = useTranslation();
   const toast = useToast();
 
@@ -261,10 +261,12 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/academic/student-attendance/classes`);
       if (response.data.success) {
-        setClasses(response.data.data);
+        const list = (Array.isArray(response.data.data) ? response.data.data : [])
+          .filter((c) => !kgOnly || /^KG/i.test(String(c)));
+        setClasses(list);
         // Only set first class if no preSelectedClass is provided
-        if (response.data.data.length > 0 && !preSelectedClass) {
-          setSelectedClass(response.data.data[0]);
+        if (list.length > 0 && !preSelectedClass) {
+          setSelectedClass(list[0]);
         }
       }
     } catch (err) {
@@ -803,10 +805,10 @@ const StudentAttendanceSystem = ({ preSelectedClass = null }) => {
         <div>
           <h1 className={styles.pageTitle}>
             <Users size={28} aria-hidden="true" />
-            {t('students.attendance.title', 'Student Attendance')}
+            {kgOnly ? 'KG Attendance' : t('students.attendance.title', 'Student Attendance')}
           </h1>
           <p className={styles.pageSubtitle}>
-            {t('students.attendance.subtitle', 'School week attendance tracking with Ethiopian calendar')}
+            {kgOnly ? 'Weekly attendance for kindergarten classes only' : t('students.attendance.subtitle', 'School week attendance tracking with Ethiopian calendar')}
           </p>
         </div>
         {currentEthiopianDate && (

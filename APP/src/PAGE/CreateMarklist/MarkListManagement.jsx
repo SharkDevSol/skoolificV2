@@ -27,7 +27,7 @@ const DEFAULT_MARK_COMPONENTS = [
   { name: 'final', percentage: 40 }
 ];
 
-const MarkListForm = () => {
+const MarkListForm = ({ kgOnly = false, termCountOverride = null }) => {
   const { t } = useApp();
   const navigate = useNavigate();
   const [subjects, setSubjects] = useState([]);
@@ -56,7 +56,7 @@ const MarkListForm = () => {
 
   useEffect(() => {
     fetchInitialData();
-  }, []);
+  }, [kgOnly, termCountOverride]);
 
   const fetchInitialData = async () => {
     try {
@@ -78,10 +78,13 @@ const MarkListForm = () => {
         mappingsData.map(m => [m.subject_name, { id: m.subject_name, subject_name: m.subject_name }])
       ).values()];
 
+      const classList = (Array.isArray(classesData) ? classesData : [])
+        .filter((c) => !kgOnly || /^KG/i.test(String(c)));
+
       setSubjects(uniqueSubjects);
-      setClasses(classesData);
+      setClasses(classList);
       setSubjectClassMappings(mappingsData);
-      setConfig({ term_count: configData.terms || 2 });
+      setConfig({ term_count: parseInt(termCountOverride || configData.terms, 10) || 2 });
     } catch (error) {
       console.error('Error fetching initial data:', error);
       setMessage('Error loading data: ' + error.message);
@@ -92,6 +95,7 @@ const MarkListForm = () => {
     if (!selectedSubject) return [];
     return subjectClassMappings
       .filter(mapping => mapping.subject_name === selectedSubject)
+      .filter(mapping => !kgOnly || /^KG/i.test(String(mapping.class_name)))
       .map(mapping => mapping.class_name);
   };
 
@@ -966,38 +970,45 @@ const TeacherAssignment = () => {
   );
 };
 
-const MarkListManagement = () => {
-  const [activeTab, setActiveTab] = useState('subjects');
-
-  const tabs = [
-    { id: 'subjects', label: '📚 Subject Setup', component: SubjectMappingSetup },
-    { id: 'forms', label: 'Mark List Forms', component: MarkListForm },
-    { id: 'teachers', label: 'Teacher Assignment', component: TeacherAssignment }
-  ];
+const MarkListManagement = ({ kgOnly = false, initialTab = 'subjects', termCountOverride = null } = {}) => {
+  const tabs = kgOnly
+    ? [{ id: 'forms', label: 'KG Mark List Forms', component: MarkListForm }]
+    : [
+        { id: 'subjects', label: '📚 Subject Setup', component: SubjectMappingSetup },
+        { id: 'forms', label: 'Mark List Forms', component: MarkListForm },
+        { id: 'teachers', label: 'Teacher Assignment', component: TeacherAssignment }
+      ];
+  const [activeTab, setActiveTab] = useState(
+    tabs.some((tab) => tab.id === initialTab) ? initialTab : tabs[0].id
+  );
 
   const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component;
 
   return (
     <div className="mark-list-system">
       <div className="system-header">
-        <h1>Mark List Management System</h1>
-        <p>Manage mark lists and teacher assignments</p>
+        <h1>{kgOnly ? 'KG Create Mark List' : 'Mark List Management System'}</h1>
+        <p>{kgOnly ? 'Create mark-list forms for kindergarten classes' : 'Manage mark lists and teacher assignments'}</p>
       </div>
 
-      <div className="system-navigation">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {!kgOnly && (
+        <div className="system-navigation">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="system-content">
-        {ActiveComponent && <ActiveComponent />}
+        {ActiveComponent && (
+          <ActiveComponent kgOnly={kgOnly} termCountOverride={termCountOverride} />
+        )}
       </div>
     </div>
   );

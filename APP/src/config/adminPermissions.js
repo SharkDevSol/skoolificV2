@@ -54,9 +54,13 @@ export const ADMIN_PERMISSIONS = {
   kg: {
     label: 'KG Management',
     permissions: [
+      { key: 'kg_students', label: 'KG Students', path: '/kg/students' },
+      { key: 'kg_guardians', label: 'KG Guardians', path: '/kg/guardians' },
+      { key: 'kg_attendance', label: 'KG Attendance', path: '/kg/attendance' },
+      { key: 'kg_mark_list', label: 'KG Mark List', path: '/kg/mark-list' },
+      { key: 'kg_create_mark_list', label: 'KG Create Mark List', path: '/kg/create-mark-list' },
       { key: 'kg_evaluation', label: 'KG Evaluation', path: '/kg/evaluation' },
-      { key: 'kg_book', label: 'KG Evaluation Book', path: '/kg/evaluation-book' },
-      { key: 'kg_assignments', label: 'KG Assignments', path: '/kg/assignments' },
+      { key: 'kg_settings', label: 'KG Settings', path: '/kg/settings' },
     ],
   },
   academic: {

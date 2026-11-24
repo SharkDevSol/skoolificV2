@@ -11,7 +11,7 @@ import { useApp } from '../../../context/AppContext';
 import { getBranchCode } from '../../../utils/branchCode';
 import styles from './ListGuardian.module.css';
 
-const ListGuardian = () => {
+const ListGuardian = ({ kgOnly = false } = {}) => {
   const { t } = useApp();
   const [guardians, setGuardians] = useState([]);
   const [filteredGuardians, setFilteredGuardians] = useState([]);
@@ -43,8 +43,18 @@ const ListGuardian = () => {
         ...(token ? { 'Authorization': 'Bearer ' + token } : {})
       };
       const response = await axios.get('/api/guardian-list/guardians', { headers });
-      setGuardians(response.data);
-      setFilteredGuardians(response.data);
+      const data = Array.isArray(response.data) ? response.data : [];
+      const list = kgOnly
+        ? data
+            .map((g) => ({
+              ...g,
+              students: (Array.isArray(g.students) ? g.students : [])
+                .filter((s) => /^KG/i.test(String(s.class || ''))),
+            }))
+            .filter((g) => g.students.length > 0)
+        : data;
+      setGuardians(list);
+      setFilteredGuardians(list);
     } catch (error) {
       console.error('Error fetching guardians:', error);
     } finally {
@@ -121,8 +131,8 @@ const ListGuardian = () => {
         <div className={styles.headerLeft}>
           <div className={styles.headerIcon}><FiUsers /></div>
           <div>
-            <h1>{t('guardianDirectory') || 'Guardian Directory'}</h1>
-            <p>{t('guardianDirectoryDesc') || 'View and manage all guardians'}</p>
+            <h1>{kgOnly ? 'KG Guardians' : (t('guardianDirectory') || 'Guardian Directory')}</h1>
+            <p>{kgOnly ? 'Parents of kindergarten students only' : (t('guardianDirectoryDesc') || 'View and manage all guardians')}</p>
           </div>
         </div>
         <div className={styles.headerStats}>

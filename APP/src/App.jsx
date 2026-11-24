@@ -141,6 +141,12 @@ const EvaluationBookReports = lazy(() => import("./PAGE/EvaluationBook").then(mo
 
 // KG Module
 const KGEvaluation = lazy(() => import("./PAGE/KG/KGEvaluation"));
+const KGStudents = lazy(() => import("./PAGE/KG/KGStudents"));
+const KGGuardians = lazy(() => import("./PAGE/KG/KGGuardians"));
+const KGAttendance = lazy(() => import("./PAGE/KG/KGAttendance"));
+const KGMarkList = lazy(() => import("./PAGE/KG/KGMarkList"));
+const KGCreateMarkList = lazy(() => import("./PAGE/KG/KGCreateMarkList"));
+const KGSettings = lazy(() => import("./PAGE/KG/KGSettings"));
 
 // KG coming-soon pages redirect to KG Evaluation
 const KGEvaluationBookPlaceholder = () => (
@@ -331,6 +337,12 @@ function App() {
               <Route path="evaluation-book/guardian" element={<GuardianEvaluationInbox />} />
               <Route path="evaluation-book/guardian/feedback/:evaluationId" element={<GuardianFeedbackForm />} />
               <Route path="kg/evaluation" element={<KGEvaluation />} />
+              <Route path="kg/students" element={<KGStudents />} />
+              <Route path="kg/guardians" element={<KGGuardians />} />
+              <Route path="kg/attendance" element={<KGAttendance />} />
+              <Route path="kg/mark-list" element={<KGMarkList />} />
+              <Route path="kg/create-mark-list" element={<KGCreateMarkList />} />
+              <Route path="kg/settings" element={<KGSettings />} />
               <Route path="kg/evaluation-book" element={<KGEvaluationBookPlaceholder />} />
               <Route path="kg/assignments" element={<KGAssignmentsPlaceholder />} />
               <Route path="mark-list-view" element={<MarkListView />} />

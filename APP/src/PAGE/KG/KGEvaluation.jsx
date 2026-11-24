@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { formatAPIError } from '../../utils/errorMessages';
-import { getBranchCode } from '../../utils/branchCode';
+import { fetchKGClasses as apiKGClasses, kgHeaders, KG_API } from '../../utils/kgApi';
 
-const API = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
-const h = () => ({ 'x-branch-code': getBranchCode() });
+const API = KG_API;
+const h = () => kgHeaders();
 
 const KGEvaluation = () => {
   const [view, setView] = useState('list');
   const [kgClasses, setKgClasses] = useState([]);
+  const [termCount, setTermCount] = useState(2);
   const [evaluations, setEvaluations] = useState([]);
   const [areas, setAreas] = useState([]);
   const [criteria, setCriteria] = useState({});
@@ -36,17 +37,21 @@ const KGEvaluation = () => {
 
   const fetchKGClasses = async () => {
     try {
-      const res = await fetch(`${API}/students/form-structure`, { headers: h() });
-      if (res.ok) {
-        const data = await res.json();
-        const configs = data.classConfigs || {};
-        const kgList = Object.entries(configs)
-          .filter(([, cfg]) => cfg.isKG)
-          .map(([name]) => name);
-        setKgClasses(kgList);
-      }
+      const cfg = await apiKGClasses();
+      setKgClasses(cfg.classes || []);
+      setTermCount(cfg.term_count || 2);
     } catch (e) {
-      console.error('Error fetching KG classes:', e);
+      // Fallback for older backends: derive KG classes from the class list.
+      try {
+        const res = await fetch(`${API}/students/form-structure`, { headers: h() });
+        if (res.ok) {
+          const data = await res.json();
+          const classes = (data.classes || []).filter((c) => /^KG/i.test(String(c)));
+          setKgClasses(classes);
+        }
+      } catch (err) {
+        console.error('Error fetching KG classes:', e, err);
+      }
     }
   };
 
@@ -95,7 +100,6 @@ const KGEvaluation = () => {
         })
       });
       if (res.ok) {
-        const data = await res.json();
         showMessage('success', `Evaluation created for ${newEval.class_name}`);
         setNewEval({ class_name: '', term_number: 1, notes: '' });
         fetchEvaluations();
@@ -126,7 +130,7 @@ const KGEvaluation = () => {
         setScores(existing);
         if (data.students?.length > 0) setActiveStudent(data.students[0].student_name);
       }
-    } catch (e) {
+    } catch {
       showMessage('error', 'Failed to load evaluation form');
     }
   };
@@ -160,7 +164,7 @@ const KGEvaluation = () => {
         const err = await res.json();
         showMessage('error', err.error || 'Failed to save scores');
       }
-    } catch (e) {
+    } catch {
       showMessage('error', 'Failed to save scores');
     } finally {
       setLoading(false);
@@ -298,7 +302,7 @@ const KGEvaluation = () => {
             <div>
               <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.375rem', fontSize: '0.875rem' }}>Term</label>
               <select style={style.select} value={newEval.term_number} onChange={e => setNewEval(p => ({ ...p, term_number: parseInt(e.target.value) }))}>
-                {[1, 2].map(t => <option key={t} value={t}>Term {t}</option>)}
+                {Array.from({ length: termCount }, (_, i) => i + 1).map(t => <option key={t} value={t}>Term {t}</option>)}
               </select>
             </div>
           </div>

@@ -182,68 +182,39 @@ router.get('/columns/:className', async (req, res) => {
 router.get('/form-structure', async (req, res) => {
   try {
     const pool = await getPool(req);
-    // First check if the table exists
-    const tableExists = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'school_schema_points' 
-        AND table_name = 'classes'
-      )
+    const colsRes = await pool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'school_schema_points' AND table_name = 'classes'
     `);
-    
-    if (!tableExists.rows[0].exists) {
-      return res.json({ classes: [], customFields: [] });
+    const cols = new Set(colsRes.rows.map((r) => r.column_name));
+    if (!cols.size) return res.json({ classes: [], customFields: [], classConfigs: {} });
+
+    const select = ['class_names'];
+    if (cols.has('custom_fields')) select.push('custom_fields');
+    if (cols.has('class_configs')) select.push('class_configs');
+
+    const result = await pool.query(
+      `SELECT ${select.join(', ')} FROM school_schema_points.classes WHERE id = 1`
+    );
+    const row = result.rows[0] || {};
+
+    let customFields = row.custom_fields;
+    if (typeof customFields === 'string') {
+      try { customFields = JSON.parse(customFields); } catch { customFields = []; }
     }
-    
-    // Check if custom_fields column exists
-    const columnCheck = await pool.query(`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_schema = 'school_schema_points' 
-      AND table_name = 'classes' 
-      AND column_name = 'custom_fields'
-    `);
-    
-    if (columnCheck.rows.length === 0) {
-      // Column doesn't exist, return empty custom fields
-      const result = await pool.query('SELECT class_names FROM school_schema_points.classes WHERE id = 1');
-      if (result.rows.length > 0) {
-        return res.json({
-          classes: result.rows[0].class_names,
-          customFields: []
-        });
-      } else {
-        return res.json({ classes: [], customFields: [] });
-      }
+    let classConfigs = row.class_configs;
+    if (typeof classConfigs === 'string') {
+      try { classConfigs = JSON.parse(classConfigs); } catch { classConfigs = {}; }
     }
-    
-    // Column exists, query with custom_fields
-    const result = await pool.query('SELECT class_names, custom_fields FROM school_schema_points.classes WHERE id = 1');
-    if (result.rows.length > 0) {
-      let customFields = [];
-      try {
-        // Parse the JSONB field if it exists and is valid
-        if (result.rows[0].custom_fields) {
-          customFields = Array.isArray(result.rows[0].custom_fields) 
-            ? result.rows[0].custom_fields 
-            : JSON.parse(result.rows[0].custom_fields);
-        }
-      } catch (err) {
-        console.error('Error parsing custom_fields:', err);
-        customFields = [];
-      }
-      
-      res.json({
-        classes: result.rows[0].class_names,
-        customFields: customFields
-      });
-    } else {
-      res.json({ classes: [], customFields: [] });
-    }
+
+    res.json({
+      classes: Array.isArray(row.class_names) ? row.class_names : [],
+      customFields: Array.isArray(customFields) ? customFields : [],
+      classConfigs: classConfigs && typeof classConfigs === 'object' ? classConfigs : {},
+    });
   } catch (err) {
     console.error('Error fetching form structure:', err);
-    // If any error, return empty
-    return res.json({ classes: [], customFields: [] });
+    return res.json({ classes: [], customFields: [], classConfigs: {} });
   }
 });
 

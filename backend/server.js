@@ -441,6 +441,7 @@ app.use('/api/report-card-visibility', reportCardVisibilityRoutes);
 app.use('/api/student-activities', studentActivitiesRoutes);
 app.use('/api/evaluations', evaluationRoutes);
 app.use('/api/kg-evaluations', require('./routes/kgEvaluationRoutes')); // KG-specific evaluation module
+app.use('/api/kg', require('./routes/kgRoutes')); // KG settings + classes
 app.use('/api/staff', staffRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/chats', chatRoutes); 

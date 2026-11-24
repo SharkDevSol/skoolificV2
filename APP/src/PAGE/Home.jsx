@@ -505,19 +505,39 @@ const Home = () => {
       icon: <FiSmile />,
       items: [
         {
+          path: "/kg/students",
+          icon: <FiUsers />,
+          label: t('nav.kgStudents', 'KG Students'),
+        },
+        {
+          path: "/kg/guardians",
+          icon: <FiUserCheck />,
+          label: t('nav.kgGuardians', 'KG Guardians'),
+        },
+        {
+          path: "/kg/attendance",
+          icon: <FiCalendar />,
+          label: t('nav.kgAttendance', 'KG Attendance'),
+        },
+        {
+          path: "/kg/mark-list",
+          icon: <FiBook />,
+          label: t('nav.kgMarkList', 'KG Mark List'),
+        },
+        {
+          path: "/kg/create-mark-list",
+          icon: <FiFilePlus />,
+          label: t('nav.kgCreateMarkList', 'KG Create Mark List'),
+        },
+        {
           path: "/kg/evaluation",
           icon: <FiClipboard />,
           label: t('nav.kgEvaluation', 'KG Evaluation'),
         },
         {
-          path: "/kg/evaluation-book",
-          icon: <FiBook />,
-          label: t('nav.kgEvaluationBook', 'KG Evaluation Book'),
-        },
-        {
-          path: "/kg/assignments",
-          icon: <FiEdit3 />,
-          label: t('nav.kgAssignments', 'KG Assignments'),
+          path: "/kg/settings",
+          icon: <FiSettings />,
+          label: t('nav.kgSettings', 'KG Settings'),
         },
       ],
     },

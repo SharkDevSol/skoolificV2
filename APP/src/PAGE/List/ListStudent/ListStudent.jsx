@@ -25,7 +25,7 @@ import Button from '../../../COMPONENTS/Button/Button';
 // API base URL - use environment variable or fallback to localhost
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 
-const ListStudent = () => {
+const ListStudent = ({ kgOnly = false } = {}) => {
   const { t: tApp } = useApp();
   const { t: ti18n } = useTranslation();
   const t = (key, fallback) => {
@@ -84,8 +84,10 @@ const ListStudent = () => {
   const fetchClasses = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/student-list/classes`, { headers: getBranchHeaders() });
-      setClasses(response.data);
-      if (response.data.length > 0) setSelectedClass(response.data[0]);
+      const classList = (Array.isArray(response.data) ? response.data : [])
+        .filter((c) => !kgOnly || /^KG/i.test(String(c)));
+      setClasses(classList);
+      if (classList.length > 0) setSelectedClass(classList[0]);
       const formRes = await axios.get(`${API_BASE_URL}/students/form-structure`, { headers: getBranchHeaders() });
       setCustomFields(formRes.data?.customFields || []);
     } catch (error) { console.error('Error:', error); }
@@ -563,8 +565,8 @@ const ListStudent = () => {
         <div className={styles.headerLeft}>
           <div className={styles.headerIcon}><FiUsers /></div>
           <div>
-            <h1>{showInactive ? t('students.list.deactivatedTitle', 'Deactivated Students') : t('students.list.title', 'Student Directory')}</h1>
-            <p>{showInactive ? t('students.list.deactivatedDesc', 'View and manage deactivated students') : t('students.list.subtitle', 'Browse and manage enrolled students')}</p>
+            <h1>{kgOnly ? 'KG Students' : (showInactive ? t('students.list.deactivatedTitle', 'Deactivated Students') : t('students.list.title', 'Student Directory'))}</h1>
+            <p>{kgOnly ? 'Kindergarten students only' : (showInactive ? t('students.list.deactivatedDesc', 'View and manage deactivated students') : t('students.list.subtitle', 'Browse and manage enrolled students'))}</p>
           </div>
         </div>
         <div className={styles.headerStats}>

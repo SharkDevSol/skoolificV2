@@ -29,7 +29,7 @@ import StatCard from '../../COMPONENTS/StatCard/StatCard';
 
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 
-const MarkListView = () => {
+const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
   const { t } = useTranslation();
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -54,10 +54,13 @@ const MarkListView = () => {
           axios.get(`${API_BASE_URL}/mark-list/classes`),
           axios.get(`${API_BASE_URL}/mark-list/config`),
         ]);
-        const tc = parseInt(configRes.data?.term_count || configRes.data?.terms, 10) || 2;
+        const tc = parseInt(termCountOverride || configRes.data?.term_count || configRes.data?.terms, 10) || 2;
         setTermCount(tc);
         const rawClasses = classesRes.data;
-        const classList = Array.isArray(rawClasses) ? rawClasses : (rawClasses?.classes || []);
+        const allClasses = Array.isArray(rawClasses) ? rawClasses : (rawClasses?.classes || []);
+        const classList = kgOnly
+          ? allClasses.filter((c) => /^KG/i.test(String(typeof c === 'object' && c !== null ? (c.class_name || c.name || c.id) : c)))
+          : allClasses;
         setClasses(classList);
         if (classList.length > 0) {
           const firstVal = typeof classList[0] === 'object' && classList[0] !== null
@@ -72,7 +75,7 @@ const MarkListView = () => {
       }
     };
     fetchInitialData();
-  }, []);
+  }, [kgOnly, termCountOverride]);
 
   // Fetch subjects when class changes
   useEffect(() => {
@@ -330,9 +333,9 @@ const MarkListView = () => {
     <div className={styles.container}>
       <div className={styles.pageHeader}>
         <div>
-          <h1 className={styles.pageTitle}>{t('academic.markLists.title', 'Mark Lists')}</h1>
+          <h1 className={styles.pageTitle}>{kgOnly ? 'KG Mark List' : t('academic.markLists.title', 'Mark Lists')}</h1>
           <p className={styles.pageSubtitle}>
-            {t('academic.markLists.subtitle', 'View and analyze student performance')}
+            {kgOnly ? 'View and enter marks for kindergarten classes only' : t('academic.markLists.subtitle', 'View and analyze student performance')}
           </p>
         </div>
         <BarChart3 size={28} className={styles.headerIcon} aria-hidden />
