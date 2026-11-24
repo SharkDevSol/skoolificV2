@@ -33,10 +33,10 @@ const isDummyPhone = (raw) => {
 
 // Record every SMS attempt into sms_logs (branch-routed via config/db pool).
 // Fire-and-forget: a DB failure must never break the actual SMS send.
-async function logSmsSend({ templateKey, recipientName, phone, message, status, provider, error, segments }) {
+async function logSmsSend({ db, templateKey, recipientName, phone, message, status, provider, error, segments }) {
   try {
-    const pool = require('../config/db');
-    await pool.query(
+    const targetPool = db || require('../config/db');
+    await targetPool.query(
       `INSERT INTO sms_logs (template_key, recipient_name, phone, message, status, provider, error, segments, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
       [templateKey || null, recipientName || null, phone || null, message || null, status, provider || null, error || null, segments || 1]
@@ -46,13 +46,13 @@ async function logSmsSend({ templateKey, recipientName, phone, message, status, 
   }
 }
 
-// Check if a template is active in the sms_templates table
-async function isTemplateActive(templateKey) {
+// Check if a template is active in the sms_templates table for this specific branch
+async function isTemplateActive(templateKey, db = null) {
   if (!templateKey) return true;
   const key = templateKey === 'attendance' ? 'absence_alert' : templateKey;
   try {
-    const pool = require('../config/db');
-    const res = await pool.query(
+    const targetPool = db || require('../config/db');
+    const res = await targetPool.query(
       'SELECT is_active FROM sms_templates WHERE template_key = $1 LIMIT 1',
       [key]
     );
@@ -76,9 +76,9 @@ const sendSMS = async (to, message, senderId, meta = {}) => {
   // Active / Inactive switch check: stop and save credits if template is inactive
   const templateKey = meta?.templateKey || meta?.type || null;
   if (templateKey) {
-    const active = await isTemplateActive(templateKey);
+    const active = await isTemplateActive(templateKey, meta?.db);
     if (!active) {
-      console.log(`[SMS Service] Template '${templateKey}' is INACTIVE. Skipped SMS send to ${to}`);
+      console.log(`[SMS Service] Template '${templateKey}' is INACTIVE for this branch. Skipped SMS send to ${to}`);
       return { success: true, skipped: true, reason: `Template '${templateKey}' is inactive` };
     }
   }
@@ -136,6 +136,7 @@ const sendSMS = async (to, message, senderId, meta = {}) => {
       const initialStatus = isGateway ? (result?.success ? 'pending' : 'failed') : (result?.success ? 'sent' : 'failed');
 
       logSmsSend({
+        db: meta?.db,
         templateKey: meta?.templateKey,
         recipientName: meta?.recipientName,
         phone: result?.phone || to,

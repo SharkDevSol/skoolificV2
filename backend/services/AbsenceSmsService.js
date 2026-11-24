@@ -20,10 +20,10 @@ async function sendAbsenceAlertSms(db, { className, studentId, studentName, ethD
       return { success: false, reason: 'Missing required parameters' };
     }
 
-    // 1. Check if absence_alert is active in toggle switch
-    const isActive = await SMSService.isTemplateActive('absence_alert');
+    // 1. Check if absence_alert is active in toggle switch for this specific branch
+    const isActive = await SMSService.isTemplateActive('absence_alert', db);
     if (!isActive) {
-      console.log(`[Absence SMS] 'absence_alert' template is INACTIVE. Skipping SMS for student ${studentId}.`);
+      console.log(`[Absence SMS] 'absence_alert' template is INACTIVE for this branch. Skipping SMS for student ${studentId}.`);
       return { success: true, skipped: true, reason: 'Template inactive' };
     }
 
@@ -101,7 +101,8 @@ async function sendAbsenceAlertSms(db, { className, studentId, studentName, ethD
       templateKey: 'absence_alert',
       recipientName: guardianName,
       studentName: finalStudentName,
-      className
+      className,
+      db
     });
 
     console.log(`[Absence SMS] Send result for ${finalStudentName}:`, sendRes);
