@@ -42,7 +42,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
   // Teacher-specific validation function
   const validateTeacherFields = () => {
     const errors = {};
-    const isTeacherRole = formData.role === 'Teacher';
+    const isTeacherRole = formData.role === 'Teacher' || staffType === 'Teachers';
     
     // Validate all required fields
     if (!formData.name || formData.name.trim() === '') {
@@ -61,11 +61,11 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
       errors.staff_work_time = 'Work time is required';
     }
     
-    // Phone format validation (at least 10 digits)
+    // Phone format validation (optional, but if entered must have at least 9 digits)
     if (formData.phone) {
-      const digits = formData.phone.replace(/\D/g, '');
-      if (digits.length < 10) {
-        errors.phone = 'Phone must have at least 10 digits';
+      const digits = String(formData.phone).replace(/\D/g, '');
+      if (digits.length > 0 && digits.length < 9) {
+        errors.phone = 'Phone must have at least 9 digits';
       }
     }
     
@@ -149,6 +149,12 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
             initialFormData[col.column_name] = false;
           } else if (col.data_type === 'multiple-checkbox') {
             initialFormData[col.column_name] = [];
+          } else if (col.column_name === 'staff_work_time') {
+            initialFormData[col.column_name] = 'Full Time';
+          } else if (col.column_name === 'staff_enrollment_type') {
+            initialFormData[col.column_name] = 'Permanent';
+          } else if (col.column_name === 'role') {
+            initialFormData[col.column_name] = staffType === 'Teachers' ? 'Teacher' : '';
           } else {
             initialFormData[col.column_name] = '';
           }
@@ -550,7 +556,8 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
     const value = (rawValue && typeof rawValue === 'object' && 'target' in rawValue)
       ? (rawValue.target.value ?? '')
       : (rawValue ?? '');
-    const isRequired = true;
+    const isRequired = (col.is_nullable === 'NO' || Boolean(col.required)) && 
+      !['machine_id', 'global_staff_id', 'staff_id', 'id', 'image_staff', 'phone', 'subject', 'class'].includes(fieldName);
     const label = fieldLabel(fieldName);
     const isStandardDropdown = standardOptions[fieldName]?.length > 0;
     const selectOptions = (col.options || standardOptions[fieldName] || []).map((opt) => {
@@ -582,7 +589,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
             accept={getFileAcceptTypes(fieldName)}
             value={files[fieldName] ? [files[fieldName]] : []}
             onChange={handleFileUploadChange}
-            required={isRequired}
+            required={Boolean(col.required)}
             maxSize={30 * 1024 * 1024}
             helperText={`${getFileTypeDescription(fieldName)} (Max 30MB)`}
           />
@@ -598,7 +605,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
             value={value || ''}
             placeholder="Auto-generated on submit"
             readOnly
-            required={isRequired}
+            required={false}
             helperText="6-digit unique ID, auto-assigned"
           />
         </div>
@@ -836,7 +843,7 @@ const StaffForm = ({ staffTypeProp, classNameProp, onSuccess }) => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className={styles.staffForm}>
+      <form onSubmit={handleSubmit} noValidate className={styles.staffForm}>
         <div className={styles.formGrid}>
           {columns
             .filter(col => !['id', 'global_staff_id', 'staff_id', 'shift_assignment'].includes(col.column_name))

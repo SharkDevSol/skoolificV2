@@ -6,7 +6,7 @@ import { Building2, User as UserIcon, Lock } from 'lucide-react';
 import styles from './StudentLogin.module.css';
 import Input from './Input/Input';
 import Button from './Button/Button';
-import { getBranchCode, setBranchCode, isFixedBranch } from '../utils/branchCode';
+import { getBranchCode, setBranchCode, isFixedBranch, fixedBranchCode } from '../utils/branchCode';
 import ThemeToggle from './ThemeToggle/ThemeToggle';
 import LanguageSelector from './LanguageSelector/LanguageSelector';
 import Toast from './Toast/Toast';
@@ -22,16 +22,20 @@ const StudentLogin = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Load saved branch code from localStorage on mount
+  // Load saved branch code from localStorage on mount (or fixed branch for subdomain)
   React.useEffect(() => {
-    const savedBranchCode = getBranchCode();
+    const savedBranchCode = isFixedBranch() ? fixedBranchCode() : getBranchCode();
     if (savedBranchCode) {
       setCredentials(prev => ({ ...prev, branchCode: savedBranchCode }));
     }
   }, []);
 
   const handleInputChange = (field, value) => {
-        setCredentials(prev => ({ ...prev, [field]: value }));
+    const rawValue = (value && typeof value === 'object' && 'target' in value) ? value.target.value : value;
+    let safeString = typeof rawValue === 'string' ? rawValue : (rawValue == null ? '' : String(rawValue));
+    if (safeString === '[object Object]') safeString = '';
+    const processedValue = field === 'branchCode' ? safeString.toUpperCase().trim() : safeString;
+    setCredentials(prev => ({ ...prev, [field]: processedValue }));
     
     // Clear error for this field when user starts typing
     if (errors[field]) {
@@ -44,15 +48,19 @@ const StudentLogin = () => {
   };
 
   const handleLogin = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
     
     // Mark all fields as touched
     setTouched({ username: true, password: true, branchCode: true });
     
+    const activeBranchCode = (isFixedBranch() ? fixedBranchCode() : credentials.branchCode || '').toUpperCase().trim();
+
     // Validate all fields
     const newErrors = {};
-    if (!isFixedBranch() && !credentials.branchCode) newErrors.branchCode = 'Branch code is required';
-    if (!credentials.username) newErrors.username = 'Username is required';
+    if (!isFixedBranch() && !activeBranchCode) newErrors.branchCode = 'Branch code is required';
+    if (!credentials.username || !credentials.username.trim()) newErrors.username = 'Username is required';
     if (!credentials.password) newErrors.password = 'Password is required';
     
     setErrors(newErrors);
@@ -68,7 +76,9 @@ const StudentLogin = () => {
 
     try {
       const response = await axios.post('/api/v2/branches/login', {
-        ...credentials,
+        username: credentials.username.trim(),
+        password: credentials.password,
+        branchCode: activeBranchCode,
         userType: 'student'
       });
       
@@ -80,8 +90,8 @@ const StudentLogin = () => {
         localStorage.setItem('studentUser', JSON.stringify(user));
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('userType', 'student');
-        setBranchCode(credentials.branchCode, true);
-        navigate(`/app/student/${user.username || credentials.username}`);
+        if (activeBranchCode) setBranchCode(activeBranchCode, true);
+        navigate(`/app/student/${user.username || credentials.username.trim()}`);
       } else {
         setToastMessage('Please use the Guardian Login page for guardian accounts.');
         setToastType('error');
@@ -161,6 +171,7 @@ const StudentLogin = () => {
               variant="primary"
               size="lg"
               loading={isLoading}
+              onClick={handleLogin}
               className={styles.loginButton}
             >
               {t('auth.signIn', 'Sign In')}

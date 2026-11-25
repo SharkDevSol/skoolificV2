@@ -30,7 +30,7 @@ async function sendAbsenceAlertSms(db, { className, studentId, studentName, ethD
 
     // 2. Query guardian details from class roster
     const studentQuery = `
-      SELECT student_name, guardian_name, guardian_phone, guardian_2nd_phone, guardian2_phone, guardian2nd_phone
+      SELECT *
       FROM classes_schema."${className}"
       WHERE school_id::text = $1
       LIMIT 1

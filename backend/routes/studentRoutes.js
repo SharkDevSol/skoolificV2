@@ -519,12 +519,23 @@ router.post('/add-student', upload.any(), async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    const formData = req.body;
-    const files = req.files;
-    const className = formData.class;
+    const formData = req.body || {};
+    const files = req.files || [];
+    let className = formData.class;
     
     if (!className) {
       throw new Error('Class name is required');
+    }
+
+    // Match exact class table name in classes_schema (case-insensitive)
+    const classTableCheck = await client.query(
+      `SELECT table_name FROM information_schema.tables 
+       WHERE table_schema = 'classes_schema' AND LOWER(table_name) = LOWER($1)
+       LIMIT 1`,
+      [className]
+    );
+    if (classTableCheck.rowCount > 0) {
+      className = classTableCheck.rows[0].table_name;
     }
     
     // Ensure global_id_tracker table exists (auto-create if missing)
@@ -571,8 +582,13 @@ router.post('/add-student', upload.any(), async (req, res) => {
     
     const newClassId = (classIdResult.rows[0].max_class_id || 0) + 1;
     
-    // Generate student credentials
-    const studentUsername = `${formData.student_name.toLowerCase().replace(/\s/g, '')}_${Math.floor(Math.random() * 10000)}`;
+    // Generate student credentials safely
+    const rawStudentName = String(formData.student_name || '').trim();
+    if (!rawStudentName) {
+      throw new Error('Student name is required');
+    }
+    const safeStudentNameForUser = rawStudentName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'student';
+    const studentUsername = `${safeStudentNameForUser}_${Math.floor(1000 + Math.random() * 9000)}`;
     const studentPassword = uuidv4().slice(0, 8);
     
     // Check if guardian already exists by phone number across all classes
@@ -614,10 +630,12 @@ router.post('/add-student', upload.any(), async (req, res) => {
     }
     
     if (!guardianFound) {
-      // New guardian - create credentials
-      guardianUsername = formData.guardian_username || `${formData.guardian_name.toLowerCase().replace(/\s/g, '')}_${Math.floor(Math.random() * 10000)}`;
+      // New guardian - create credentials safely
+      const rawGuardianName = String(formData.guardian_name || '').trim();
+      const safeGuardianNameForUser = rawGuardianName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'guardian';
+      guardianUsername = formData.guardian_username || `${safeGuardianNameForUser}_${Math.floor(1000 + Math.random() * 9000)}`;
       guardianPassword = formData.guardian_password || uuidv4().slice(0, 8);
-      guardianName = formData.guardian_name;
+      guardianName = rawGuardianName;
       console.log(`Creating new guardian: ${guardianUsername} for phone ${formData.guardian_phone}`);
     }
     

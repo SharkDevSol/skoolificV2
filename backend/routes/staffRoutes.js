@@ -433,11 +433,20 @@ const initializeFormMetadata = async () => {
 // ---------------------------------------------------------------------
 // 5. Helper utilities
 // ---------------------------------------------------------------------
-const sanitizeStaffTypeToSchema = (type) =>
-  `staff_${type.replace(/\s+/g, '_').toLowerCase()}`;
-const sanitizeClassName = (name) =>
+const sanitizeStaffTypeToSchema = (type) => {
+  if (typeof type === 'object' && type !== null) {
+    type = type.value || type.name || type.id || Object.values(type)[0] || '';
+  }
+  return `staff_${String(type || '').trim().replace(/\s+/g, '_').toLowerCase()}`;
+};
+
+const sanitizeClassName = (name) => {
+  if (typeof name === 'object' && name !== null) {
+    name = name.value || name.name || name.className || Object.values(name)[0] || '';
+  }
   // FIX: PRESERVE case - class tables keep their real case (staff_teachers.G1);
-  (name || '').trim().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+  return String(name || '').trim().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+};
 
 const BASE_COLUMNS = new Set([
   'global_staff_id',
@@ -775,18 +784,46 @@ router.get('/classes', async (req, res) => {
 // 7.4 Column metadata for a specific form - FIXED FIELD TYPES
 router.get('/columns/:staffType/:className', async (req, res) => {
   const { staffType, className: raw } = req.params;
-  const className = sanitizeClassName(raw);
+  let className = sanitizeClassName(raw);
   const schema = sanitizeStaffTypeToSchema(staffType);
 
   try {
     const branchPool = await getPool(req);
-    // Get database column info
-    const { rows } = await branchPool.query(
-      `SELECT column_name, data_type, is_nullable
+    // Get database column info (case-insensitive & fallback)
+    let colRes = await branchPool.query(
+      `SELECT column_name, data_type, is_nullable, table_name
        FROM information_schema.columns
-       WHERE table_schema = $1 AND table_name = $2`,
+       WHERE table_schema = $1 AND LOWER(table_name) = LOWER($2)`,
       [schema, className]
     );
+
+    if (colRes.rows.length === 0) {
+      const findTableRes = await branchPool.query(
+        `SELECT table_name FROM information_schema.tables 
+         WHERE table_schema = $1 
+           AND table_name <> 'staff_counter'
+           AND table_name NOT LIKE '%backup%'
+           AND table_name NOT LIKE '%bak%'
+         ORDER BY 
+           CASE WHEN LOWER(table_name) IN ('teachers', 'teacher') THEN 0 ELSE 1 END,
+           table_name ASC
+         LIMIT 1`,
+        [schema]
+      );
+      if (findTableRes.rowCount > 0) {
+        className = findTableRes.rows[0].table_name;
+        colRes = await branchPool.query(
+          `SELECT column_name, data_type, is_nullable, table_name
+           FROM information_schema.columns
+           WHERE table_schema = $1 AND table_name = $2`,
+          [schema, className]
+        );
+      }
+    } else {
+      className = colRes.rows[0].table_name;
+    }
+
+    const rows = colRes.rows;
 
     // Get field type metadata
     const { rows: metadataRows } = await branchPool.query(
@@ -1129,14 +1166,19 @@ router.post('/add-staff', upload, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const {
+    let {
       staffType,
       class: rawClass,
       uploadFields: rawUploadFields = '[]',
     } = req.body;
-    const className = sanitizeClassName(rawClass);
+    let className = sanitizeClassName(rawClass);
     const schema = sanitizeStaffTypeToSchema(staffType);
-    const uploadFields = JSON.parse(rawUploadFields);
+    let uploadFields = [];
+    try {
+      uploadFields = typeof rawUploadFields === 'string' ? JSON.parse(rawUploadFields) : (Array.isArray(rawUploadFields) ? rawUploadFields : []);
+    } catch {
+      uploadFields = [];
+    }
 
     // ---- Parse form data (JSON-stringified values from frontend) ----
     const formData = {};
@@ -1159,14 +1201,68 @@ router.post('/add-staff', upload, async (req, res) => {
       availability: formData.availability
     });
 
-    // ---- Verify table exists & fetch columns ----
-    const colRes = await client.query(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = $1 AND table_name = $2`,
+    // Auto-create schema if it does not exist
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
+
+    // ---- Verify table exists & fetch columns (case-insensitive & fallback) ----
+    let colRes = await client.query(
+      `SELECT column_name, table_name FROM information_schema.columns
+       WHERE table_schema = $1 AND LOWER(table_name) = LOWER($2)`,
       [schema, className]
     );
+
+    if (colRes.rowCount === 0) {
+      const findTableRes = await client.query(
+        `SELECT table_name FROM information_schema.tables 
+         WHERE table_schema = $1 
+           AND table_name <> 'staff_counter'
+           AND table_name NOT LIKE '%backup%'
+           AND table_name NOT LIKE '%bak%'
+         ORDER BY 
+           CASE WHEN LOWER(table_name) IN ('teachers', 'teacher') THEN 0 ELSE 1 END,
+           table_name ASC
+         LIMIT 1`,
+        [schema]
+      );
+
+      if (findTableRes.rowCount > 0) {
+        className = findTableRes.rows[0].table_name;
+        colRes = await client.query(
+          `SELECT column_name, table_name FROM information_schema.columns
+           WHERE table_schema = $1 AND table_name = $2`,
+          [schema, className]
+        );
+      } else {
+        const defaultTableName = schema === 'staff_teachers' ? 'teachers' : (className || 'staff_members');
+        className = defaultTableName;
+        const defaultBaseCols = [
+          'id SERIAL PRIMARY KEY',
+          'global_staff_id INTEGER NOT NULL',
+          'staff_id INTEGER NOT NULL',
+          'image_staff VARCHAR(255)',
+          'name VARCHAR(100) NOT NULL',
+          'gender VARCHAR(50) NOT NULL',
+          'role VARCHAR(100) NOT NULL',
+          'staff_enrollment_type VARCHAR(50) NOT NULL',
+          'staff_work_time VARCHAR(50) NOT NULL',
+          'machine_id VARCHAR(50) UNIQUE',
+          'phone BIGINT',
+          'is_active BOOLEAN DEFAULT TRUE',
+          'shift_assignment VARCHAR(50) DEFAULT \'shift1\''
+        ];
+        await client.query(`CREATE TABLE IF NOT EXISTS "${schema}"."${className}" (${defaultBaseCols.join(', ')})`);
+        colRes = await client.query(
+          `SELECT column_name, table_name FROM information_schema.columns
+           WHERE table_schema = $1 AND table_name = $2`,
+          [schema, className]
+        );
+      }
+    } else {
+      className = colRes.rows[0].table_name;
+    }
+
     if (colRes.rowCount === 0)
-      throw new Error('Target table does not exist');
+      throw new Error(`Target table does not exist for schema ${schema}`);
 
     const tableCols = colRes.rows.map((r) => r.column_name);
     const hasIsActive = tableCols.includes('is_active');
