@@ -314,6 +314,11 @@ const Home = () => {
           label: t('nav.teacherAttendance', 'Teacher Attendance'),
         },
         {
+          path: "/hr/teacher-evaluation",
+          icon: <FiAward />,
+          label: t('nav.teacherEvaluation', 'Teacher Evaluation'),
+        },
+        {
           path: "/hr/attendance-time-settings",
           icon: <FiClock />,
           label: t('nav.timeShiftSettings', '⏰ Time & Shift Settings'),

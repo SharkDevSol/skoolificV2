@@ -654,11 +654,18 @@ class ApiService {
     return [];
   }
 
-  Future<String?> saveEvaluationForm({int? id, required String name, required List<dynamic> fields}) async {
+  Future<String?> saveEvaluationForm({int? id, required String name, required List<dynamic> fields, String formType = 'custom', int ratingMax = 5}) async {
     try {
+      final body = jsonEncode({
+        'name': name,
+        'fields': fields,
+        'formType': formType,
+        'ratingMax': ratingMax,
+        'settings': {'comments': formType == 'teaching_quality'},
+      });
       final res = id == null
-          ? await http.post(_u('/api/teacher-evaluations/forms'), headers: _headers, body: jsonEncode({'name': name, 'fields': fields})).timeout(const Duration(seconds: 25))
-          : await http.put(_u('/api/teacher-evaluations/forms/$id'), headers: _headers, body: jsonEncode({'name': name, 'fields': fields})).timeout(const Duration(seconds: 25));
+          ? await http.post(_u('/api/teacher-evaluations/forms'), headers: _headers, body: body).timeout(const Duration(seconds: 25))
+          : await http.put(_u('/api/teacher-evaluations/forms/$id'), headers: _headers, body: body).timeout(const Duration(seconds: 25));
       return _ok(res) ? null : _err(res);
     } catch (e) { return e.toString(); }
   }
@@ -670,18 +677,34 @@ class ApiService {
     } catch (_) { return false; }
   }
 
+  Future<List<Map<String, dynamic>>> getEvaluationTeacherOptions() async {
+    try {
+      final res = await http.get(_u('/api/teacher-evaluations/teacher-options'), headers: _headers).timeout(const Duration(seconds: 20));
+      if (_ok(res)) {
+        final d = _safeJson(res.body);
+        if (d is Map && d['data'] is List) {
+          return (d['data'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
   Future<String?> submitEvaluation({
     required int formId,
     required String teacherId,
     required String teacherName,
     required String date,
     String note = '',
+    String subject = '',
+    String subjectClass = '',
     required Map<String, dynamic> data,
   }) async {
     try {
       final res = await http.post(_u('/api/teacher-evaluations/submissions'), headers: _headers, body: jsonEncode({
         'formId': formId, 'teacherId': teacherId, 'teacherName': teacherName,
         'date': date, 'note': note, 'data': data,
+        'subject': subject, 'subjectClass': subjectClass,
       })).timeout(const Duration(seconds: 25));
       return _ok(res) ? null : _err(res);
     } catch (e) { return e.toString(); }

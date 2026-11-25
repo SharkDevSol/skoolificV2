@@ -14,11 +14,13 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
   List<Map<String, dynamic>> _forms = [];
   List<Map<String, dynamic>> _submissions = [];
   List<Map<String, dynamic>> _staff = [];
+  List<Map<String, dynamic>> _teacherOptions = [];
   bool _loading = true;
   String? _error;
 
-  static const _types = ['text', 'textarea', 'number', 'date', 'dropdown', 'multi_select', 'checkbox', 'rating'];
+  static const _types = ['indicator', 'text', 'textarea', 'number', 'date', 'dropdown', 'multi_select', 'checkbox', 'rating'];
   static const _typeLabels = {
+    'indicator': 'Indicator (rating + comment)',
     'text': 'Short text', 'textarea': 'Paragraph', 'number': 'Number', 'date': 'Date',
     'dropdown': 'Dropdown (multi-option)', 'multi_select': 'Multi-select', 'checkbox': 'Checkbox (Yes / No)', 'rating': 'Rating (configurable)',
   };
@@ -38,6 +40,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
     try {
       final forms = await ApiService().getEvaluationForms();
       final subs = await ApiService().getEvaluationSubmissions();
+      final options = await ApiService().getEvaluationTeacherOptions();
       final staff = <Map<String, dynamic>>[];
       final seen = <String>{};
       for (final type in ['Teachers', 'Administrative Staff', 'Supportive Staff']) {
@@ -54,7 +57,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
         }
       }
       if (!mounted) return;
-      setState(() { _forms = forms; _submissions = subs; _staff = staff; _loading = false; });
+      setState(() { _forms = forms; _submissions = subs; _staff = staff; _teacherOptions = options; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
@@ -74,12 +77,28 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
       }
     }
     bool saving = false;
+    final formType = '${form?['form_type'] ?? 'custom'}';
+    int ratingMax = (int.tryParse('${form?['rating_max'] ?? 5}') ?? 5).clamp(1, 20).toInt();
 
     await showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
       return AlertDialog(
         title: Text(form == null ? 'Create Evaluation Form' : 'Edit Evaluation Form'),
         content: SizedBox(width: 640, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Form name')),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: Text(formType == 'teaching_quality' ? 'Teaching Quality form (rating + comment per indicator)' : 'Custom form', style: const TextStyle(fontSize: 12, color: Colors.grey))),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 150,
+              child: DropdownButtonFormField<int>(
+                value: ratingMax,
+                decoration: const InputDecoration(labelText: 'Rating max', isDense: true),
+                items: List.generate(20, (i) => DropdownMenuItem(value: i + 1, child: Text('1 - ${i + 1}'))),
+                onChanged: (v) => setSheet(() => ratingMax = v ?? 5),
+              ),
+            ),
+          ]),
           const SizedBox(height: 12),
           ...fields.asMap().entries.map((e) {
             final i = e.key;
@@ -112,28 +131,28 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                       onChanged: (list) => f['options'] = list,
                     ),
                   ],
-                  if (type == 'rating') ...[
+                  if (type == 'rating' || type == 'indicator') ...[
                     const SizedBox(height: 8),
                     Row(children: [
-                      Expanded(child: DropdownButtonFormField<String>(
+                      if (type == 'rating') Expanded(child: DropdownButtonFormField<String>(
                         value: '${f['rating_scale'] ?? 'numeric'}',
                         decoration: const InputDecoration(labelText: 'Rating scale', isDense: true),
                         items: const [
-                          DropdownMenuItem(value: 'numeric', child: Text('Numbers 1–N')),
-                          DropdownMenuItem(value: 'letter', child: Text('Letters A–F')),
-                          DropdownMenuItem(value: 'letter_plus', child: Text('Letters A+ … A- … F')),
+                          DropdownMenuItem(value: 'numeric', child: Text('Numbers 1â€“N')),
+                          DropdownMenuItem(value: 'letter', child: Text('Letters Aâ€“F')),
+                          DropdownMenuItem(value: 'letter_plus', child: Text('Letters A+ â€¦ A- â€¦ F')),
                         ],
                         onChanged: (v) => setSheet(() => f['rating_scale'] = v ?? 'numeric'),
                       )),
                       const SizedBox(width: 8),
-                      if ('${f['rating_scale'] ?? 'numeric'}' == 'numeric')
+                      if (type == 'indicator' || '${f['rating_scale'] ?? 'numeric'}' == 'numeric')
                         SizedBox(
                           width: 110,
                           child: DropdownButtonFormField<int>(
-                            value: int.tryParse('${f['rating_max'] ?? 5}')?.clamp(2, 20) ?? 5,
+                            value: (int.tryParse('${f['rating_max'] ?? ratingMax}') ?? ratingMax).clamp(1, 20).toInt(),
                             decoration: const InputDecoration(labelText: 'Max', isDense: true),
-                            items: List.generate(19, (i) => DropdownMenuItem(value: i + 2, child: Text('${i + 2}'))),
-                            onChanged: (v) => setSheet(() => f['rating_max'] = v ?? 5),
+                            items: List.generate(20, (i) => DropdownMenuItem(value: i + 1, child: Text('${i + 1}'))),
+                            onChanged: (v) => setSheet(() => f['rating_max'] = v ?? ratingMax),
                           ),
                         ),
                     ]),
@@ -150,12 +169,13 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => setSheet(() => fields.add({
-              'label': 'New field',
-              'name': 'field_${DateTime.now().millisecondsSinceEpoch}',
-              'type': 'text',
+              'label': formType == 'teaching_quality' ? 'New indicator' : 'New field',
+              'name': (formType == 'teaching_quality' ? 'indicator_' : 'field_') + '${DateTime.now().millisecondsSinceEpoch}',
+              'type': formType == 'teaching_quality' ? 'indicator' : 'text',
               'options': <String>[],
               'rating_scale': 'numeric',
-              'rating_max': 5,
+              'rating_max': ratingMax,
+              'comment': formType == 'teaching_quality',
             })),
             icon: const Icon(Icons.add),
             label: const Text('Add Field'),
@@ -171,6 +191,8 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                 id: form == null ? null : int.tryParse('${form['id']}'),
                 name: nameCtrl.text.trim(),
                 fields: fields,
+                formType: formType,
+                ratingMax: ratingMax,
               );
               setSheet(() => saving = false);
               if (!ctx.mounted) return;
@@ -188,29 +210,96 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
     final scale = '${f['rating_scale'] ?? 'numeric'}';
     if (scale == 'letter') return ['A', 'B', 'C', 'D', 'F'];
     if (scale == 'letter_plus') return ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'];
-    final max = (int.tryParse('${f['rating_max'] ?? 5}') ?? 5).clamp(2, 20);
+    final max = (int.tryParse('${f['rating_max'] ?? 5}') ?? 5).clamp(1, 20).toInt();
     return List.generate(max, (i) => '${i + 1}');
   }
 
   Future<void> _useForm(Map<String, dynamic> form) async {
-    final fields = form['fields'] is List ? (form['fields'] as List) : [];
+    final fields = form['fields'] is List ? (form['fields'] as List) : const [];
     final values = <String, dynamic>{};
-    int? staffIndex;
+    int? teacherIndex;
+    int? subjectIndex;
     final noteCtrl = TextEditingController();
     bool saving = false;
+    final formRatingMax = (int.tryParse('${form['rating_max'] ?? 5}') ?? 5).clamp(1, 20).toInt();
+
+    final teachers = _teacherOptions.isNotEmpty
+        ? _teacherOptions
+        : _staff.map((s) => <String, dynamic>{
+            'teacherName': '${s['full_name'] ?? s['name'] ?? ''}',
+            'subjects': <Map<String, dynamic>>[],
+          }).toList();
+
+    List<Map<String, dynamic>> subjectsFor(int? ti) {
+      if (ti == null || ti < 0 || ti >= teachers.length) return const [];
+      final raw = teachers[ti]['subjects'];
+      if (raw is! List) return const [];
+      return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+
+    double indicatorTotal() {
+      double total = 0;
+      for (final raw in fields) {
+        final f = Map<String, dynamic>.from(raw as Map);
+        if ('${f['type'] ?? 'text'}' != 'indicator') continue;
+        final key = '${f['name'] ?? f['label'] ?? ''}';
+        final max = (int.tryParse('${f['rating_max'] ?? formRatingMax}') ?? formRatingMax).clamp(1, 20).toInt();
+        final v = double.tryParse('${values[key] ?? 0}') ?? 0;
+        total += v.clamp(0, max);
+      }
+      return total;
+    }
+
+    double indicatorMax() {
+      double max = 0;
+      for (final raw in fields) {
+        final f = Map<String, dynamic>.from(raw as Map);
+        if ('${f['type'] ?? 'text'}' != 'indicator') continue;
+        max += (int.tryParse('${f['rating_max'] ?? formRatingMax}') ?? formRatingMax).clamp(1, 20).toInt();
+      }
+      return max;
+    }
+
     await showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+      final subjects = subjectsFor(teacherIndex);
+      final total = indicatorTotal();
+      final maxTotal = indicatorMax();
       return AlertDialog(
         title: Text('${form['name'] ?? 'Evaluation'}'),
-        content: SizedBox(width: 640, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        content: SizedBox(width: 680, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (teachers.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text('No teachers found. Assign subjects in Create Mark List first.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ),
           DropdownButtonFormField<int>(
-            value: staffIndex,
+            value: teacherIndex,
             isExpanded: true,
             decoration: const InputDecoration(labelText: 'Teacher'),
-            items: _staff.asMap().entries.map((e) => DropdownMenuItem(value: e.key, child: Text('${e.value['full_name'] ?? e.value['name'] ?? ''}'))).toList(),
-            onChanged: (v) => setSheet(() => staffIndex = v),
+            items: teachers.asMap().entries.map((e) => DropdownMenuItem(value: e.key, child: Text('${e.value['teacherName'] ?? ''}'))).toList(),
+            onChanged: teachers.isEmpty ? null : (v) => setSheet(() { teacherIndex = v; subjectIndex = null; }),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<int>(
+            value: subjectIndex,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Subject / Class (from Create Mark List)'),
+            items: subjects.asMap().entries.map((e) => DropdownMenuItem(
+              value: e.key,
+              child: Text('${e.value['subject'] ?? ''} â€” ${e.value['className'] ?? e.value['subjectClass'] ?? ''}'),
+            )).toList(),
+            onChanged: subjects.isEmpty ? null : (v) => setSheet(() => subjectIndex = v),
           ),
           const SizedBox(height: 6),
           Text('Date: ${DateTime.now().toIso8601String().split('T').first}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          if (maxTotal > 0) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(8)),
+              child: Text('Score: ${total.toStringAsFixed(0)} / ${maxTotal.toStringAsFixed(0)} (${maxTotal > 0 ? (total / maxTotal * 100).toStringAsFixed(1) : '0'}%)', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
           const SizedBox(height: 10),
           ...fields.map((raw) {
             final f = Map<String, dynamic>.from(raw as Map);
@@ -218,6 +307,28 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
             final label = '${f['label'] ?? key}';
             final type = '${f['type'] ?? 'text'}';
             switch (type) {
+              case 'indicator':
+                final max = (int.tryParse('${f['rating_max'] ?? formRatingMax}') ?? formRatingMax).clamp(1, 20).toInt();
+                final selected = int.tryParse('${values[key] ?? ''}');
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Wrap(spacing: 6, runSpacing: 4, children: List.generate(max, (i) {
+                      final value = i + 1;
+                      return ChoiceChip(
+                        label: Text('$value'),
+                        selected: selected == value,
+                        onSelected: (_) => setSheet(() => values[key] = value),
+                      );
+                    })),
+                    TextField(
+                      decoration: const InputDecoration(labelText: 'Comment (optional)', isDense: true),
+                      onChanged: (v) => values['${key}__comment'] = v,
+                    ),
+                  ]),
+                );
               case 'number':
                 return Padding(padding: const EdgeInsets.only(bottom: 8), child: TextField(keyboardType: TextInputType.number, decoration: InputDecoration(labelText: label, isDense: true), onChanged: (v) => values[key] = v));
               case 'rating':
@@ -226,7 +337,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                   padding: const EdgeInsets.only(bottom: 8),
                   child: DropdownButtonFormField<String>(
                     value: values[key] is String && opts.contains(values[key]) ? values[key] as String : null,
-                    decoration: InputDecoration(labelText: '$label (${'${f['rating_scale'] ?? 'numeric'}' == 'numeric' ? '1–${opts.length}' : 'grade scale'})', isDense: true),
+                    decoration: InputDecoration(labelText: '$label (1-${opts.length})', isDense: true),
                     items: opts.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
                     onChanged: (v) => setSheet(() => values[key] = v),
                   ),
@@ -246,15 +357,15 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                 );
               case 'multi_select':
                 final opts = (f['options'] is List) ? (f['options'] as List).map((e) => '$e').toList() : <String>[];
-                final selected = (values[key] is List) ? List<String>.from(values[key] as List) : <String>[];
+                final selectedList = (values[key] is List) ? List<String>.from(values[key] as List) : <String>[];
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
                     Wrap(spacing: 6, runSpacing: 4, children: opts.map((o) => FilterChip(
                       label: Text(o),
-                      selected: selected.contains(o),
-                      onSelected: (v) { setSheet(() { if (v) selected.add(o); else selected.remove(o); values[key] = List<String>.from(selected); }); },
+                      selected: selectedList.contains(o),
+                      onSelected: (v) { setSheet(() { if (v) selectedList.add(o); else selectedList.remove(o); values[key] = List<String>.from(selectedList); }); },
                     )).toList()),
                   ]),
                 );
@@ -271,13 +382,19 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: saving ? null : () async {
-              if (staffIndex == null) return;
+              if (teacherIndex == null) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select a teacher first')));
+                return;
+              }
               setSheet(() => saving = true);
-              final s = _staff[staffIndex!];
+              final t = teachers[teacherIndex!];
+              final s = subjects.isNotEmpty && subjectIndex != null ? subjects[subjectIndex!] : null;
               final err = await ApiService().submitEvaluation(
                 formId: int.tryParse('${form['id']}') ?? 0,
-                teacherId: '${s['global_staff_id'] ?? s['staff_id'] ?? s['id'] ?? ''}',
-                teacherName: '${s['full_name'] ?? s['name'] ?? ''}',
+                teacherId: '${t['teacherName'] ?? ''}',
+                teacherName: '${t['teacherName'] ?? ''}',
+                subject: '${s?['subject'] ?? ''}',
+                subjectClass: '${s?['subjectClass'] ?? ''}',
                 date: DateTime.now().toIso8601String().split('T').first,
                 note: noteCtrl.text.trim(),
                 data: values,
@@ -307,8 +424,12 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
     final data = s['data'] is Map ? Map<String, dynamic>.from(s['data'] as Map) : <String, dynamic>{};
     final entries = <InfoEntry>[
       InfoEntry('Teacher', '${s['teacher_name'] ?? ''}'),
+      InfoEntry('Subject', '${s['subject_class'] ?? s['subject'] ?? ''}'),
       InfoEntry('Form', '${s['form_name'] ?? form?['name'] ?? ''}'),
       InfoEntry('Date', '${s['evaluation_date'] ?? ''}'),
+      if (s['total_score'] != null)
+        InfoEntry('Score', '${s['total_score']} / ${s['max_score'] ?? ''} (${s['percentage'] ?? ''}%)'),
+      if (s['rating_label'] != null) InfoEntry('Rating', '${s['rating_label']}'),
       InfoEntry('Created by', '${s['created_by'] ?? ''}'),
       InfoEntry('Note', '${s['note'] ?? ''}'),
     ];
@@ -318,6 +439,10 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
       final value = data[key];
       final text = value is List ? value.join(', ') : value == true ? 'Yes' : value == false ? 'No' : '${value ?? ''}';
       entries.add(InfoEntry('${f['label'] ?? key}', text));
+      final comment = data['${key}__comment'];
+      if (comment != null && '$comment'.trim().isNotEmpty) {
+        entries.add(InfoEntry('  Comment', '$comment'));
+      }
     }
     if (fields.isEmpty) {
       data.forEach((k, v) => entries.add(InfoEntry(k, v is List ? v.join(', ') : '$v')));
@@ -325,7 +450,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
     showInfoSheet(
       context,
       title: '${s['teacher_name'] ?? 'Evaluation'}',
-      subtitle: '${s['form_name'] ?? form?['name'] ?? ''} • ${s['evaluation_date'] ?? ''}',
+      subtitle: '${s['form_name'] ?? form?['name'] ?? ''} â€¢ ${s['evaluation_date'] ?? ''}',
       entries: entries,
     );
   }
@@ -364,7 +489,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         title: Text('${s['teacher_name'] ?? ''}'),
-                        subtitle: Text('${s['form_name'] ?? ''}\n${s['evaluation_date'] ?? ''} • ${s['created_by'] ?? ''}\n${s['note'] ?? ''}'),
+                        subtitle: Text('${s['form_name'] ?? ''}\n${s['evaluation_date'] ?? ''} â€¢ ${s['created_by'] ?? ''}\n${s['note'] ?? ''}'),
                         isThreeLine: true,
                         trailing: const Icon(Icons.info_outline),
                         onTap: () => _showSubmission(s),
@@ -434,3 +559,4 @@ class _OptionEditorState extends State<_OptionEditor> {
     ]);
   }
 }
+

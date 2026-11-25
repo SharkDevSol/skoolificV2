@@ -228,6 +228,7 @@ const AssetReports = lazy(() => import("./PAGE/Assets/AssetReports"));
 
 // HR & Staff Management Module
 const HRDashboard = lazy(() => import("./PAGE/HR/HRDashboard"));
+const TeacherEvaluation = lazy(() => import("./PAGE/HR/TeacherEvaluation"));
 const SalaryManagement = lazy(() => import("./PAGE/HR/SalaryManagement"));
 const AttendanceSystem = lazy(() => import("./PAGE/HR/AttendanceSystem"));
 const AttendanceDeductionSettings = lazy(() => import("./PAGE/HR/AttendanceDeductionSettings"));
@@ -431,6 +432,7 @@ function App() {
               <Route path="hr" element={<HRDashboard />} />
               <Route path="hr/salary" element={<SalaryManagement />} />
               <Route path="hr/attendance" element={<AttendanceSystem />} />
+              <Route path="hr/teacher-evaluation" element={<LazyRoute component={TeacherEvaluation} />} />
               <Route path="device-status" element={<DeviceStatus />} />
               <Route path="hr/attendance-deduction-settings" element={<AttendanceDeductionSettings />} />
               <Route path="hr/attendance-time-settings" element={<AttendanceTimeSettings />} />

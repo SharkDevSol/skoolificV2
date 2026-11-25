@@ -17,6 +17,7 @@ const AVAILABLE_PAGES = [
   '/hr', '/hr/attendance', '/hr/attendance-deduction-settings', '/hr/attendance-time-settings',
   '/hr/budgets', '/hr/expense-approval', '/hr/expenses', '/hr/leave', '/hr/payroll',
   '/hr/reports', '/hr/salary', '/hr/organization', '/hr/shift-time-settings', '/hr/training',
+  '/hr/teacher-evaluation',
   '/inventory', '/inventory/items', '/inventory/movements', '/inventory/purchase-orders',
   '/inventory/reports', '/inventory/suppliers',
   '/kg/assignments', '/kg/attendance', '/kg/create-mark-list', '/kg/evaluation',

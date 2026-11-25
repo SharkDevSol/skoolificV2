@@ -39,6 +39,7 @@ export const ADMIN_PERMISSIONS = {
       { key: 'hr_dashboard', label: 'HR Dashboard', path: '/hr' },
       { key: 'salary_management', label: 'Salary Management', path: '/hr/salary' },
       { key: 'teachers_attendance', label: 'Teachers Attendance', path: '/hr/attendance' },
+      { key: 'teacher_evaluation', label: 'Teacher Evaluation', path: '/hr/teacher-evaluation' },
       { key: 'shift_time_settings', label: 'Time & Shift Settings', path: '/hr/shift-time-settings' },
       { key: 'attendance_deduction_settings', label: 'Attendance Deductions', path: '/hr/attendance-deduction-settings' },
       { key: 'leave_management', label: 'Leave Management', path: '/hr/leave' },
