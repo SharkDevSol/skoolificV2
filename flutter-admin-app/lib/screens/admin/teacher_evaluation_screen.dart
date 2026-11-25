@@ -292,6 +292,8 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
           ),
           const SizedBox(height: 6),
           Text('Date: ${DateTime.now().toIso8601String().split('T').first}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 4),
+          const Text('5 Excellent | 4 Very Good | 3 Good | 2 Needs Improvement | 1 Unsatisfactory', style: TextStyle(fontSize: 11, color: Colors.grey)),
           if (maxTotal > 0) ...[
             const SizedBox(height: 8),
             Container(
