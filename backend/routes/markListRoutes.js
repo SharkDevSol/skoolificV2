@@ -889,6 +889,17 @@ router.post('/create-mark-forms', async (req, res) => {
       )
     `);
     
+    // KG classes use the pass mark from KG Settings instead of the default 50
+    let formPassThreshold = 50.00;
+    if (/^KG/i.test(className)) {
+      try {
+        const kg = await client.query('SELECT pass_mark FROM kg_settings WHERE id = 1');
+        if (kg.rows[0]?.pass_mark !== null && kg.rows[0]?.pass_mark !== undefined) {
+          formPassThreshold = Number(kg.rows[0].pass_mark);
+        }
+      } catch (_) { /* older DB without kg_settings */ }
+    }
+
     await client.query(`
       INSERT INTO ${schemaName}.form_config (class_name, term_number, mark_components, pass_threshold)
       VALUES ($1, $2, $3, $4)
@@ -896,7 +907,7 @@ router.post('/create-mark-forms', async (req, res) => {
         mark_components = EXCLUDED.mark_components,
         pass_threshold = EXCLUDED.pass_threshold,
         created_at = CURRENT_TIMESTAMP
-    `, [className, termNumber, JSON.stringify(markComponents), 50.00]);
+    `, [className, termNumber, JSON.stringify(markComponents), formPassThreshold]);
     
     await client.query('COMMIT');
     res.json({ 
@@ -1144,6 +1155,18 @@ const handleGetMarkList = async (req, res) => {
       }
     } catch (_) {}
 
+    // KG pass/fail point (kept in KG Settings). Normal classes use the form's
+    // own pass_threshold from form_config.
+    let kgPassMark = null;
+    if (/^KG/i.test(String(actualClassName || tableClassName || ''))) {
+      try {
+        const kgPass = await client.query('SELECT pass_mark FROM kg_settings WHERE id = 1');
+        if (kgPass.rows.length && kgPass.rows[0].pass_mark !== null && kgPass.rows[0].pass_mark !== undefined) {
+          kgPassMark = Number(kgPass.rows[0].pass_mark);
+        }
+      } catch (_) { /* older DB without kg_settings */ }
+    }
+
     res.json({
       // Staff app requires formId + components at top level — without them
       // it treats the form as missing and shows no components.
@@ -1153,6 +1176,7 @@ const handleGetMarkList = async (req, res) => {
       students: responseRows,
       markList: responseRows,
       config: formConfig,
+      passMark: kgPassMark,
       syncInfo: {
         studentsAdded: studentsAdded,
         studentsRemoved: studentsRemoved
@@ -1837,15 +1861,19 @@ router.get('/full-ranking/:className', async (req, res) => {
     // the Rank row of the report card: grade letter, rank, or both).
     let gradeBands = null;
     let rankDisplay = null;
+    let passMark = null;
     if (isKGClass) {
       try {
-        const kg = await db.query('SELECT term_count, grade_bands, rank_display FROM kg_settings WHERE id = 1');
+        const kg = await db.query('SELECT term_count, grade_bands, rank_display, pass_mark FROM kg_settings WHERE id = 1');
         if (kg.rows.length > 0) {
           termCount = parseInt(kg.rows[0].term_count, 10) || termCount;
           if (Array.isArray(kg.rows[0].grade_bands) && kg.rows[0].grade_bands.length) {
             gradeBands = kg.rows[0].grade_bands;
           }
           rankDisplay = kg.rows[0].rank_display || null;
+          passMark = kg.rows[0].pass_mark !== null && kg.rows[0].pass_mark !== undefined
+            ? Number(kg.rows[0].pass_mark)
+            : null;
         }
       } catch (_) { /* older DB without kg_settings */ }
     }
@@ -1975,7 +2003,8 @@ router.get('/full-ranking/:className', async (req, res) => {
       allSubjects: subjects,
       isKG: isKGClass,
       gradeBands,
-      rankDisplay
+      rankDisplay,
+      passMark
     });
   } catch (error) {
     console.error('Error calculating full ranking:', error);

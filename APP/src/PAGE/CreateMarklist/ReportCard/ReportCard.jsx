@@ -302,6 +302,9 @@ const ReportCard = () => {
         rankCombined,
         isKG: isKGReportCard,
         gradeBands: isKGReportCard ? bands : null,
+        passMark: isKGReportCard && fullData.passMark !== null && fullData.passMark !== undefined
+          ? Number(fullData.passMark)
+          : null,
         subjects: allSubjects,
         subjectsData: combinedSubjects,
         totals: termTotals,

@@ -6,6 +6,7 @@ export default function KGMarkList() {
   const [termCount, setTermCount] = useState(2);
   const [gradeBands, setGradeBands] = useState(DEFAULT_GRADE_BANDS);
   const [rankDisplay, setRankDisplay] = useState('grade');
+  const [passMark, setPassMark] = useState(50);
 
   useEffect(() => {
     let alive = true;
@@ -15,6 +16,7 @@ export default function KGMarkList() {
         setTermCount(cfg.term_count);
         setGradeBands(cfg.grade_bands);
         setRankDisplay(cfg.rank_display);
+        setPassMark(cfg.pass_mark);
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -26,6 +28,7 @@ export default function KGMarkList() {
       termCountOverride={termCount}
       gradeBands={gradeBands}
       rankDisplayOverride={rankDisplay}
+      passMarkOverride={passMark}
     />
   );
 }

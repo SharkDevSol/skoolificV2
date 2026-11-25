@@ -35,6 +35,7 @@ const MarkListView = ({
   termCountOverride = null,
   gradeBands = null,
   rankDisplayOverride = null,
+  passMarkOverride = null,
 } = {}) => {
   const { t } = useTranslation();
   const [classes, setClasses] = useState([]);
@@ -214,6 +215,28 @@ const MarkListView = ({
     return rank;
   };
 
+  const effectivePassMark = (() => {
+    if (kgOnly && passMarkOverride !== null && passMarkOverride !== undefined && passMarkOverride !== '') {
+      const n = Number(passMarkOverride);
+      if (Number.isFinite(n)) return n;
+    }
+    const fromConfig = Number(markConfig?.pass_threshold);
+    return Number.isFinite(fromConfig) ? fromConfig : 50;
+  })();
+
+  const statusForTotal = (total) => {
+    if (!kgOnly) return null;
+    const n = Number(total);
+    return Number.isFinite(n) && n >= effectivePassMark ? 'Pass' : 'Fail';
+  };
+
+  const overallStatusFor = (student) => {
+    if (!kgOnly) return student.overallStatus || 'N/A';
+    const subjects = Object.values(student.subjects || {});
+    if (!subjects.length) return student.overallStatus || 'Fail';
+    return subjects.every(s => Number(s.total) >= effectivePassMark) ? 'Pass' : 'Fail';
+  };
+
   const getGradeColor = (grade) => {
     if (grade === 'A+' || grade === 'A') return '#27ae60';
     if (grade === 'B+' || grade === 'B') return '#f39c12';
@@ -232,7 +255,9 @@ const MarkListView = ({
   const totalStudents = filteredStudents.length;
   const marks = filteredStudents.map((s) => s.total || 0);
   const averageMark = marks.length > 0 ? (marks.reduce((a, b) => a + b, 0) / marks.length).toFixed(1) : 0;
-  const passCount = filteredStudents.filter((s) => s.pass_status === 'Pass').length;
+  const passCount = kgOnly
+    ? filteredStudents.filter((s) => statusForTotal(s.total || 0) === 'Pass').length
+    : filteredStudents.filter((s) => s.pass_status === 'Pass').length;
   const failCount = totalStudents - passCount;
 
   // Get mark components from config
@@ -279,7 +304,7 @@ const MarkListView = ({
           });
           row['Total'] = student.total || 0;
           row['Grade'] = calculateGrade(student.total || 0);
-          row['Status'] = student.pass_status || 'N/A';
+          row['Status'] = kgOnly ? statusForTotal(student.total || 0) : (student.pass_status || 'N/A');
           return row;
         })
       );
@@ -297,7 +322,7 @@ const MarkListView = ({
           row['Total'] = student.totalMarks?.toFixed(1) || 0;
           row['Average'] = student.average?.toFixed(1) || 0;
           row['Grade'] = calculateGrade(student.average || 0);
-          row['Status'] = student.overallStatus || 'N/A';
+          row['Status'] = kgOnly ? overallStatusFor(student) : (student.overallStatus || 'N/A');
           return row;
         })
       );
@@ -335,7 +360,9 @@ const MarkListView = ({
   const passedCount =
     viewMode === 'subject'
       ? passCount
-      : rankingData?.rankings?.filter((r) => r.overallStatus === 'Pass').length || 0;
+      : rankingData?.rankings?.filter((r) => (
+          kgOnly ? overallStatusFor(r) === 'Pass' : r.overallStatus === 'Pass'
+        )).length || 0;
   const exportDisabled =
     (viewMode === 'subject' && sortedStudents.length === 0) ||
     (viewMode === 'ranking' && !rankingData?.rankings?.length);
@@ -455,7 +482,7 @@ const MarkListView = ({
             <span className={styles.subjectCount}>{allSubjects.length} Subjects</span>
           )}
           {viewMode === 'subject' && markConfig && (
-            <span className={styles.passThreshold}>Pass Mark: {markConfig.pass_threshold || 50}%</span>
+            <span className={styles.passThreshold}>Pass Mark: {effectivePassMark}%</span>
           )}
           {kgOnly && positionMode !== 'rank' && effectiveBands.length > 0 && (
             <span className={styles.passThreshold}>
@@ -508,10 +535,11 @@ const MarkListView = ({
                       })
                       .map((student) => {
                         const grade = calculateGrade(student.average || 0);
+                        const overallStatus = overallStatusFor(student);
                         return (
                           <tr
                             key={student.studentName}
-                            className={student.overallStatus === 'Pass' ? styles.passed : styles.failed}
+                            className={overallStatus === 'Pass' ? styles.passed : styles.failed}
                           >
                             <td className={`${styles.rank} ${styles.stickyCol}`}>
                               {positionMode === 'rank' ? (
@@ -532,7 +560,9 @@ const MarkListView = ({
                             {allSubjects.map((subject) => {
                               const subjectData = student.subjects?.[subject];
                               const subjectMark = subjectData?.total || 0;
-                              const subjectStatus = subjectData?.status;
+                              const subjectStatus = kgOnly
+                                ? statusForTotal(subjectMark)
+                                : subjectData?.status;
                               const hasData = subjectData !== undefined;
                               return (
                                 <td
@@ -577,10 +607,10 @@ const MarkListView = ({
                             <td>
                               <span
                                 className={`${styles.status} ${
-                                  styles[student.overallStatus?.toLowerCase() || 'fail']
+                                  styles[overallStatus?.toLowerCase() || 'fail']
                                 }`}
                               >
-                                {student.overallStatus || 'N/A'}
+                                {overallStatus || 'N/A'}
                               </span>
                             </td>
                           </tr>
@@ -616,10 +646,11 @@ const MarkListView = ({
             <tbody>
                 {sortedStudents.map((student, index) => {
                   const grade = calculateGrade(student.total || 0);
+                  const rowStatus = kgOnly ? statusForTotal(student.total || 0) : student.pass_status;
                   return (
                     <tr
                       key={student.id || student.student_name}
-                      className={student.pass_status === 'Pass' ? styles.passed : styles.failed}
+                      className={rowStatus === 'Pass' ? styles.passed : styles.failed}
                     >
                       <td className={styles.rank}>
                         {positionMode === 'rank' ? (
@@ -654,9 +685,9 @@ const MarkListView = ({
                       )}
                       <td>
                         <span
-                          className={`${styles.status} ${styles[student.pass_status?.toLowerCase() || 'fail']}`}
+                          className={`${styles.status} ${styles[rowStatus?.toLowerCase() || 'fail']}`}
                         >
-                          {student.pass_status || 'N/A'}
+                          {rowStatus || 'N/A'}
                         </span>
                       </td>
                     </tr>

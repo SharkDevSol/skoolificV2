@@ -185,6 +185,9 @@ const ReportCardFront = ({ data, schoolInfo }) => {
                     <span>F (&lt; 40)</span>
                   </>
                 )}
+                {data.passMark !== null && data.passMark !== undefined && (
+                  <span style={{ fontWeight: 700 }}>Pass ≥ {data.passMark}%</span>
+                )}
               </div>
               <div className={styles.signatureRow}>
                 <div className={styles.signatureBlock}>

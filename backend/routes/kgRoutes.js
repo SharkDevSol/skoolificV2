@@ -67,6 +67,7 @@ function packConfig(row) {
     check_in_end_time: hhmm(source.check_in_end_time) || '08:30',
     late_threshold_time: hhmm(source.late_threshold_time) || '08:00',
     absent_marking_time: hhmm(source.absent_marking_time) || '09:00',
+    pass_mark: Number.isFinite(Number(source.pass_mark)) ? Number(source.pass_mark) : 50,
     grade_bands: bands,
     rank_display: RANK_DISPLAY_MODES.includes(source.rank_display) ? source.rank_display : 'grade',
   };
@@ -75,6 +76,67 @@ function packConfig(row) {
 async function readSettings(req) {
   const r = await db(req).query('SELECT * FROM kg_settings WHERE id = 1');
   return packConfig(r.rows[0]);
+}
+
+/**
+ * When the KG pass/fail point changes, keep every KG mark-list form and every
+ * stored Pass/Fail status in sync, so the Mark List and Report Card agree.
+ */
+async function syncPassMark(req, passMark) {
+  const q = db(req);
+  let updatedForms = 0;
+  let updatedTables = 0;
+  let updatedRows = 0;
+  try {
+    const schemas = await q.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'subject\\_%\\_schema'`
+    );
+    for (const s of schemas.rows) {
+      let classes;
+      try {
+        classes = await q.query(
+          `SELECT DISTINCT class_name FROM "${s.schema_name}".form_config WHERE class_name ILIKE 'KG%'`
+        );
+      } catch { continue; }
+
+      for (const row of classes.rows) {
+        const cls = String(row.class_name || '');
+        if (!cls) continue;
+
+        try {
+          const f = await q.query(
+            `UPDATE "${s.schema_name}".form_config SET pass_threshold = $1 WHERE class_name = $2`,
+            [passMark, cls]
+          );
+          updatedForms += f.rowCount || 0;
+        } catch { /* form_config may not have the column in very old schemas */ }
+
+        let tables;
+        try {
+          tables = await q.query(
+            `SELECT table_name FROM information_schema.tables
+              WHERE table_schema = $1 AND table_name LIKE $2`,
+            [s.schema_name, `${cls.toLowerCase()}_term_%`]
+          );
+        } catch { continue; }
+
+        for (const t of tables.rows) {
+          try {
+            const r = await q.query(
+              `UPDATE "${s.schema_name}"."${t.table_name}"
+                  SET pass_status = CASE WHEN COALESCE(total, 0) >= $1 THEN 'Pass' ELSE 'Fail' END`,
+              [passMark]
+            );
+            updatedTables++;
+            updatedRows += r.rowCount || 0;
+          } catch { /* skip tables without pass_status */ }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[KG Settings] Pass-mark sync failed (non-blocking):', e.message);
+  }
+  console.log(`[KG Settings] Pass mark ${passMark}% synced: forms=${updatedForms} tables=${updatedTables} rows=${updatedRows}`);
 }
 
 // One KG settings row per branch database.
@@ -88,6 +150,7 @@ async function ensureSettings(req) {
       check_in_end_time TIME DEFAULT '08:30:00',
       late_threshold_time TIME DEFAULT '08:00:00',
       absent_marking_time TIME DEFAULT '09:00:00',
+      pass_mark NUMERIC(5,2) NOT NULL DEFAULT 50,
       grade_bands JSONB,
       rank_display VARCHAR(10) NOT NULL DEFAULT 'grade',
       updated_by VARCHAR(200),
@@ -100,6 +163,7 @@ async function ensureSettings(req) {
     `check_in_end_time TIME DEFAULT '08:30:00'`,
     `late_threshold_time TIME DEFAULT '08:00:00'`,
     `absent_marking_time TIME DEFAULT '09:00:00'`,
+    `pass_mark NUMERIC(5,2) NOT NULL DEFAULT 50`,
     `grade_bands JSONB`,
     `rank_display VARCHAR(10) NOT NULL DEFAULT 'grade'`,
   ]) {
@@ -178,6 +242,17 @@ router.put('/config', authenticateWithBranch, async (req, res) => {
       push('grade_bands = $?::jsonb', JSON.stringify(bands));
     }
 
+    let newPassMark = null;
+    const rawPassMark = req.body?.passMark ?? req.body?.pass_mark;
+    if (rawPassMark !== undefined && rawPassMark !== null && rawPassMark !== '') {
+      const passMark = Number(rawPassMark);
+      if (!Number.isFinite(passMark) || passMark < 0 || passMark > 100) {
+        return res.status(400).json({ error: 'Pass mark must be a number between 0 and 100.' });
+      }
+      newPassMark = Math.round(passMark * 100) / 100;
+      push('pass_mark = $?', newPassMark);
+    }
+
     const rawRankDisplay = req.body?.rankDisplay ?? req.body?.rank_display;
     if (rawRankDisplay !== undefined) {
       const mode = String(rawRankDisplay).toLowerCase();
@@ -197,6 +272,12 @@ router.put('/config', authenticateWithBranch, async (req, res) => {
     updates.push('updated_at = NOW()');
 
     await db(req).query(`UPDATE kg_settings SET ${updates.join(', ')} WHERE id = 1`, values);
+
+    // Keep mark-list form thresholds and stored Pass/Fail statuses aligned
+    if (newPassMark !== null) {
+      await syncPassMark(req, newPassMark);
+    }
+
     res.json({ success: true, ...(await readSettings(req)) });
   } catch (e) {
     res.status(500).json({ error: 'Failed to save KG settings', details: e.message });

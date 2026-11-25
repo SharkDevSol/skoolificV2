@@ -60,6 +60,7 @@ export async function fetchKGConfig() {
     check_in_end_time: data.check_in_end_time || '08:30',
     late_threshold_time: data.late_threshold_time || '08:00',
     absent_marking_time: data.absent_marking_time || '09:00',
+    pass_mark: Number.isFinite(Number(data.pass_mark)) ? Number(data.pass_mark) : 50,
     grade_bands: bands,
     rank_display: ['grade', 'rank', 'both'].includes(data.rank_display) ? data.rank_display : 'grade',
   };

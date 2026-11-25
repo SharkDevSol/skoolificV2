@@ -56,6 +56,7 @@ export default function KGSettings() {
   const [times, setTimes] = useState({ ...DEFAULT_TIMES });
   const [gradeBands, setGradeBands] = useState(DEFAULT_GRADE_BANDS.map(b => ({ ...b })));
   const [rankDisplay, setRankDisplay] = useState('grade');
+  const [passMark, setPassMark] = useState(50);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -74,6 +75,7 @@ export default function KGSettings() {
         });
         setGradeBands((cfg.grade_bands || DEFAULT_GRADE_BANDS).map(b => ({ ...b })));
         setRankDisplay(cfg.rank_display || 'grade');
+        setPassMark(Number.isFinite(Number(cfg.pass_mark)) ? Number(cfg.pass_mark) : 50);
       })
       .catch(() => { if (alive) setMessage({ type: 'error', text: 'Could not load KG settings' }); })
       .finally(() => { if (alive) setLoading(false); });
@@ -100,6 +102,11 @@ export default function KGSettings() {
     setMessage({ type: '', text: '' });
 
     // Basic client-side validation before sending
+    const passMarkNumber = Number(passMark);
+    if (!Number.isFinite(passMarkNumber) || passMarkNumber < 0 || passMarkNumber > 100) {
+      setMessage({ type: 'error', text: 'Pass mark must be a number between 0 and 100.' });
+      return;
+    }
     for (const band of gradeBands) {
       if (!String(band.grade || '').trim()) {
         setMessage({ type: 'error', text: 'Every grade band needs a letter (A, B, C…).' });
@@ -118,6 +125,7 @@ export default function KGSettings() {
       await saveKGConfig({
         termCount,
         ...times,
+        passMark,
         gradeBands,
         rankDisplay,
       });
@@ -212,6 +220,44 @@ export default function KGSettings() {
                   />
                 </label>
               ))}
+            </div>
+          </Card>
+
+          <Card title="Pass / Fail Point" padding="lg">
+            <p style={{ marginTop: 0, fontWeight: 600 }}>Minimum mark to pass</p>
+            <p style={{ color: 'var(--text-secondary, #6b7280)', fontSize: 13, marginTop: 0 }}>
+              A KG student with a subject total below this point is marked <strong>Fail</strong>;
+              at or above it is <strong>Pass</strong>. This updates KG mark lists and report cards.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginTop: 10 }}>
+              <label style={{ display: 'block', maxWidth: 220 }}>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Pass mark (%)
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={passMark}
+                  onChange={(e) => setPassMark(e.target.value)}
+                  style={timeInputStyle}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: 8, paddingBottom: 6 }}>
+                <span style={{
+                  background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0',
+                  borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 700,
+                }}>
+                  Pass ≥ {Number(passMark) || 0}%
+                </span>
+                <span style={{
+                  background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca',
+                  borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 700,
+                }}>
+                  Fail &lt; {Number(passMark) || 0}%
+                </span>
+              </div>
             </div>
           </Card>
 
