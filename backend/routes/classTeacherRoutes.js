@@ -1015,6 +1015,21 @@ router.get('/weekly-attendance/:className/:weekStart', async (req, res) => {
       merged.push(...savedRows);
     }
 
+    // Unpaid rule: hide students from the attendance grid. This filters only
+    // the response - saved attendance rows are left untouched.
+    try {
+      const h = await require('../services/unpaidHide').computeHidden(db, req.headers['x-branch-code'] || '');
+      if (h.enabled) {
+        for (let i = merged.length - 1; i >= 0; i--) {
+          const nm = String(merged[i].student_name || '').trim().toLowerCase();
+          const sid = merged[i].school_id !== undefined && merged[i].school_id !== null
+            ? String(merged[i].school_id).trim()
+            : '';
+          if ((nm && h.hiddenNames.has(nm)) || (sid && h.hiddenIds.has(sid))) merged.splice(i, 1);
+        }
+      }
+    } catch (_) { /* never break attendance because of the rule */ }
+
     merged.sort((a, b) => {
       const ai = parseInt(a.class_id, 10);
       const bi = parseInt(b.class_id, 10);

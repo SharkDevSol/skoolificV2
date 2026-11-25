@@ -415,7 +415,21 @@ router.get('/students', async (req, res) => {
   try {
     const { class: className, studentType } = req.query;
 
-    const students = await getAllStudents(getDb(req), className, studentType);
+    let students = await getAllStudents(getDb(req), className, studentType);
+
+    // Unpaid rule: hidden students are not shown in the attendance list.
+    try {
+      const unpaidHide = require('../../services/unpaidHide');
+      const branch = req.headers['x-branch-code'] || req.query.branchCode || '';
+      const h = await unpaidHide.computeHidden(getDb(req), branch);
+      if (h.enabled) {
+        students = students.filter((s) => {
+          const name = String(s.student_name || '').trim().toLowerCase();
+          const sid = s.school_id !== undefined && s.school_id !== null ? String(s.school_id).trim() : '';
+          return !((name && h.hiddenNames.has(name)) || (sid && h.hiddenIds.has(sid)));
+        });
+      }
+    } catch (_) { /* never break attendance because of the rule */ }
 
     res.json({
       success: true,
