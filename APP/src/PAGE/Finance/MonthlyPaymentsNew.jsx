@@ -35,6 +35,8 @@ const MonthlyPaymentsNew = () => {
   const [classDetails, setClassDetails] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentDetails, setStudentDetails] = useState(null);
+  const [generatingInvoices, setGeneratingInvoices] = useState(false);
+  const autoInvoiceRef = useRef(new Set());
   const [loading, setLoading] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showMultiMonthModal, setShowMultiMonthModal] = useState(false);
@@ -219,16 +221,49 @@ const MonthlyPaymentsNew = () => {
     }
   };
 
-  const fetchClassDetails = async () => {
+  const fetchClassDetails = async ({ skipAuto = false } = {}) => {
+    if (!selectedClass) return;
     setLoading(true);
     try {
       const response = await api.get(`/finance/monthly-payments-view/class/${selectedClass}?currentMonth=${currentEthiopianMonth}`);
       setClassDetails(response.data);
+
+      // New students enrolled after the last invoice run have no invoices and
+      // show as PENDING/0.00. Generate their invoices automatically once, then
+      // reload. If it fails, the banner/button below stays available.
+      const pending = response.data?.summary?.pendingCount || 0;
+      const feeStructureId = response.data?.feeStructureId;
+      if (!skipAuto && pending > 0 && feeStructureId && !autoInvoiceRef.current.has(selectedClass)) {
+        autoInvoiceRef.current.add(selectedClass);
+        generateMissingInvoices(feeStructureId, selectedClass, true);
+      }
     } catch (error) {
       console.error('Error fetching class details:', error);
       alert(t('financeApp.pay3.failedFetchClassDetails'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const generateMissingInvoices = async (feeStructureId, className, automatic = false) => {
+    if (!feeStructureId || generatingInvoices) return;
+    setGeneratingInvoices(true);
+    try {
+      const response = await api.post('/finance/progressive-invoices/generate-all', {
+        feeStructureId,
+      });
+      const result = response.data?.data || {};
+      if (!automatic && result.totalInvoices > 0) {
+        alert(`Generated ${result.totalInvoices} invoice(s) for ${result.summary?.newStudents ?? className}.`);
+      }
+      await fetchClassDetails({ skipAuto: true });
+    } catch (error) {
+      console.error('Error generating invoices for new students:', error);
+      if (!automatic) {
+        alert(error.response?.data?.message || 'Could not generate invoices for new students');
+      }
+    } finally {
+      setGeneratingInvoices(false);
     }
   };
 
@@ -1340,6 +1375,32 @@ ${index + 1}. ${student.studentName || 'Unknown'}
           </div>
 
           <h2>{classDetails.summary.className}{t('financeApp.pay1.studentBalancesSuffix')}</h2>
+
+          {classDetails.summary.pendingCount > 0 && (
+            <div style={{
+              display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'space-between',
+              flexWrap: 'wrap', background: '#fff7ed', border: '1px solid #fdba74',
+              color: '#9a3412', borderRadius: '12px', padding: '12px 18px', marginBottom: '16px'
+            }}>
+              <div>
+                <strong>{classDetails.summary.pendingCount} student(s) have no invoices yet.</strong>
+                <div style={{ fontSize: '0.85em', marginTop: '2px' }}>
+                  They were added after invoices were generated. Generate their monthly invoices to remove PENDING.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => generateMissingInvoices(classDetails.feeStructureId, selectedClass, false)}
+                disabled={generatingInvoices}
+                style={{
+                  background: '#ea580c', color: '#fff', border: 'none', borderRadius: '8px',
+                  padding: '9px 16px', fontWeight: 700, cursor: generatingInvoices ? 'default' : 'pointer'
+                }}
+              >
+                {generatingInvoices ? 'Generating...' : 'Generate Invoices'}
+              </button>
+            </div>
+          )}
 
           {/* Show only Unpaid Students count */}
           <div style={{ 

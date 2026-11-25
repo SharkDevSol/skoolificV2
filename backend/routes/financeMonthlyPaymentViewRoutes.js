@@ -1566,7 +1566,10 @@ router.get('/class/:className', authenticateWithBranch, requirePermission(FINANC
 
     res.json({
       summary,
-      students: visibleStudents
+      students: visibleStudents,
+      // Used by the Monthly Payments page to generate invoices for new
+      // students who were enrolled after the last invoice run.
+      feeStructureId: feeStructure.id
     });
 
   } catch (error) {
