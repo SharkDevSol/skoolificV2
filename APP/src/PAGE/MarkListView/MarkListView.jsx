@@ -55,6 +55,8 @@ const MarkListView = ({
   const [passMarkVersion, setPassMarkVersion] = useState(0);
   const [viewMode, setViewMode] = useState('ranking'); // 'subject' or 'ranking'
   const [rankingData, setRankingData] = useState(null);
+  const [allTermsData, setAllTermsData] = useState(null);
+  const [loadingAllTerms, setLoadingAllTerms] = useState(false);
   const markListRef = useRef(null);
 
   // Fetch available classes and config
@@ -112,7 +114,7 @@ const MarkListView = ({
 
   // Fetch marks for single subject view
   useEffect(() => {
-    if (!selectedClass || !selectedSubject || !selectedTerm || viewMode !== 'subject') return;
+    if (!selectedClass || !selectedSubject || !selectedTerm || selectedTerm === 'all' || viewMode !== 'subject') return;
     const fetchMarks = async () => {
       setLoadingMarks(true);
       try {
@@ -134,11 +136,15 @@ const MarkListView = ({
 
   // Pass mark for the selected class + term (normal classes can edit it here)
   useEffect(() => {
-    if (!selectedClass || !selectedTerm) return;
+    if (!selectedClass || !selectedTerm || selectedTerm === 'all') return;
     let alive = true;
     axios
       .get(`${API_BASE_URL}/mark-list/pass-mark`, {
-        params: { className: selectedClass, termNumber: selectedTerm },
+        params: {
+          className: selectedClass,
+          termNumber: selectedTerm,
+          ...(viewMode === 'subject' && selectedSubject ? { subjectName: selectedSubject } : {}),
+        },
       })
       .then((r) => {
         if (!alive) return;
@@ -150,11 +156,11 @@ const MarkListView = ({
       })
       .catch(() => {});
     return () => { alive = false; };
-  }, [selectedClass, selectedTerm, passMarkVersion]);
+  }, [selectedClass, selectedSubject, selectedTerm, viewMode, passMarkVersion]);
 
   // Build ranking client-side by fetching each subject's marks
   useEffect(() => {
-    if (!selectedClass || !selectedTerm || viewMode !== 'ranking' || subjects.length === 0) return;
+    if (!selectedClass || !selectedTerm || selectedTerm === 'all' || viewMode !== 'ranking' || subjects.length === 0) return;
     const fetchRanking = async () => {
       setLoadingMarks(true);
       try {
@@ -215,6 +221,74 @@ const MarkListView = ({
     fetchRanking();
   }, [selectedClass, selectedTerm, viewMode, subjects, passMarkVersion]);
 
+  // "All Terms": consolidated totals/averages/ranks per term + final rank
+  useEffect(() => {
+    if (selectedTerm !== 'all' || !selectedClass) {
+      setAllTermsData(null);
+      return;
+    }
+    let alive = true;
+    setLoadingAllTerms(true);
+    axios
+      .get(`${API_BASE_URL}/mark-list/full-ranking/${encodeURIComponent(selectedClass)}`)
+      .then((r) => { if (alive) setAllTermsData(r.data || null); })
+      .catch((err) => {
+        console.error('Error fetching all-term rankings:', err);
+        if (alive) setAllTermsData(null);
+      })
+      .finally(() => { if (alive) setLoadingAllTerms(false); });
+    return () => { alive = false; };
+  }, [selectedClass, selectedTerm, passMarkVersion]);
+
+  const allTermsSummary = useMemo(() => {
+    if (!allTermsData?.terms?.length) return null;
+    const terms = allTermsData.terms || [];
+    const byStudent = new Map();
+
+    for (const term of terms) {
+      for (const st of term.rankings || []) {
+        const key = String(st.studentName || '').trim().toLowerCase();
+        if (!key) continue;
+        if (!byStudent.has(key)) {
+          byStudent.set(key, { studentName: st.studentName, perTerm: {} });
+        }
+        byStudent.get(key).perTerm[term.termNumber] = {
+          total: Number(st.totalMarks) || 0,
+          average: Number(st.average) || 0,
+          rank: st.rank,
+          subjectCount: Number(st.subjectCount) || 0,
+          status: st.overallStatus || 'Fail',
+        };
+      }
+    }
+
+    const rows = [...byStudent.values()].map((row) => {
+      let grandTotal = 0;
+      let grandCount = 0;
+      let hasData = false;
+      let allPass = true;
+      for (const term of terms) {
+        const t = row.perTerm[term.termNumber];
+        if (!t) continue;
+        hasData = true;
+        grandTotal += t.total;
+        grandCount += t.subjectCount;
+        if (t.status !== 'Pass') allPass = false;
+      }
+      const average = grandCount > 0 ? grandTotal / grandCount : 0;
+      return {
+        ...row,
+        grandTotal,
+        average,
+        status: hasData ? (allPass ? 'Pass' : 'Fail') : 'Fail',
+      };
+    });
+
+    rows.sort((a, b) => (b.average - a.average) || (b.grandTotal - a.grandTotal));
+    rows.forEach((row, index) => { row.finalRank = index + 1; });
+    return { terms, rows };
+  }, [allTermsData]);
+
   const effectiveBands = useMemo(() => (
     kgOnly && Array.isArray(gradeBands) && gradeBands.length ? gradeBands : DEFAULT_GRADE_BANDS
   ), [kgOnly, gradeBands]);
@@ -274,6 +348,7 @@ const MarkListView = ({
         className: selectedClass,
         termNumber: Number(selectedTerm),
         passMark: value,
+        ...(viewMode === 'subject' && selectedSubject ? { subjectName: selectedSubject } : {}),
       });
       const saved = Number(res.data?.passMark);
       const finalValue = Number.isFinite(saved) ? saved : value;
@@ -335,15 +410,39 @@ const MarkListView = ({
   );
 
   const termOptions = useMemo(
-    () =>
-      Array.from({ length: termCount }, (_, i) => ({
+    () => [
+      ...Array.from({ length: termCount }, (_, i) => ({
         value: String(i + 1),
         label: t('academic.markLists.term', 'Term {{n}}', { n: i + 1 })
       })),
+      { value: 'all', label: 'All Terms' },
+    ],
     [termCount, t]
   );
 
   const exportToExcel = () => {
+    if (selectedTerm === 'all') {
+      const terms = allTermsSummary?.terms || [];
+      const rows = allTermRows.map((row) => {
+        const out = { 'Final Rank': row.finalRank, 'Student Name': row.studentName };
+        terms.forEach((term) => {
+          const t = row.perTerm[term.termNumber];
+          out[`T${term.termNumber} Total`] = t ? Number(t.total).toFixed(0) : '';
+          out[`T${term.termNumber} Average`] = t ? Number(t.average).toFixed(1) : '';
+          out[`T${term.termNumber} Rank`] = t?.rank ?? '';
+        });
+        out['Grand Total'] = Number(row.grandTotal).toFixed(0);
+        out['Grand Average'] = Number(row.average).toFixed(1);
+        out['Status'] = row.status;
+        return out;
+      });
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'All Terms');
+      XLSX.writeFile(workbook, `${selectedClass}_All_Terms_Rankings.xlsx`);
+      return;
+    }
+
     if (viewMode === 'subject') {
       const worksheet = XLSX.utils.json_to_sheet(
         sortedStudents.map((student, index) => {
@@ -400,22 +499,32 @@ const MarkListView = ({
 
   const printMarkList = () => window.print();
 
-  const studentCount =
-    viewMode === 'subject' ? totalStudents : rankingData?.rankings?.length || 0;
-  const subjectCount = viewMode === 'subject' ? subjects.length : allSubjects.length;
-  const avgDisplay =
-    viewMode === 'subject'
+  const isAllTerms = selectedTerm === 'all';
+  const allTermRows = allTermsSummary?.rows || [];
+  const studentCount = isAllTerms
+    ? allTermRows.length
+    : viewMode === 'subject' ? totalStudents : rankingData?.rankings?.length || 0;
+  const subjectCount = isAllTerms
+    ? (allTermsData?.allSubjects?.length || 0)
+    : viewMode === 'subject' ? subjects.length : allSubjects.length;
+  const avgDisplay = isAllTerms
+    ? (allTermRows.length
+        ? (allTermRows.reduce((s, r) => s + (Number(r.average) || 0), 0) / allTermRows.length).toFixed(1)
+        : '0.0')
+    : viewMode === 'subject'
       ? averageMark
       : rankingData?.summary?.averageClassScore?.toFixed(1) || 0;
-  const passedCount =
-    viewMode === 'subject'
+  const passedCount = isAllTerms
+    ? allTermRows.filter((r) => r.status === 'Pass').length
+    : viewMode === 'subject'
       ? passCount
       : rankingData?.rankings?.filter((r) => (
           kgOnly ? overallStatusFor(r) === 'Pass' : r.overallStatus === 'Pass'
         )).length || 0;
-  const exportDisabled =
-    (viewMode === 'subject' && sortedStudents.length === 0) ||
-    (viewMode === 'ranking' && !rankingData?.rankings?.length);
+  const exportDisabled = isAllTerms
+    ? allTermRows.length === 0
+    : (viewMode === 'subject' && sortedStudents.length === 0) ||
+      (viewMode === 'ranking' && !rankingData?.rankings?.length);
 
   if (loading) {
     return (
@@ -438,22 +547,24 @@ const MarkListView = ({
         <BarChart3 size={28} className={styles.headerIcon} aria-hidden />
       </div>
 
-      <div className={styles.viewToggle}>
-        <Button
-          variant={viewMode === 'ranking' ? 'primary' : 'ghost'}
-          icon={<Trophy size={16} />}
-          onClick={() => setViewMode('ranking')}
-        >
-          {t('academic.markLists.allSubjects', 'All Subjects & Ranking')}
-        </Button>
-        <Button
-          variant={viewMode === 'subject' ? 'primary' : 'ghost'}
-          icon={<BookOpen size={16} />}
-          onClick={() => setViewMode('subject')}
-        >
-          {t('academic.markLists.singleSubject', 'Single Subject')}
-        </Button>
-      </div>
+      {!isAllTerms && (
+        <div className={styles.viewToggle}>
+          <Button
+            variant={viewMode === 'ranking' ? 'primary' : 'ghost'}
+            icon={<Trophy size={16} />}
+            onClick={() => setViewMode('ranking')}
+          >
+            {t('academic.markLists.allSubjects', 'All Subjects & Ranking')}
+          </Button>
+          <Button
+            variant={viewMode === 'subject' ? 'primary' : 'ghost'}
+            icon={<BookOpen size={16} />}
+            onClick={() => setViewMode('subject')}
+          >
+            {t('academic.markLists.singleSubject', 'Single Subject')}
+          </Button>
+        </div>
+      )}
 
       <div className={styles.statsGrid}>
         <StatCard
@@ -493,7 +604,7 @@ const MarkListView = ({
             onChange={setSelectedClass}
             options={classOptions}
           />
-          {viewMode === 'subject' && (
+          {!isAllTerms && viewMode === 'subject' && (
             <Select
               label={t('academic.subjects', 'Subject')}
               value={selectedSubject}
@@ -524,16 +635,18 @@ const MarkListView = ({
       <div ref={markListRef} className={styles.tableContainer}>
         <div className={styles.tableHeader}>
           <h2>
-            {viewMode === 'subject'
-              ? `${selectedClass} - ${selectedSubject} - Term ${selectedTerm}`
-              : `${selectedClass} - All Subjects - Term ${selectedTerm}`}
+            {isAllTerms
+              ? `${selectedClass} - All Terms${allTermsSummary?.terms?.length ? ` (1-${allTermsSummary.terms.length})` : ''}`
+              : viewMode === 'subject'
+                ? `${selectedClass} - ${selectedSubject} - Term ${selectedTerm}`
+                : `${selectedClass} - All Subjects - Term ${selectedTerm}`}
           </h2>
-          {viewMode === 'ranking' && allSubjects.length > 0 && (
+          {(viewMode === 'ranking' || isAllTerms) && allSubjects.length > 0 && (
             <span className={styles.subjectCount}>{allSubjects.length} Subjects</span>
           )}
-          {selectedClass && !kgOnly && !/^KG/i.test(String(selectedClass)) ? (
+          {selectedClass && !isAllTerms && !kgOnly && !/^KG/i.test(String(selectedClass)) ? (
             <span className={styles.passThreshold}>
-              Pass Mark:{' '}
+              {viewMode === 'subject' ? 'Pass Mark (this subject):' : 'Pass Mark (all subjects):'}{' '}
               <input
                 type="number"
                 min="0"
@@ -573,10 +686,10 @@ const MarkListView = ({
                 {passMarkSaving ? 'Saving…' : 'Save'}
               </button>
             </span>
-          ) : selectedClass ? (
+          ) : selectedClass && !isAllTerms ? (
             <span className={styles.passThreshold}>Pass Mark: {effectivePassMark}%</span>
           ) : null}
-          {kgOnly && positionMode !== 'rank' && effectiveBands.length > 0 && (
+          {!isAllTerms && kgOnly && positionMode !== 'rank' && effectiveBands.length > 0 && (
             <span className={styles.passThreshold}>
               {effectiveBands
                 .slice()
@@ -587,7 +700,86 @@ const MarkListView = ({
           )}
         </div>
 
-        {loadingMarks ? (
+        {isAllTerms ? (
+          loadingAllTerms ? (
+            <div className={styles.loadingMarks}>
+              <Loader2 className={styles.spinner} size={24} />
+              <p>Loading all terms...</p>
+            </div>
+          ) : allTermRows.length === 0 ? (
+            <div className={styles.noData}>
+              <Trophy className={styles.noDataIcon} size={40} />
+              <h3>No marks found for any term</h3>
+              <p>Enter marks for this class first.</p>
+            </div>
+          ) : (
+            <div className={styles.tableWrapper}>
+              <table className={styles.markTable}>
+                <thead>
+                  <tr>
+                    <th className={styles.stickyCol}>Final Rank</th>
+                    <th className={styles.stickyCol2}>Student</th>
+                    {(allTermsSummary?.terms || []).map(term => (
+                      <React.Fragment key={term.termNumber}>
+                        <th className={styles.subjectHeader}>T{term.termNumber} Total</th>
+                        <th>T{term.termNumber} Avg</th>
+                        <th>T{term.termNumber} Rank</th>
+                      </React.Fragment>
+                    ))}
+                    <th className={styles.totalCol}>Grand Total</th>
+                    <th className={styles.avgCol}>Grand Average</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allTermRows
+                    .filter((row) => {
+                      if (!searchQuery) return true;
+                      return row.studentName?.toLowerCase().includes(searchQuery.toLowerCase());
+                    })
+                    .map((row) => (
+                      <tr
+                        key={row.studentName}
+                        className={row.status === 'Pass' ? styles.passed : styles.failed}
+                      >
+                        <td className={`${styles.rank} ${styles.stickyCol}`}>
+                          {row.finalRank <= 3 ? (
+                            <span className={`${styles.medal} ${styles[`medal${row.finalRank}`]}`}>
+                              {row.finalRank}
+                            </span>
+                          ) : (
+                            row.finalRank
+                          )}
+                        </td>
+                        <td className={`${styles.studentName} ${styles.stickyCol2}`}>
+                          {row.studentName}
+                        </td>
+                        {(allTermsSummary?.terms || []).map(term => {
+                          const t = row.perTerm[term.termNumber];
+                          return (
+                            <React.Fragment key={term.termNumber}>
+                              <td className={styles.subjectMark}>{t ? Number(t.total).toFixed(0) : '-'}</td>
+                              <td>{t ? Number(t.average).toFixed(1) : '-'}</td>
+                              <td>{t?.rank ?? '-'}</td>
+                            </React.Fragment>
+                          );
+                        })}
+                        <td className={styles.totalMark}>{Number(row.grandTotal).toFixed(0)}</td>
+                        <td className={styles.avgMark}>
+                          <span className={styles.avgBadge}>{Number(row.average).toFixed(1)}%</span>
+                        </td>
+                        <td>
+                          <span className={`${styles.status} ${styles[row.status?.toLowerCase() || 'fail']}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : loadingMarks ? (
           <div className={styles.loadingMarks}>
             <Loader2 className={styles.spinner} size={24} />
             <p>{t('academic.markLists.loadingMarks', 'Loading marks...')}</p>

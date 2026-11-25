@@ -928,12 +928,27 @@ router.post('/create-mark-forms', async (req, res) => {
 // Route to get/set the pass mark for a normal (non-KG) class + term.
 // Applies to every subject of that class/term and recalculates Pass/Fail.
 router.get('/pass-mark', async (req, res) => {
-  const { className, termNumber } = req.query;
+  const { className, termNumber, subjectName } = req.query;
   if (!className || !termNumber) {
     return res.status(400).json({ error: 'className and termNumber are required' });
   }
   try {
     const db = req.branchPool || pool;
+    if (subjectName) {
+      const schemaName = await resolveSubjectSchema(db, subjectName);
+      try {
+        const r = await db.query(
+          `SELECT pass_threshold FROM "${schemaName}".form_config
+            WHERE LOWER(class_name) = LOWER($1) AND term_number = $2 LIMIT 1`,
+          [className, Number(termNumber)]
+        );
+        if (r.rows.length > 0) {
+          return res.json({ passMark: Number(r.rows[0].pass_threshold), subjectName });
+        }
+      } catch { /* schema without form_config */ }
+      return res.json({ passMark: 50, subjectName });
+    }
+
     const schemas = await db.query(
       `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'subject\\_%\\_schema'`
     );
@@ -958,7 +973,7 @@ router.get('/pass-mark', async (req, res) => {
 });
 
 router.put('/pass-mark', async (req, res) => {
-  const { className, termNumber } = req.body || {};
+  const { className, termNumber, subjectName } = req.body || {};
   const passMark = Number(req.body?.passMark);
   if (!className || !termNumber) {
     return res.status(400).json({ error: 'className and termNumber are required' });
@@ -972,16 +987,22 @@ router.put('/pass-mark', async (req, res) => {
 
   try {
     const db = req.branchPool || pool;
-    const schemas = await db.query(
-      `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'subject\\_%\\_schema'`
-    );
     const tableName = `${String(className).toLowerCase()}_term_${Number(termNumber)}`;
     const rounded = Math.round(passMark * 100) / 100;
     let updatedForms = 0;
     let updatedTables = 0;
     let updatedRows = 0;
 
-    for (const s of schemas.rows) {
+    // Per-subject override: only this subject's form/table is changed. The
+    // subject's own Pass/Fail status is used when the overall rank is built,
+    // so a student can fail the year even if their average is above 50.
+    const schemas = subjectName
+      ? [{ schema_name: await resolveSubjectSchema(db, subjectName) }]
+      : (await db.query(
+          `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'subject\\_%\\_schema'`
+        )).rows;
+
+    for (const s of schemas) {
       try {
         const f = await db.query(
           `UPDATE "${s.schema_name}".form_config
@@ -1009,7 +1030,14 @@ router.put('/pass-mark', async (req, res) => {
       } catch { /* skip tables without pass_status */ }
     }
 
-    res.json({ success: true, passMark: rounded, updatedForms, updatedTables, updatedRows });
+    res.json({
+      success: true,
+      passMark: rounded,
+      subjectName: subjectName || null,
+      updatedForms,
+      updatedTables,
+      updatedRows
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to save pass mark', details: error.message });
   }
