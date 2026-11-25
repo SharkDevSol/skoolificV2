@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import styles from './StudentAttendanceSystem.module.css';
 import { classIdLabel } from '../../utils/classId';
+import { fetchKGConfig } from '../../utils/kgApi';
 
 import Button from '../../COMPONENTS/Button/Button';
 import Select from '../../COMPONENTS/Select/Select';
@@ -56,6 +57,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null, kgOnly = false } = {
   const [error, setError] = useState('');
   const [currentEthiopianDate, setCurrentEthiopianDate] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [kgTimes, setKgTimes] = useState(null);
   const [schoolWeeks, setSchoolWeeks] = useState([]);
   const [editModal, setEditModal] = useState({
     show: false,
@@ -254,6 +256,21 @@ const StudentAttendanceSystem = ({ preSelectedClass = null, kgOnly = false } = {
       setSettings({
         school_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
       });
+    }
+
+    // KG uses its own attendance times from KG Settings
+    if (kgOnly) {
+      try {
+        const cfg = await fetchKGConfig();
+        setKgTimes({
+          start: cfg.check_in_start_time,
+          end: cfg.check_in_end_time,
+          late: cfg.late_threshold_time,
+          absent: cfg.absent_marking_time,
+        });
+      } catch {
+        setKgTimes(null);
+      }
     }
   };
 
@@ -518,7 +535,7 @@ const StudentAttendanceSystem = ({ preSelectedClass = null, kgOnly = false } = {
 
     setEditForm({
       status: currentRecord?.status || 'PRESENT',
-      checkInTime: currentRecord?.check_in_time?.substring(0, 5) || '08:00',
+      checkInTime: currentRecord?.check_in_time?.substring(0, 5) || kgTimes?.start || '08:00',
       notes: currentRecord?.notes || ''
     });
   };
@@ -1087,6 +1104,15 @@ const StudentAttendanceSystem = ({ preSelectedClass = null, kgOnly = false } = {
           <strong>{t('students.attendance.schoolDays', 'School Days')}:</strong> {settings.school_days.join(', ')}
           <span className={styles.hint}>
             ({t('students.attendance.schoolDaysHint', 'Weeks start from Monday and show only these days')})
+          </span>
+        </div>
+      )}
+
+      {kgOnly && kgTimes && (
+        <div className={styles.schoolDaysInfo}>
+          <strong>KG Attendance Time:</strong> {kgTimes.start} – {kgTimes.end}
+          <span className={styles.hint}>
+            (late after {kgTimes.late} · absent after {kgTimes.absent} · change in KG Settings)
           </span>
         </div>
       )}

@@ -12,6 +12,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { useApp } from '../../../context/AppContext';
 import { getFileUrl } from '../../List/utils/fileUtils';
+import { DEFAULT_GRADE_BANDS, gradeForMark, rankDisplayLabel } from '../../../utils/kgApi';
 import ReportCardFront from './ReportCardFront';
 
 const ReportCard = () => {
@@ -180,6 +181,11 @@ const ReportCard = () => {
     const termsData = fullData.terms || [];
     const termCount = fullData.termCount || termsData.length || 2;
     const allSubjects = fullData.allSubjects || [];
+    const isKGReportCard = !!fullData.isKG;
+    const bands = Array.isArray(fullData.gradeBands) && fullData.gradeBands.length
+      ? fullData.gradeBands
+      : DEFAULT_GRADE_BANDS;
+    const displayMode = isKGReportCard ? (fullData.rankDisplay || 'grade') : 'rank';
 
     // Quick lookup map for student list info (gender, age, photo)
     const studentMap = new Map();
@@ -254,6 +260,35 @@ const ReportCard = () => {
         combinedCount += c;
       });
 
+      const combinedAverage = combinedCount > 0 ? (combinedTotal / combinedCount).toFixed(1) : '';
+      const combinedGrade = isKGReportCard && combinedAverage !== ''
+        ? gradeForMark(combinedAverage, bands)
+        : '-';
+
+      // KG report card: the Rank row can show the letter grade, the class
+      // position, or both ("1 (A)"). Normal classes always keep the rank.
+      const termGrades = {};
+      const rankValues = {};
+      termsData.forEach(term => {
+        const tn = term.termNumber;
+        const grade = isKGReportCard && termAverages[tn] !== ''
+          ? gradeForMark(termAverages[tn], bands)
+          : '-';
+        termGrades[tn] = grade;
+        const rank = studentRanks[tn];
+        if (displayMode === 'grade') rankValues[tn] = grade;
+        else if (displayMode === 'both') rankValues[tn] = `${rank ?? '-'} (${grade || '-'})`;
+        else rankValues[tn] = rank ?? '-';
+      });
+
+      const firstTerm = termsData[0]?.termNumber;
+      const firstRank = firstTerm !== undefined ? studentRanks[firstTerm] : undefined;
+      const rankCombined = displayMode === 'grade'
+        ? combinedGrade
+        : displayMode === 'both'
+          ? `${firstRank ?? '-'} (${combinedGrade || '-'})`
+          : (firstRank ?? '-');
+
       return {
         studentName,
         className: selectedClass,
@@ -261,11 +296,17 @@ const ReportCard = () => {
         terms: termsData.map(t => t.termNumber),
         termData,
         studentRanks,
+        termGrades,
+        rankLabel: isKGReportCard ? rankDisplayLabel(displayMode) : 'Rank',
+        rankValues,
+        rankCombined,
+        isKG: isKGReportCard,
+        gradeBands: isKGReportCard ? bands : null,
         subjects: allSubjects,
         subjectsData: combinedSubjects,
         totals: termTotals,
         averages: termAverages,
-        combinedAverage: combinedCount > 0 ? (combinedTotal / combinedCount).toFixed(1) : '',
+        combinedAverage,
         gender: studentGender,
         age: studentAge,
         photo: studentPhoto,

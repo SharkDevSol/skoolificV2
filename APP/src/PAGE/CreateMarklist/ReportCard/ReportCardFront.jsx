@@ -150,11 +150,15 @@ const ReportCardFront = ({ data, schoolInfo }) => {
                     <td className={styles.summaryCell}>{data.combinedAverage || ''}</td>
                   </tr>
                   <tr className={styles.rankRow}>
-                    <td className={styles.summaryLabel}>Rank</td>
+                    <td className={styles.summaryLabel}>{data.rankLabel || 'Rank'}</td>
                     {terms.map(tn => (
-                      <td key={tn} className={styles.summaryCell}>{data.studentRanks?.[tn] || '-'}</td>
+                      <td key={tn} className={styles.summaryCell}>
+                        {data.rankValues?.[tn] ?? data.studentRanks?.[tn] ?? '-'}
+                      </td>
                     ))}
-                    <td className={styles.summaryCell}>{data.studentRanks?.[terms[0]] || '-'}</td>
+                    <td className={styles.summaryCell}>
+                      {data.rankCombined ?? data.rankValues?.[terms[0]] ?? data.studentRanks?.[terms[0]] ?? '-'}
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -162,13 +166,25 @@ const ReportCardFront = ({ data, schoolInfo }) => {
             <div className={styles.gradingSection}>
               <div className={styles.gradingRow}>
                 <span className={styles.gradingTitle}>Grading Scale:</span>
-                <span>A+ (90-100)</span>
-                <span>A (80-89)</span>
-                <span>B+ (70-79)</span>
-                <span>B (60-69)</span>
-                <span>C (50-59)</span>
-                <span>D (40-49)</span>
-                <span>F (&lt; 40)</span>
+                {Array.isArray(data.gradeBands) && data.gradeBands.length > 0 ? (
+                  [...data.gradeBands]
+                    .sort((a, b) => Number(b.min) - Number(a.min))
+                    .map((band, index) => (
+                      <span key={`${band.grade}-${index}`}>
+                        {band.grade} ({Number(band.min) === 0 ? `below ${Number(band.max) + 1}` : `${band.min}-${band.max}`})
+                      </span>
+                    ))
+                ) : (
+                  <>
+                    <span>A+ (90-100)</span>
+                    <span>A (80-89)</span>
+                    <span>B+ (70-79)</span>
+                    <span>B (60-69)</span>
+                    <span>C (50-59)</span>
+                    <span>D (40-49)</span>
+                    <span>F (&lt; 40)</span>
+                  </>
+                )}
               </div>
               <div className={styles.signatureRow}>
                 <div className={styles.signatureBlock}>

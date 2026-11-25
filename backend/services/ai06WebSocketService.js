@@ -724,12 +724,23 @@ class AI06WebSocketService {
         );
         
         if (settingsResult.rows.length > 0) {
-          const lateThreshold = shiftNumber === 2 
+          let lateThreshold = shiftNumber === 2 
             ? settingsResult.rows[0].shift2_late_threshold 
             : settingsResult.rows[0].shift1_late_threshold;
+
+          // KG classes can have their own attendance time in KG Settings
+          if (/^KG/i.test(String(studentInfo.class_name || ''))) {
+            try {
+              const kgSettings = await pool.query('SELECT late_threshold_time FROM kg_settings WHERE id = 1');
+              if (kgSettings.rows[0]?.late_threshold_time) {
+                lateThreshold = kgSettings.rows[0].late_threshold_time;
+              }
+            } catch (_) { /* no KG settings in this database */ }
+          }
+
           const checkInTimeOnly = timeOnly.substring(0, 5); // HH:MM
           
-          if (checkInTimeOnly > lateThreshold) {
+          if (lateThreshold && checkInTimeOnly > String(lateThreshold).substring(0, 5)) {
             status = 'LATE';
             console.log(`⏰ Student is LATE (checked in at ${checkInTimeOnly}, Shift ${shiftNumber} threshold: ${lateThreshold})`);
           } else {

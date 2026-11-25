@@ -1825,12 +1825,30 @@ router.get('/full-ranking/:className', async (req, res) => {
       return res.status(404).json({ error: `Class ${className} not found in classes_schema` });
     }
     const actualClassName = classResult.rows[0].table_name;
-    
-    // Fetch term count from school_config
+    const isKGClass = /^KG/i.test(String(actualClassName));
+
+    // Fetch term count from school_config (KG classes use their own KG settings)
     const configResult = await db.query(
       'SELECT term_count FROM subjects_of_school_schema.school_config WHERE id = 1'
     ).catch(() => ({ rows: [{ term_count: 2 }] }));
-    const termCount = configResult.rows.length > 0 ? configResult.rows[0].term_count : 2;
+    let termCount = configResult.rows.length > 0 ? configResult.rows[0].term_count : 2;
+
+    // KG grading configuration (configurable grade bands + what to show in
+    // the Rank row of the report card: grade letter, rank, or both).
+    let gradeBands = null;
+    let rankDisplay = null;
+    if (isKGClass) {
+      try {
+        const kg = await db.query('SELECT term_count, grade_bands, rank_display FROM kg_settings WHERE id = 1');
+        if (kg.rows.length > 0) {
+          termCount = parseInt(kg.rows[0].term_count, 10) || termCount;
+          if (Array.isArray(kg.rows[0].grade_bands) && kg.rows[0].grade_bands.length) {
+            gradeBands = kg.rows[0].grade_bands;
+          }
+          rankDisplay = kg.rows[0].rank_display || null;
+        }
+      } catch (_) { /* older DB without kg_settings */ }
+    }
     
     // Get subjects for this class, sorted alphabetically
     const subjectsResult = await db.query(
@@ -1868,7 +1886,7 @@ router.get('/full-ranking/:className', async (req, res) => {
         try {
           const [marksResult, configResult] = await Promise.all([
             db.query(`SELECT student_name, total, pass_status FROM ${schemaName}.${tableName}`),
-            db.query(`SELECT * FROM ${schemaName}.form_config WHERE class_name = $1 AND term_number = $2`, 
+            db.query(`SELECT * FROM ${schemaName}.form_config WHERE LOWER(class_name) = LOWER($1) AND term_number = $2`, 
                       [className, termNum])
           ]);
           
@@ -1954,7 +1972,10 @@ router.get('/full-ranking/:className', async (req, res) => {
       className,
       termCount,
       terms,
-      allSubjects: subjects
+      allSubjects: subjects,
+      isKG: isKGClass,
+      gradeBands,
+      rankDisplay
     });
   } catch (error) {
     console.error('Error calculating full ranking:', error);

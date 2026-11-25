@@ -26,10 +26,16 @@ import Input from '../../COMPONENTS/Input/Input';
 import Select from '../../COMPONENTS/Select/Select';
 import Card from '../../COMPONENTS/Card/Card';
 import StatCard from '../../COMPONENTS/StatCard/StatCard';
+import { DEFAULT_GRADE_BANDS, gradeForMark, rankDisplayLabel } from '../../utils/kgApi';
 
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.origin ? window.location.origin + '/api' : (import.meta.env.VITE_API_URL || '/api'));
 
-const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
+const MarkListView = ({
+  kgOnly = false,
+  termCountOverride = null,
+  gradeBands = null,
+  rankDisplayOverride = null,
+} = {}) => {
   const { t } = useTranslation();
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -184,7 +190,15 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
     fetchRanking();
   }, [selectedClass, selectedTerm, viewMode, subjects]);
 
+  const effectiveBands = useMemo(() => (
+    kgOnly && Array.isArray(gradeBands) && gradeBands.length ? gradeBands : DEFAULT_GRADE_BANDS
+  ), [kgOnly, gradeBands]);
+
+  const positionMode = kgOnly ? (rankDisplayOverride || 'grade') : 'rank';
+  const showGradeColumn = positionMode === 'rank';
+
   const calculateGrade = (marks) => {
+    if (kgOnly) return gradeForMark(marks, effectiveBands);
     if (marks >= 90) return 'A+';
     if (marks >= 80) return 'A';
     if (marks >= 70) return 'B+';
@@ -192,6 +206,12 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
     if (marks >= 50) return 'C';
     if (marks >= 40) return 'D';
     return 'F';
+  };
+
+  const positionText = (rank, grade) => {
+    if (positionMode === 'grade') return grade || '-';
+    if (positionMode === 'both') return `${rank} (${grade || '-'})`;
+    return rank;
   };
 
   const getGradeColor = (grade) => {
@@ -437,6 +457,15 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
           {viewMode === 'subject' && markConfig && (
             <span className={styles.passThreshold}>Pass Mark: {markConfig.pass_threshold || 50}%</span>
           )}
+          {kgOnly && positionMode !== 'rank' && effectiveBands.length > 0 && (
+            <span className={styles.passThreshold}>
+              {effectiveBands
+                .slice()
+                .sort((a, b) => Number(b.min) - Number(a.min))
+                .map(b => `${b.grade} (${b.min}-${b.max})`)
+                .join('  ·  ')}
+            </span>
+          )}
         </div>
 
         {loadingMarks ? (
@@ -456,7 +485,9 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
               <table className={styles.markTable}>
                 <thead>
                   <tr>
-                    <th className={styles.stickyCol}>{t('academic.markLists.rank', 'Rank')}</th>
+                    <th className={styles.stickyCol}>
+                      {kgOnly ? rankDisplayLabel(positionMode) : t('academic.markLists.rank', 'Rank')}
+                    </th>
                     <th className={styles.stickyCol2}>{t('academic.markLists.student', 'Student')}</th>
                     {allSubjects.map((subject) => (
                       <th key={subject} className={styles.subjectHeader}>
@@ -465,7 +496,7 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
                     ))}
                     <th className={styles.totalCol}>{t('academic.markLists.total', 'Total')}</th>
                     <th className={styles.avgCol}>{t('academic.markLists.average', 'Average')}</th>
-                    <th>{t('academic.markLists.grade', 'Grade')}</th>
+                    {showGradeColumn && <th>{t('academic.markLists.grade', 'Grade')}</th>}
                     <th>{t('academic.markLists.status', 'Status')}</th>
                   </tr>
                 </thead>
@@ -483,12 +514,16 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
                             className={student.overallStatus === 'Pass' ? styles.passed : styles.failed}
                           >
                             <td className={`${styles.rank} ${styles.stickyCol}`}>
-                              {student.rank <= 3 ? (
-                                <span className={`${styles.medal} ${styles[`medal${student.rank}`]}`}>
-                                  {student.rank}
-                                </span>
+                              {positionMode === 'rank' ? (
+                                student.rank <= 3 ? (
+                                  <span className={`${styles.medal} ${styles[`medal${student.rank}`]}`}>
+                                    {student.rank}
+                                  </span>
+                                ) : (
+                                  student.rank
+                                )
                               ) : (
-                                student.rank
+                                positionText(student.rank, grade)
                               )}
                             </td>
                             <td className={`${styles.studentName} ${styles.stickyCol2}`}>
@@ -526,17 +561,19 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
                                 {student.average?.toFixed(1) || 0}%
                               </span>
                             </td>
-                            <td>
-                              <span
-                                className={styles.grade}
-                                style={{
-                                  background: `${getGradeColor(grade)}20`,
-                                  color: getGradeColor(grade),
-                                }}
-                              >
-                                {grade}
-                              </span>
-                            </td>
+                            {showGradeColumn && (
+                              <td>
+                                <span
+                                  className={styles.grade}
+                                  style={{
+                                    background: `${getGradeColor(grade)}20`,
+                                    color: getGradeColor(grade),
+                                  }}
+                                >
+                                  {grade}
+                                </span>
+                              </td>
+                            )}
                             <td>
                               <span
                                 className={`${styles.status} ${
@@ -564,7 +601,7 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
           <table className={styles.markTable}>
             <thead>
               <tr>
-                <th>{t('academic.markLists.rank', 'Rank')}</th>
+                <th>{kgOnly ? rankDisplayLabel(positionMode) : t('academic.markLists.rank', 'Rank')}</th>
                 <th>{t('academic.markLists.student', 'Student')}</th>
                 {markComponents.map((comp) => (
                   <th key={comp.name}>
@@ -572,7 +609,7 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
                   </th>
                 ))}
                 <th>{t('academic.markLists.total', 'Total')}</th>
-                <th>{t('academic.markLists.grade', 'Grade')}</th>
+                {showGradeColumn && <th>{t('academic.markLists.grade', 'Grade')}</th>}
                 <th>{t('academic.markLists.status', 'Status')}</th>
               </tr>
             </thead>
@@ -585,10 +622,14 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
                       className={student.pass_status === 'Pass' ? styles.passed : styles.failed}
                     >
                       <td className={styles.rank}>
-                        {index < 3 ? (
-                          <span className={`${styles.medal} ${styles[`medal${index + 1}`]}`}>{index + 1}</span>
+                        {positionMode === 'rank' ? (
+                          index < 3 ? (
+                            <span className={`${styles.medal} ${styles[`medal${index + 1}`]}`}>{index + 1}</span>
+                          ) : (
+                            index + 1
+                          )
                         ) : (
-                          index + 1
+                          positionText(index + 1, grade)
                         )}
                       </td>
                       <td className={styles.studentName}>{student.student_name}</td>
@@ -601,14 +642,16 @@ const MarkListView = ({ kgOnly = false, termCountOverride = null } = {}) => {
                         );
                       })}
                       <td className={styles.marks}>{student.total || 0}</td>
-                      <td>
-                        <span
-                          className={styles.grade}
-                          style={{ background: `${getGradeColor(grade)}20`, color: getGradeColor(grade) }}
-                        >
-                          {grade}
-                        </span>
-                      </td>
+                      {showGradeColumn && (
+                        <td>
+                          <span
+                            className={styles.grade}
+                            style={{ background: `${getGradeColor(grade)}20`, color: getGradeColor(grade) }}
+                          >
+                            {grade}
+                          </span>
+                        </td>
+                      )}
                       <td>
                         <span
                           className={`${styles.status} ${styles[student.pass_status?.toLowerCase() || 'fail']}`}

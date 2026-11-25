@@ -258,12 +258,23 @@ async function processMachineData(data, headers, query) {
         const settingsResult = await pool.query(
           'SELECT late_threshold_time FROM academic_student_attendance_settings ORDER BY id DESC LIMIT 1'
         );
-        
-        if (settingsResult.rows.length > 0) {
-          const lateThreshold = settingsResult.rows[0].late_threshold_time;
+
+        let lateThreshold = settingsResult.rows[0]?.late_threshold_time || null;
+
+        // KG classes can have their own attendance time in KG Settings
+        if (/^KG/i.test(String(matchedStudent.class_name || ''))) {
+          try {
+            const kgSettings = await pool.query('SELECT late_threshold_time FROM kg_settings WHERE id = 1');
+            if (kgSettings.rows[0]?.late_threshold_time) {
+              lateThreshold = kgSettings.rows[0].late_threshold_time;
+            }
+          } catch (_) { /* no KG settings in this database */ }
+        }
+
+        if (lateThreshold) {
           const checkInTimeOnly = checkInTime.substring(0, 5); // HH:MM
           
-          if (checkInTimeOnly > lateThreshold) {
+          if (checkInTimeOnly > String(lateThreshold).substring(0, 5)) {
             status = 'LATE';
             console.log(`⏰ Student is LATE (checked in at ${checkInTimeOnly}, threshold: ${lateThreshold})`);
           }
