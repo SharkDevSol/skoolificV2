@@ -243,6 +243,16 @@ const MarkListView = ({
   const allTermsSummary = useMemo(() => {
     if (!allTermsData?.terms?.length) return null;
     const terms = allTermsData.terms || [];
+    let subjects = Array.isArray(allTermsData.allSubjects) ? [...allTermsData.allSubjects] : [];
+    if (subjects.length === 0) {
+      const set = new Set();
+      for (const term of terms) {
+        for (const st of term.rankings || []) {
+          Object.keys(st.subjects || {}).forEach((s) => set.add(s));
+        }
+      }
+      subjects = [...set].sort((a, b) => a.localeCompare(b));
+    }
     const byStudent = new Map();
 
     for (const term of terms) {
@@ -258,6 +268,7 @@ const MarkListView = ({
           rank: st.rank,
           subjectCount: Number(st.subjectCount) || 0,
           status: st.overallStatus || 'Fail',
+          subjects: st.subjects || {},
         };
       }
     }
@@ -286,7 +297,7 @@ const MarkListView = ({
 
     rows.sort((a, b) => (b.average - a.average) || (b.grandTotal - a.grandTotal));
     rows.forEach((row, index) => { row.finalRank = index + 1; });
-    return { terms, rows };
+    return { terms, subjects, rows };
   }, [allTermsData]);
 
   const effectiveBands = useMemo(() => (
@@ -423,10 +434,17 @@ const MarkListView = ({
   const exportToExcel = () => {
     if (selectedTerm === 'all') {
       const terms = allTermsSummary?.terms || [];
+      const subjects = allTermsSummary?.subjects || [];
       const rows = allTermRows.map((row) => {
         const out = { 'Final Rank': row.finalRank, 'Student Name': row.studentName };
         terms.forEach((term) => {
           const t = row.perTerm[term.termNumber];
+          subjects.forEach((subject) => {
+            const sd = t?.subjects?.[subject];
+            out[`T${term.termNumber} ${subject}`] = sd !== undefined && sd !== null
+              ? (Number(sd.total) || 0)
+              : '';
+          });
           out[`T${term.termNumber} Total`] = t ? Number(t.total).toFixed(0) : '';
           out[`T${term.termNumber} Average`] = t ? Number(t.average).toFixed(1) : '';
           out[`T${term.termNumber} Rank`] = t?.rank ?? '';
@@ -717,18 +735,32 @@ const MarkListView = ({
               <table className={styles.markTable}>
                 <thead>
                   <tr>
-                    <th className={styles.stickyCol}>Final Rank</th>
-                    <th className={styles.stickyCol2}>Student</th>
+                    <th className={styles.stickyCol} rowSpan={2}>Final Rank</th>
+                    <th className={styles.stickyCol2} rowSpan={2}>Student</th>
                     {(allTermsSummary?.terms || []).map(term => (
-                      <React.Fragment key={term.termNumber}>
-                        <th className={styles.subjectHeader}>T{term.termNumber} Total</th>
-                        <th>T{term.termNumber} Avg</th>
-                        <th>T{term.termNumber} Rank</th>
+                      <th
+                        key={`t-${term.termNumber}`}
+                        colSpan={(allTermsSummary?.subjects?.length || 0) + 3}
+                        className={styles.subjectHeader}
+                      >
+                        Term {term.termNumber}
+                      </th>
+                    ))}
+                    <th className={styles.totalCol} rowSpan={2}>Grand Total</th>
+                    <th className={styles.avgCol} rowSpan={2}>Grand Average</th>
+                    <th rowSpan={2}>Status</th>
+                  </tr>
+                  <tr>
+                    {(allTermsSummary?.terms || []).map(term => (
+                      <React.Fragment key={`h-${term.termNumber}`}>
+                        {(allTermsSummary?.subjects || []).map(subject => (
+                          <th key={`${term.termNumber}-${subject}`}>{subject}</th>
+                        ))}
+                        <th>Total</th>
+                        <th>Average</th>
+                        <th>Rank</th>
                       </React.Fragment>
                     ))}
-                    <th className={styles.totalCol}>Grand Total</th>
-                    <th className={styles.avgCol}>Grand Average</th>
-                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -757,8 +789,24 @@ const MarkListView = ({
                         {(allTermsSummary?.terms || []).map(term => {
                           const t = row.perTerm[term.termNumber];
                           return (
-                            <React.Fragment key={term.termNumber}>
-                              <td className={styles.subjectMark}>{t ? Number(t.total).toFixed(0) : '-'}</td>
+                            <React.Fragment key={`r-${term.termNumber}`}>
+                              {(allTermsSummary?.subjects || []).map(subject => {
+                                const sd = t?.subjects?.[subject];
+                                const hasData = sd !== undefined && sd !== null;
+                                return (
+                                  <td
+                                    key={`${term.termNumber}-${subject}`}
+                                    className={`${styles.subjectMark} ${
+                                      hasData
+                                        ? sd.status === 'Pass' ? styles.subjectPass : styles.subjectFail
+                                        : styles.noMark
+                                    }`}
+                                  >
+                                    {hasData ? (Number(sd.total) || 0) : '-'}
+                                  </td>
+                                );
+                              })}
+                              <td className={styles.totalMark}>{t ? Number(t.total).toFixed(0) : '-'}</td>
                               <td>{t ? Number(t.average).toFixed(1) : '-'}</td>
                               <td>{t?.rank ?? '-'}</td>
                             </React.Fragment>
