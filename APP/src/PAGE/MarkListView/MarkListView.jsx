@@ -49,6 +49,10 @@ const MarkListView = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadingMarks, setLoadingMarks] = useState(false);
+  const [passMark, setPassMark] = useState(50);
+  const [passMarkInput, setPassMarkInput] = useState('50');
+  const [passMarkSaving, setPassMarkSaving] = useState(false);
+  const [passMarkVersion, setPassMarkVersion] = useState(0);
   const [viewMode, setViewMode] = useState('ranking'); // 'subject' or 'ranking'
   const [rankingData, setRankingData] = useState(null);
   const markListRef = useRef(null);
@@ -126,7 +130,27 @@ const MarkListView = ({
       }
     };
     fetchMarks();
-  }, [selectedClass, selectedSubject, selectedTerm, viewMode]);
+  }, [selectedClass, selectedSubject, selectedTerm, viewMode, passMarkVersion]);
+
+  // Pass mark for the selected class + term (normal classes can edit it here)
+  useEffect(() => {
+    if (!selectedClass || !selectedTerm) return;
+    let alive = true;
+    axios
+      .get(`${API_BASE_URL}/mark-list/pass-mark`, {
+        params: { className: selectedClass, termNumber: selectedTerm },
+      })
+      .then((r) => {
+        if (!alive) return;
+        const value = Number(r.data?.passMark);
+        if (Number.isFinite(value)) {
+          setPassMark(value);
+          setPassMarkInput(String(value));
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [selectedClass, selectedTerm, passMarkVersion]);
 
   // Build ranking client-side by fetching each subject's marks
   useEffect(() => {
@@ -189,7 +213,7 @@ const MarkListView = ({
       }
     };
     fetchRanking();
-  }, [selectedClass, selectedTerm, viewMode, subjects]);
+  }, [selectedClass, selectedTerm, viewMode, subjects, passMarkVersion]);
 
   const effectiveBands = useMemo(() => (
     kgOnly && Array.isArray(gradeBands) && gradeBands.length ? gradeBands : DEFAULT_GRADE_BANDS
@@ -220,6 +244,7 @@ const MarkListView = ({
       const n = Number(passMarkOverride);
       if (Number.isFinite(n)) return n;
     }
+    if (!kgOnly && Number.isFinite(Number(passMark))) return Number(passMark);
     const fromConfig = Number(markConfig?.pass_threshold);
     return Number.isFinite(fromConfig) ? fromConfig : 50;
   })();
@@ -235,6 +260,31 @@ const MarkListView = ({
     const subjects = Object.values(student.subjects || {});
     if (!subjects.length) return student.overallStatus || 'Fail';
     return subjects.every(s => Number(s.total) >= effectivePassMark) ? 'Pass' : 'Fail';
+  };
+
+  const saveClassPassMark = async () => {
+    const value = Number(passMarkInput);
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      window.alert('Pass mark must be a number between 0 and 100.');
+      return;
+    }
+    try {
+      setPassMarkSaving(true);
+      const res = await axios.put(`${API_BASE_URL}/mark-list/pass-mark`, {
+        className: selectedClass,
+        termNumber: Number(selectedTerm),
+        passMark: value,
+      });
+      const saved = Number(res.data?.passMark);
+      const finalValue = Number.isFinite(saved) ? saved : value;
+      setPassMark(finalValue);
+      setPassMarkInput(String(finalValue));
+      setPassMarkVersion(v => v + 1);
+    } catch (err) {
+      window.alert(err.response?.data?.error || 'Could not save the pass mark.');
+    } finally {
+      setPassMarkSaving(false);
+    }
   };
 
   const getGradeColor = (grade) => {
@@ -481,9 +531,51 @@ const MarkListView = ({
           {viewMode === 'ranking' && allSubjects.length > 0 && (
             <span className={styles.subjectCount}>{allSubjects.length} Subjects</span>
           )}
-          {viewMode === 'subject' && markConfig && (
+          {selectedClass && !kgOnly && !/^KG/i.test(String(selectedClass)) ? (
+            <span className={styles.passThreshold}>
+              Pass Mark:{' '}
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={passMarkInput}
+                onChange={(e) => setPassMarkInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveClassPassMark(); }}
+                aria-label="Pass mark percent"
+                style={{
+                  width: 64,
+                  padding: '2px 6px',
+                  borderRadius: 6,
+                  border: '1px solid #cbd5e1',
+                  fontSize: 13,
+                  marginLeft: 4,
+                }}
+              />
+              <span style={{ marginLeft: 2 }}>%</span>
+              <button
+                type="button"
+                onClick={saveClassPassMark}
+                disabled={passMarkSaving}
+                style={{
+                  marginLeft: 8,
+                  padding: '3px 10px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#6366f1',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: passMarkSaving ? 'default' : 'pointer',
+                  opacity: passMarkSaving ? 0.7 : 1,
+                }}
+              >
+                {passMarkSaving ? 'Saving…' : 'Save'}
+              </button>
+            </span>
+          ) : selectedClass ? (
             <span className={styles.passThreshold}>Pass Mark: {effectivePassMark}%</span>
-          )}
+          ) : null}
           {kgOnly && positionMode !== 'rank' && effectiveBands.length > 0 && (
             <span className={styles.passThreshold}>
               {effectiveBands

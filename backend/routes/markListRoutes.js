@@ -925,6 +925,96 @@ router.post('/create-mark-forms', async (req, res) => {
   }
 });
 
+// Route to get/set the pass mark for a normal (non-KG) class + term.
+// Applies to every subject of that class/term and recalculates Pass/Fail.
+router.get('/pass-mark', async (req, res) => {
+  const { className, termNumber } = req.query;
+  if (!className || !termNumber) {
+    return res.status(400).json({ error: 'className and termNumber are required' });
+  }
+  try {
+    const db = req.branchPool || pool;
+    const schemas = await db.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'subject\\_%\\_schema'`
+    );
+    let passMark = null;
+    for (const s of schemas.rows) {
+      try {
+        const r = await db.query(
+          `SELECT pass_threshold FROM "${s.schema_name}".form_config
+            WHERE LOWER(class_name) = LOWER($1) AND term_number = $2 LIMIT 1`,
+          [className, Number(termNumber)]
+        );
+        if (r.rows.length > 0) {
+          passMark = Number(r.rows[0].pass_threshold);
+          break;
+        }
+      } catch { /* schema without form_config */ }
+    }
+    res.json({ passMark: Number.isFinite(passMark) ? passMark : 50 });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load pass mark', details: error.message });
+  }
+});
+
+router.put('/pass-mark', async (req, res) => {
+  const { className, termNumber } = req.body || {};
+  const passMark = Number(req.body?.passMark);
+  if (!className || !termNumber) {
+    return res.status(400).json({ error: 'className and termNumber are required' });
+  }
+  if (!Number.isFinite(passMark) || passMark < 0 || passMark > 100) {
+    return res.status(400).json({ error: 'Pass mark must be a number between 0 and 100.' });
+  }
+  if (/^KG/i.test(String(className))) {
+    return res.status(400).json({ error: 'KG classes use the KG pass mark in KG Settings.' });
+  }
+
+  try {
+    const db = req.branchPool || pool;
+    const schemas = await db.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'subject\\_%\\_schema'`
+    );
+    const tableName = `${String(className).toLowerCase()}_term_${Number(termNumber)}`;
+    const rounded = Math.round(passMark * 100) / 100;
+    let updatedForms = 0;
+    let updatedTables = 0;
+    let updatedRows = 0;
+
+    for (const s of schemas.rows) {
+      try {
+        const f = await db.query(
+          `UPDATE "${s.schema_name}".form_config
+              SET pass_threshold = $1
+            WHERE LOWER(class_name) = LOWER($2) AND term_number = $3`,
+          [rounded, className, Number(termNumber)]
+        );
+        updatedForms += f.rowCount || 0;
+      } catch { /* schema without form_config */ }
+
+      try {
+        const tableExists = await db.query(
+          `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`,
+          [s.schema_name, tableName]
+        );
+        if (tableExists.rows.length > 0) {
+          const r = await db.query(
+            `UPDATE "${s.schema_name}"."${tableName}"
+                SET pass_status = CASE WHEN COALESCE(total, 0) >= $1 THEN 'Pass' ELSE 'Fail' END`,
+            [rounded]
+          );
+          updatedTables++;
+          updatedRows += r.rowCount || 0;
+        }
+      } catch { /* skip tables without pass_status */ }
+    }
+
+    res.json({ success: true, passMark: rounded, updatedForms, updatedTables, updatedRows });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save pass mark', details: error.message });
+  }
+});
+
 // Route to get mark list for a specific subject, class, and term
 // Helper: normalize class name for table lookup (G8A → 8a, 8A → 8a)
 const normalizeClassName = (name) => name.toLowerCase();
