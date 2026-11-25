@@ -489,7 +489,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         title: Text('${s['teacher_name'] ?? ''}'),
-                        subtitle: Text('${s['form_name'] ?? ''}\n${s['evaluation_date'] ?? ''} â€¢ ${s['created_by'] ?? ''}\n${s['note'] ?? ''}'),
+                        subtitle: Text('${s['form_name'] ?? ''}\n${s['subject_class'] ?? s['subject'] ?? ''} - ${s['evaluation_date'] ?? ''} - ${s['created_by'] ?? ''}\n${s['total_score'] != null ? '${s['total_score']}/${s['max_score'] ?? ''} - ${s['rating_label'] ?? ''}' : (s['note'] ?? '')}'),
                         isThreeLine: true,
                         trailing: const Icon(Icons.info_outline),
                         onTap: () => _showSubmission(s),
