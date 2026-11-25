@@ -39,7 +39,7 @@ class _HrLeaveScreenState extends State<HrLeaveScreen> with SingleTickerProvider
       final records = await ApiService().getLeaveRecords(_today.month, _today.year);
       final staff = <Map<String, dynamic>>[];
       final seen = <String>{};
-      for (final type in ['Teachers', 'Administrative Staff', 'Supportive Staff']) {
+      for (final type in ['Teachers', 'Administrative Staff', 'Supportive Staff', 'Finance']) {
         final classes = await ApiService().getStaffClasses(type);
         for (final cls in classes) {
           try {

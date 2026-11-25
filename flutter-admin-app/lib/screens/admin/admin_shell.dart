@@ -9,6 +9,8 @@ import 'students_tab.dart';
 import 'marks_tab.dart';
 import 'attendance_tab.dart';
 import 'more_tab.dart';
+import 'admin_settings_screen.dart';
+import 'kg_management_screen.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({super.key});
@@ -35,6 +37,8 @@ class _AdminShellState extends State<AdminShell> {
         _AdminTab(tr(context, 'marks'), const MarksTab(), Icons.assignment_outlined, Icons.assignment),
       if (can('attendance'))
         _AdminTab(tr(context, 'students_attendance'), const AttendanceTab(), Icons.fact_check_outlined, Icons.fact_check),
+      if (all || can('kg_management'))
+        _AdminTab('KG', const KGManagementScreen(), Icons.child_care_outlined, Icons.child_care),
       _AdminTab(tr(context, 'more'), const MoreTab(), Icons.grid_view_outlined, Icons.grid_view),
     ];
     final safeIndex = _index.clamp(0, tabs.length - 1);
@@ -42,7 +46,7 @@ class _AdminShellState extends State<AdminShell> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        foregroundColor: AppColors.onPrimary,
         elevation: 0,
         titleSpacing: 12,
         title: Row(
@@ -64,13 +68,13 @@ class _AdminShellState extends State<AdminShell> {
                 children: [
                   const Text(
                     AppVariant.appName,
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.white),
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.onPrimary),
                   ),
                   Text(
                     '${user?.branchCode ?? ''} • ${tabs[safeIndex].label}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.white70),
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.onPrimary.withOpacity(0.75)),
                   ),
                 ],
               ),
@@ -80,12 +84,19 @@ class _AdminShellState extends State<AdminShell> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.white.withOpacity(0.18),
-              child: Text(
-                (user?.name.isNotEmpty == true ? user!.name[0] : 'A').toUpperCase(),
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(24),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminSettingsScreen()),
+              ),
+              child: CircleAvatar(
+                radius: 18,
+                backgroundColor: AppColors.onPrimary.withOpacity(0.18),
+                child: Text(
+                  (user?.name.isNotEmpty == true ? user!.name[0] : 'A').toUpperCase(),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.onPrimary),
+                ),
               ),
             ),
           ),

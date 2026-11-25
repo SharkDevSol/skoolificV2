@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
+import '../config/app_variant.dart';
 
-/// Fresh modern design system for IQRA Parent.
-/// Clean, calm, high-contrast. IQRA Maroon primary + Orange accent.
+/// Fresh modern design system for IQRA / Bilal Admin.
+/// IQRA: maroon + orange. Bilal: gold + bronze.
 class AppColors {
-  // Primary - IQRA Maroon
-  static const Color primary = Color(0xFF7B2D26);
-  static const Color primaryDark = Color(0xFF5A1E18);
-  static const Color primaryLight = Color(0xFFF5E8E7);
-  static const Color primarySoft = Color(0xFFFCF5F5);
+  // Primary
+  static const Color primary = AppVariant.isBilal ? Color(0xFFE5C518) : Color(0xFF7B2D26);
+  static const Color primaryDark = AppVariant.isBilal ? Color(0xFF8A6A0B) : Color(0xFF5A1E18);
+  static const Color primaryLight = AppVariant.isBilal ? Color(0xFFFBF3D0) : Color(0xFFF5E8E7);
+  static const Color primarySoft = AppVariant.isBilal ? Color(0xFFFFFBEA) : Color(0xFFFCF5F5);
 
-  // Accent - IQRA Orange
-  static const Color accent = Color(0xFFE8872B);
-  static const Color accentSoft = Color(0xFFFDF0E5);
+  // Accent
+  static const Color accent = AppVariant.isBilal ? Color(0xFF8A6A0B) : Color(0xFFE8872B);
+  static const Color accentSoft = AppVariant.isBilal ? Color(0xFFF4EBD9) : Color(0xFFFDF0E5);
 
   // Background & surface
   static const Color bg = Color(0xFFF7F8FC);
@@ -22,7 +23,7 @@ class AppColors {
   static const Color text = Color(0xFF1A1C2E);
   static const Color textSecondary = Color(0xFF6B6F8D);
   static const Color textMuted = Color(0xFF9AA0BB);
-  static const Color onPrimary = Color(0xFFFFFFFF);
+  static const Color onPrimary = AppVariant.isBilal ? Color(0xFF1A1A1A) : Color(0xFFFFFFFF);
 
   // Status
   static const Color success = Color(0xFF2E7D32); // IQRA Green
@@ -38,7 +39,7 @@ class AppColors {
   static const Color border = Color(0xFFE6E8F0);
   static const Color borderStrong = Color(0xFFD3D7E8);
 
-  static const Color maroonHeader = Color(0xFF7B2D26);
+  static const Color maroonHeader = AppVariant.isBilal ? Color(0xFFE5C518) : Color(0xFF7B2D26);
 }
 
 class AppTheme {

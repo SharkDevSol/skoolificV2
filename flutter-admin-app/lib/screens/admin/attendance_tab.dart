@@ -4,7 +4,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/ethiopian_date.dart';
 
 class AttendanceTab extends StatefulWidget {
-  const AttendanceTab({super.key});
+  const AttendanceTab({super.key, this.kgOnly = false});
+  final bool kgOnly;
   @override
   State<AttendanceTab> createState() => _AttendanceTabState();
 }
@@ -57,6 +58,9 @@ class _AttendanceTabState extends State<AttendanceTab> with SingleTickerProvider
     try {
       final date = await ApiService().getCurrentEthiopianDate();
       final classes = await ApiService().getAcademicAttendanceClasses();
+      final filtered = widget.kgOnly
+          ? classes.where((c) => RegExp(r'^KG', caseSensitive: false).hasMatch('$c')).toList()
+          : classes;
       if (!mounted) return;
       final now = EthiopianDate.fromGregorian(DateTime.now());
       setState(() {
@@ -67,9 +71,9 @@ class _AttendanceTabState extends State<AttendanceTab> with SingleTickerProvider
         );
         _day = _today.day;
         _week = ((_day - 1) ~/ 7) + 1;
-        _classes = classes;
-        _className = _reportClass ?? (classes.isNotEmpty ? classes.first : null);
-        _reportClass = classes.isNotEmpty ? classes.first : null;
+        _classes = filtered;
+        _className = _reportClass ?? (filtered.isNotEmpty ? filtered.first : null);
+        _reportClass = filtered.isNotEmpty ? filtered.first : null;
       });
       await _loadClass();
     } catch (e) {

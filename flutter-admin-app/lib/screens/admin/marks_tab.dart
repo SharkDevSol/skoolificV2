@@ -4,7 +4,9 @@ import '../../core/theme/app_theme.dart';
 import 'marks_report_view.dart';
 
 class MarksTab extends StatefulWidget {
-  const MarksTab({super.key});
+  const MarksTab({super.key, this.kgOnly = false, this.initialClass});
+  final bool kgOnly;
+  final String? initialClass;
   @override
   State<MarksTab> createState() => _MarksTabState();
 }
@@ -44,19 +46,28 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
     try {
       final list = await ApiService().getSubjectsClasses();
       final config = await ApiService().getMarkConfig();
-      final tc = int.tryParse('${config['term_count'] ?? config['terms'] ?? 2}') ?? 2;
+      var tc = int.tryParse('${config['term_count'] ?? config['terms'] ?? 2}') ?? 2;
+      if (widget.kgOnly) {
+        final kg = await ApiService().getKgClasses();
+        tc = int.tryParse('${kg['term_count'] ?? 2}') ?? 2;
+      }
+      final filtered = widget.kgOnly
+          ? list.where((r) => RegExp(r'^KG', caseSensitive: false).hasMatch('${r['class_name'] ?? ''}')).toList()
+          : list;
       final classes = <String>{};
-      for (final row in list) {
+      for (final row in filtered) {
         final c = row['class_name']?.toString() ?? '';
         if (c.isNotEmpty) classes.add(c);
       }
       final sortedClasses = classes.toList()..sort();
       if (!mounted) return;
       setState(() {
-        _subjectClasses = list;
+        _subjectClasses = filtered;
         _termCount = tc.clamp(1, 6);
         _classes = sortedClasses;
-        _className = sortedClasses.isNotEmpty ? sortedClasses.first : null;
+        _className = widget.initialClass != null && sortedClasses.contains(widget.initialClass)
+            ? widget.initialClass
+            : (sortedClasses.isNotEmpty ? sortedClasses.first : null);
         if (_term > _termCount) _term = 1;
         _refreshSubjects();
       });

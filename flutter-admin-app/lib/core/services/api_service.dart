@@ -415,8 +415,34 @@ class ApiService {
     return [];
   }
 
-  Future<List<Map<String, dynamic>>> getSubjectsClasses() async {
-    final res = await http.get(_u('/api/mark-list/subjects-classes'), headers: _headers).timeout(const Duration(seconds: 20));
+  Future<Map<String, dynamic>> getKgClasses() async {
+    try {
+      final res = await http.get(_u('/api/kg/classes'), headers: _headers).timeout(const Duration(seconds: 20));
+      if (_ok(res)) {
+        final d = _safeJson(res.body);
+        if (d is Map) {
+          return {
+            'classes': (d['classes'] is List) ? (d['classes'] as List).map((e) => '$e').toList() : <String>[],
+            'term_count': int.tryParse('${d['term_count'] ?? 2}') ?? 2,
+          };
+        }
+      }
+    } catch (_) {}
+    return {'classes': <String>[], 'term_count': 2};
+  }
+
+  Future<String?> saveKgTermCount(int termCount) async {
+    try {
+      final res = await http.put(
+        _u('/api/kg/config'),
+        headers: _headers,
+        body: jsonEncode({'termCount': termCount}),
+      ).timeout(const Duration(seconds: 20));
+      return _ok(res) ? null : _err(res);
+    } catch (e) { return e.toString(); }
+  }
+
+  Future<List<Map<String, dynamic>>> getSubjectsClasses() async {    final res = await http.get(_u('/api/mark-list/subjects-classes'), headers: _headers).timeout(const Duration(seconds: 20));
     if (!_ok(res)) throw ApiException(res.statusCode, _err(res));
     final data = _safeJson(res.body);
     if (data is List) return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -991,9 +1017,10 @@ class ApiService {
     return [];
   }
 
-  Future<List<Map<String, dynamic>>> getStaffData(String staffType, String className) async {
+  Future<List<Map<String, dynamic>>> getStaffData(String staffType, String className, {bool includeInactive = false}) async {
+    final suffix = includeInactive ? '?includeInactive=true' : '';
     final res = await http.get(
-      _u('/api/staff/data/${Uri.encodeComponent(staffType)}/${Uri.encodeComponent(className)}'),
+      _u('/api/staff/data/${Uri.encodeComponent(staffType)}/${Uri.encodeComponent(className)}$suffix'),
       headers: _headers,
     ).timeout(const Duration(seconds: 30));
     if (!_ok(res)) throw ApiException(res.statusCode, _err(res));

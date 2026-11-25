@@ -43,7 +43,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
       final options = await ApiService().getEvaluationTeacherOptions();
       final staff = <Map<String, dynamic>>[];
       final seen = <String>{};
-      for (final type in ['Teachers', 'Administrative Staff', 'Supportive Staff']) {
+      for (final type in ['Teachers', 'Administrative Staff', 'Supportive Staff', 'Finance']) {
         final classes = await ApiService().getStaffClasses(type);
         for (final cls in classes) {
           try {

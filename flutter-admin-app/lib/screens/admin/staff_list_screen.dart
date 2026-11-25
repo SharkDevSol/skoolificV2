@@ -11,12 +11,13 @@ class StaffListScreen extends StatefulWidget {
 
 class _StaffListScreenState extends State<StaffListScreen> with SingleTickerProviderStateMixin {
   late final TabController _tc;
-  final _types = ['Teachers', 'Administrative Staff', 'Supportive Staff'];
+  final _types = ['Teachers', 'Administrative Staff', 'Supportive Staff', 'Finance'];
   final Map<String, List<Map<String, dynamic>>> _cache = {};
   final Map<String, String> _passwords = {};
   final Map<String, String> _usernames = {};
   final Set<String> _loaded = {};
   bool _loading = true;
+  bool _showInactive = false;
   String? _error;
   String _query = '';
 
@@ -48,7 +49,7 @@ class _StaffListScreenState extends State<StaffListScreen> with SingleTickerProv
       final seen = <String>{};
       for (final cls in classes) {
         try {
-          final rows = await ApiService().getStaffData(type, cls);
+          final rows = await ApiService().getStaffData(type, cls, includeInactive: _showInactive);
           for (final r in rows) {
             final id = _sid(r);
             final key = id.isNotEmpty ? id : '${r['full_name'] ?? r['name']}';
@@ -268,9 +269,24 @@ class _StaffListScreenState extends State<StaffListScreen> with SingleTickerProv
     return Scaffold(
       appBar: AppBar(
         title: const Text('Staff'),
-        bottom: TabBar(controller: _tc, tabs: const [Tab(text: 'Teachers'), Tab(text: 'Admin'), Tab(text: 'Support')]),
+        bottom: TabBar(
+          controller: _tc,
+          isScrollable: true,
+          tabs: _types.map((t) => Tab(text: t == 'Administrative Staff' ? 'Admin' : t == 'Supportive Staff' ? 'Support' : t)).toList(),
+        ),
       ),
       body: Column(children: [
+        SwitchListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          title: const Text('Show deactivated staff'),
+          subtitle: const Text('Inactive staff stay listed with an Activate button'),
+          value: _showInactive,
+          onChanged: (v) {
+            setState(() { _showInactive = v; _cache.clear(); _loaded.clear(); });
+            _load(_types[_tc.index]);
+          },
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: TextField(

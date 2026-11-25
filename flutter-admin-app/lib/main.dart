@@ -56,60 +56,91 @@ class InactivityGuard extends StatefulWidget {
   State<InactivityGuard> createState() => _InactivityGuardState();
 }
 
-class _InactivityGuardState extends State<InactivityGuard> {
+class _InactivityGuardState extends State<InactivityGuard> with WidgetsBindingObserver {
   static const Duration _timeout = Duration(minutes: 30);
   Timer? _timer;
+  DateTime _lastActivity = DateTime.now();
+  DateTime? _pausedAt;
+  bool _loggingOut = false;
 
   @override
   void initState() {
     super.initState();
-    _reset();
+    WidgetsBinding.instance.addObserver(this);
+    _lastActivity = DateTime.now();
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _check());
     HardwareKeyboard.instance.addHandler(_onKey);
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
   }
 
   bool _onKey(KeyEvent event) {
-    _reset();
+    _touch();
     return false;
   }
 
-  void _reset() {
-    _timer?.cancel();
-    _timer = Timer(_timeout, _logout);
+  void _touch() {
+    _lastActivity = DateTime.now();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _pausedAt = DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      final paused = _pausedAt;
+      _pausedAt = null;
+      if (paused != null && DateTime.now().difference(paused) >= _timeout) {
+        _logout();
+      } else {
+        _touch();
+      }
+    }
+  }
+
+  void _check() {
+    if (_loggingOut) return;
+    if (DateTime.now().difference(_lastActivity) >= _timeout) {
+      _logout();
+    }
   }
 
   Future<void> _logout() async {
-    if (!mounted) return;
-    final app = Provider.of<AppProvider>(context, listen: false);
-    if (app.user == null) {
-      _reset();
-      return;
+    if (_loggingOut) return;
+    _loggingOut = true;
+    try {
+      if (!mounted) return;
+      final app = Provider.of<AppProvider>(context, listen: false);
+      if (app.user == null) return;
+      await app.logout();
+      if (!mounted) return;
+      final nav = rootNavigatorKey.currentState;
+      if (nav != null) {
+        nav.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    } finally {
+      _lastActivity = DateTime.now();
+      _loggingOut = false;
     }
-    await app.logout();
-    if (!mounted) return;
-    final nav = rootNavigatorKey.currentState;
-    if (nav != null) {
-      nav.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
-    }
-    _reset();
   }
 
   @override
   Widget build(BuildContext context) {
     return Listener(
       behavior: HitTestBehavior.translucent,
-      onPointerDown: (_) => _reset(),
-      onPointerMove: (_) => _reset(),
-      onPointerSignal: (_) => _reset(),
+      onPointerDown: (_) => _touch(),
+      onPointerMove: (_) => _touch(),
+      onPointerSignal: (_) => _touch(),
       child: widget.child,
     );
   }

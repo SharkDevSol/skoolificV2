@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import '../config/app_variant.dart';
 
 class AppLocalizations {
   static const supportedLocales = [
@@ -19,7 +20,7 @@ class AppLocalizations {
 
   static const Map<String, Map<String, String>> _translations = {
     'en': {
-      'app_title': 'IQRA Staff',
+      'app_title': AppVariant.isBilal ? 'Bilal Admin' : 'IQRA Staff',
       'admin_portal': 'Admin Portal',
       'dashboard': 'Dashboard',
       'more': 'More',
@@ -52,7 +53,7 @@ class AppLocalizations {
       'evaluations': 'Reviews',
       'settings': 'Settings',
       'notifications': 'Notifications',
-      'sign_in': 'Sign In to IQRA Staff',
+      'sign_in': AppVariant.isBilal ? 'Sign In to Bilal Admin' : 'Sign In to IQRA Staff',
       'branch_code': 'Branch Code',
       'username': 'Username',
       'password': 'Password',

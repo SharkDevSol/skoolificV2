@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/config/app_variant.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../widgets/app_widgets.dart';
 import '../../widgets/page_header.dart';
@@ -154,12 +155,12 @@ class SettingsTab extends StatelessWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Column(
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('IQRA Staff Mobile', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                            SizedBox(height: 2),
-                            Text('Version 1.1.0 (Build 2)', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                            Text(AppVariant.isBilal ? 'Bilal Admin Mobile' : 'IQRA Staff Mobile', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                            const SizedBox(height: 2),
+                            const Text('Version 1.5.0 (Build 12)', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                           ],
                         ),
                         Image.asset('assets/images/logo.png', width: 32, height: 32),

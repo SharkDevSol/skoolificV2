@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/config/app_variant.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/storage_service.dart';
 import '../../widgets/app_widgets.dart';
@@ -60,9 +61,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'IQRA Staff',
-                style: TextStyle(
+              Text(
+                AppVariant.appName,
+                style: const TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w900,
                   color: AppColors.primary,
@@ -70,9 +71,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Teacher & Staff Portal',
-                style: TextStyle(
+              Text(
+                AppVariant.isBilal ? 'Bilal Academy Administration' : 'Teacher & Staff Portal',
+                style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textSecondary,

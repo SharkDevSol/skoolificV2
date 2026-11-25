@@ -12,7 +12,7 @@ class StaffAttendanceScreen extends StatefulWidget {
 }
 
 class _StaffAttendanceScreenState extends State<StaffAttendanceScreen> with SingleTickerProviderStateMixin {
-  final _types = ['Teachers', 'Administrative Staff', 'Supportive Staff'];
+  final _types = ['Teachers', 'Administrative Staff', 'Supportive Staff', 'Finance'];
   late final TabController _tc;
   List<Map<String, dynamic>> _staff = [];
   Map<String, Map<int, Map<String, dynamic>>> _records = {};

@@ -13,6 +13,7 @@ class AddAccountScreen extends StatefulWidget {
 
 class _AddAccountScreenState extends State<AddAccountScreen> {
   static const _permissions = {
+    'dashboard': 'Dashboard',
     'students': 'Students',
     'guardians': 'Guardians',
     'mark_list': 'Marks & mark list report',
@@ -20,11 +21,20 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     'faults': 'Student Faults',
     'communication': 'Message',
     'posts': 'Posts',
+    'schedule': 'Schedule',
+    'discipline': 'Discipline',
+    'evaluations': 'Evaluations',
+    'eval_book': 'Evaluation Book',
     'staff_attendance': 'Staff Attendance',
     'hr_leave': 'HR Leave',
     'class_teacher': 'Class Teacher Assignment',
+    'subject_setup': 'Subject Setup',
     'teacher_evaluation': 'Teacher Evaluation',
-    'staff': 'Staff list',
+    'staff': 'Staff list & Register Staff',
+    'unpaid_reasons': 'Unpaid Reasons',
+    'kg_management': 'KG Management',
+    'add_account': 'Add Account / Access',
+    'settings': 'Admin Settings',
   };
 
   List<Map<String, dynamic>> _staff = [];
@@ -47,7 +57,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     try {
       final staff = <Map<String, dynamic>>[];
       final seen = <String>{};
-      for (final type in ['Teachers', 'Administrative Staff', 'Supportive Staff']) {
+      for (final type in ['Teachers', 'Administrative Staff', 'Supportive Staff', 'Finance']) {
         final classes = await ApiService().getStaffClasses(type);
         for (final cls in classes) {
           try {
