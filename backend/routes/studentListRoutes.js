@@ -663,9 +663,15 @@ router.put(["/student/:className/:schoolId/:classId", "/student/:className/:scho
             let selectedMonths = [];
             let registrationFee = 0;
             try {
-              const monthsData = JSON.parse(newFS.description || '{}');
+              let desc = newFS.description || '{}';
+              desc = desc.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+              const monthsData = JSON.parse(desc);
               selectedMonths = monthsData.months || [];
               registrationFee = parseFloat(monthsData.registrationFee) || 0;
+              // Old/new students pay different one-time registration fees
+              const isOldStudent = String(finalStudentRow?.old_or_new || '').toLowerCase() === 'old';
+              const typedRegFee = parseFloat(isOldStudent ? monthsData.oldRegistrationFee : monthsData.newRegistrationFee);
+              if (!Number.isNaN(typedRegFee) && typedRegFee > 0) registrationFee = typedRegFee;
             } catch (_) {}
 
             if (selectedMonths.length === 0) {

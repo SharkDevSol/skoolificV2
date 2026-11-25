@@ -809,7 +809,33 @@ router.post('/add-student', upload.any(), async (req, res) => {
     }
     
     await client.query('COMMIT');
-    
+
+    // ---- Auto-generate monthly invoices for the new student ----
+    // Fee structures (payment settings) only generate invoices for the
+    // students that exist when they are saved. Without this step a student
+    // added afterwards has no invoices and shows 0.00 / PENDING forever in
+    // Monthly Payments until someone runs a manual backfill.
+    try {
+      const { generateInvoicesForStudent } = require('../services/studentInvoiceService');
+      const insertedRow = result.rows[0] || {};
+      const invoiceResult = await generateInvoicesForStudent(pool, {
+        className,
+        schoolId: newSchoolId,
+        classId: newClassId,
+        studentName: rawStudentName,
+        isFree: insertedRow.is_free === true,
+        studentType: insertedRow.old_or_new || null,
+        createdBy: req.user?.id,
+      });
+      if (invoiceResult.created > 0) {
+        console.log(`[AddStudent] Auto-generated ${invoiceResult.created} invoices for ${rawStudentName} (${className})`);
+      } else {
+        console.log(`[AddStudent] No invoices generated for ${rawStudentName} (${className}):`, invoiceResult.reason || 'already invoiced');
+      }
+    } catch (invoiceErr) {
+      console.error('[AddStudent] Auto invoice generation failed (non-blocking):', invoiceErr.message);
+    }
+
     // ---- Send Welcome Login Credentials SMS ----
     const targetPhone = formData.guardian_phone || formData.guardian_2nd_phone;
     if (targetPhone && guardianUsername) {
@@ -1346,6 +1372,9 @@ router.post('/bulk-import', async (req, res) => {
       errors: [],
       classSummary: {}
     };
+
+    // Newly imported students, used to generate their monthly invoices after commit
+    const importedStudents = [];
     
     // Process each class group
     for (const [targetClass, classStudents] of Object.entries(studentsByClass)) {
@@ -1628,6 +1657,15 @@ router.post('/bulk-import', async (req, res) => {
           }
           
           results.successCount++;
+
+          importedStudents.push({
+            className: targetClass,
+            schoolId: newSchoolId,
+            classId: currentClassId,
+            studentName: insertData.student_name,
+            isFree: insertData.is_free === true,
+            studentType: insertData.old_or_new || null
+          });
           
           // Track class summary
           if (!results.classSummary[targetClass]) {
@@ -1652,7 +1690,30 @@ router.post('/bulk-import', async (req, res) => {
     }
     
     await client.query('COMMIT');
-    
+
+    // Monthly invoices for every imported student (fee structure was created
+    // before these students existed, so nothing generated invoices for them).
+    if (importedStudents.length > 0) {
+      try {
+        const { generateInvoicesForStudent } = require('../services/studentInvoiceService');
+        let createdTotal = 0;
+        for (const student of importedStudents) {
+          try {
+            const result = await generateInvoicesForStudent(pool, {
+              ...student,
+              createdBy: req.user?.id,
+            });
+            createdTotal += result.created || 0;
+          } catch (invoiceErr) {
+            console.error(`[BulkImport] Invoice generation failed for ${student.studentName}:`, invoiceErr.message);
+          }
+        }
+        console.log(`[BulkImport] Auto-generated ${createdTotal} invoices for ${importedStudents.length} imported students`);
+      } catch (invoiceErr) {
+        console.error('[BulkImport] Auto invoice generation failed (non-blocking):', invoiceErr.message);
+      }
+    }
+
     res.json({
       message: `Bulk import completed`,
       successCount: results.successCount,
