@@ -297,6 +297,12 @@ const MarkListView = ({
 
     rows.sort((a, b) => (b.average - a.average) || (b.grandTotal - a.grandTotal));
     rows.forEach((row, index) => { row.finalRank = index + 1; });
+
+    // Grand Rank = position by the total marks of all terms.
+    [...rows]
+      .sort((a, b) => (b.grandTotal - a.grandTotal) || (b.average - a.average))
+      .forEach((row, index) => { row.grandRank = index + 1; });
+
     return { terms, subjects, rows };
   }, [allTermsData]);
 
@@ -451,6 +457,7 @@ const MarkListView = ({
         });
         out['Grand Total'] = Number(row.grandTotal).toFixed(0);
         out['Grand Average'] = Number(row.average).toFixed(1);
+        out['Grand Rank'] = row.grandRank;
         out['Status'] = row.status;
         return out;
       });
@@ -748,6 +755,7 @@ const MarkListView = ({
                     ))}
                     <th className={styles.totalCol} rowSpan={2}>Grand Total</th>
                     <th className={styles.avgCol} rowSpan={2}>Grand Average</th>
+                    <th rowSpan={2} title="Rank by the total marks of all terms">Grand Rank</th>
                     <th rowSpan={2}>Status</th>
                   </tr>
                   <tr>
@@ -816,6 +824,7 @@ const MarkListView = ({
                         <td className={styles.avgMark}>
                           <span className={styles.avgBadge}>{Number(row.average).toFixed(1)}%</span>
                         </td>
+                        <td title="Rank by total marks of all terms">{row.grandRank}</td>
                         <td>
                           <span className={`${styles.status} ${styles[row.status?.toLowerCase() || 'fail']}`}>
                             {row.status}
