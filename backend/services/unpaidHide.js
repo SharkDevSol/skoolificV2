@@ -11,8 +11,16 @@ const ethiopianCalendar = require('../utils/ethiopianCalendar');
 // blocked from the student account. Nothing is deleted.
 // ---------------------------------------------------------------------------
 
-function currentEthMonth() {
-  const shifted = new Date(Date.now() + 3 * 3600 * 1000);
+// Normalise a branch code. Some callers pass duplicate HTTP headers joined by
+// a comma ("IQRA2, IQRA2"); always keep the first clean code so settings and
+// hiding checks never look at a different key.
+function branchKey(branch) {
+  let value = branch;
+  if (Array.isArray(value)) value = value[0];
+  return String(value || '').split(',')[0].trim().toUpperCase();
+}
+
+function currentEthMonth() {  const shifted = new Date(Date.now() + 3 * 3600 * 1000);
   const local = new Date(Date.UTC(
     shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(), 12, 0, 0
   ));
@@ -31,7 +39,7 @@ function studentUuid(schoolId, classId) {
 }
 
 async function getSettings(db, branch) {
-  const code = String(branch || '').toUpperCase();
+  const code = branchKey(branch);
   const r = await db.query('SELECT * FROM unpaid_hide_settings WHERE branch_code = $1', [code]);
   if (r.rows.length) return r.rows[0];
   const ins = await db.query(
@@ -48,7 +56,7 @@ async function expireReasons(db, branch) {
         SET status = 'expired'
       WHERE branch_code = $1 AND status = 'active'
         AND expires_at IS NOT NULL AND expires_at <= NOW()`,
-    [String(branch || '').toUpperCase()]
+    [branchKey(branch)]
   );
 }
 
@@ -57,7 +65,7 @@ async function activeReasons(db, branch) {
   const r = await db.query(
     `SELECT school_id, student_name FROM unpaid_hide_reasons
       WHERE branch_code = $1 AND status = 'active'`,
-    [String(branch || '').toUpperCase()]
+    [branchKey(branch)]
   );
   const byName = new Set();
   const byId = new Set();
@@ -72,7 +80,7 @@ async function activeReasons(db, branch) {
 const _cache = new Map();
 
 async function computeHidden(db, branch) {
-  const code = String(branch || '').toUpperCase();
+  const code = branchKey(branch);
   const hit = _cache.get(code);
   if (hit && Date.now() - hit.at < 60 * 1000) return hit.data;
 
@@ -140,7 +148,7 @@ async function computeHidden(db, branch) {
 }
 
 function clearCache(branch) {
-  if (branch) _cache.delete(String(branch).toUpperCase());
+  if (branch) _cache.delete(branchKey(branch));
   else _cache.clear();
 }
 

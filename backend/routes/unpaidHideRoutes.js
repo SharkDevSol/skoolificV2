@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { expireReasons } = require('../services/unpaidHide');
+const { expireReasons, clearCache } = require('../services/unpaidHide');
 const pool = require('../config/db');
 
 function branchOf(req) {
-  return String(req.headers['x-branch-code'] || req.query.branchCode || req.body.branchCode || '').toUpperCase();
+  let code = req.headers['x-branch-code'] || req.query.branchCode || req.body.branchCode || '';
+  if (Array.isArray(code)) code = code[0];
+  return String(code).split(',')[0].trim().toUpperCase();
 }
 
 function actorOf(req) {
@@ -44,6 +46,7 @@ router.put('/settings', async (req, res) => {
       `INSERT INTO unpaid_hide_audit (branch_code, action, detail, actor) VALUES ($1,$2,$3,$4)`,
       [code, 'settings', `enabled=${enabled} months=${months}`, actorOf(req)]
     );
+    clearCache(code);
     res.json({ success: true, data: { enabled, monthsThreshold: months } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -93,6 +96,7 @@ router.post('/reasons', async (req, res) => {
       `INSERT INTO unpaid_hide_audit (branch_code, action, detail, actor) VALUES ($1,$2,$3,$4)`,
       [code, 'reason_add', `${added} student(s), expires=${expiresAt ? expiresAt.toISOString() : 'never'}`, actorOf(req)]
     );
+    clearCache(code);
     res.json({ success: true, added, expiresAt });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -110,6 +114,7 @@ router.delete('/reasons/:id', async (req, res) => {
       `INSERT INTO unpaid_hide_audit (branch_code, action, detail, actor) VALUES ($1,$2,$3,$4)`,
       [code, 'reason_delete', r.rows[0].student_name, actorOf(req)]
     );
+    clearCache(code);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
