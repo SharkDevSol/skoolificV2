@@ -160,7 +160,7 @@ class SettingsTab extends StatelessWidget {
                           children: [
                             Text(AppVariant.isBilal ? 'Bilal Admin Mobile' : 'IQRA Staff Mobile', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                             const SizedBox(height: 2),
-                            const Text('Version 1.5.0 (Build 12)', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                            const Text('Version 1.6.0 (Build 13)', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                           ],
                         ),
                         Image.asset('assets/images/logo.png', width: 32, height: 32),

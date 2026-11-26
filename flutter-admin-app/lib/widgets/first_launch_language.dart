@@ -21,6 +21,7 @@ class FirstLaunchLanguageDialog extends StatelessWidget {
   static const List<Map<String, String>> _langs = [
     {'code': 'en', 'label': 'English', 'native': 'English'},
     {'code': 'so', 'label': 'Somali', 'native': 'Soomaali'},
+    {'code': 'om', 'label': 'Afaan Oromoo', 'native': 'Afaan Oromoo'},
     {'code': 'am', 'label': 'Amharic', 'native': 'አማርኛ'},
     {'code': 'ar', 'label': 'Arabic', 'native': 'العربية'},
   ];

@@ -74,8 +74,8 @@ class _DashboardTabState extends State<DashboardTab> {
 
       if (!mounted) return;
       setState(() {
-        _students = int.tryParse('${enrollment['total'] ?? 0}') ?? 0;
-        _staff = int.tryParse('${staff['total'] ?? 0}') ?? 0;
+        _students = int.tryParse('${enrollment['total'] ?? stats['students'] ?? (stats['basic'] is Map ? (stats['basic'] as Map)['totalStudents'] : null) ?? 0}') ?? 0;
+        _staff = int.tryParse('${staff['total'] ?? stats['staff'] ?? (stats['basic'] is Map ? (stats['basic'] as Map)['staffCount'] : null) ?? 0}') ?? 0;
         _summary = summary;
         _mostAbsent = absent.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         _today = today;

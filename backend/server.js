@@ -787,6 +787,7 @@ const attendanceSystemInitializer = require('./services/attendanceSystemInitiali
   console.log(`  http://localhost:${PORT}/api/dashboard/recent-faults`);
   console.log(`  http://localhost:${PORT}/api/dashboard/top-offenders`);
   try { startDailyReportScheduler(); } catch (e) { console.log('[daily-report] scheduler not started:', e.message); }
+  try { require('./services/adminAlerts').start(); } catch (e) { console.log('[admin-alerts] scheduler not started:', e.message); }
   
   console.log('\n🤖 Machine Webhook Ready:');
   console.log(`   Listening for AI06 machine at: http://10.22.134.159:${PORT}/api/machine-webhook`);

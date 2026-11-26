@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
+import '../core/config/app_variant.dart';
 import '../core/theme/app_theme.dart';
 
 /// A consistent rounded surface card used across the app.
@@ -367,16 +368,28 @@ class GradientBackground extends StatelessWidget {
           end: Alignment.bottomCenter,
           stops: const [0.0, 0.35, 1.0],
           colors: isDark
-              ? [
-                  const Color(0xFF2A1412),
-                  const Color(0xFF151515),
-                  const Color(0xFF0D0D0D),
-                ]
-              : [
-                  AppColors.primaryLight.withValues(alpha: 0.55),
-                  const Color(0xFFFBF7F5),
-                  const Color(0xFFF5EFEA),
-                ],
+              ? (AppVariant.isBilal
+                  ? [
+                      const Color(0xFF2A2410),
+                      const Color(0xFF151515),
+                      const Color(0xFF0D0D0D),
+                    ]
+                  : [
+                      const Color(0xFF2A1412),
+                      const Color(0xFF151515),
+                      const Color(0xFF0D0D0D),
+                    ])
+              : (AppVariant.isBilal
+                  ? [
+                      AppColors.primaryLight.withValues(alpha: 0.55),
+                      const Color(0xFFFDFBF2),
+                      const Color(0xFFF7F1DC),
+                    ]
+                  : [
+                      AppColors.primaryLight.withValues(alpha: 0.55),
+                      const Color(0xFFFBF7F5),
+                      const Color(0xFFF5EFEA),
+                    ]),
         ),
       ),
       child: child,

@@ -542,7 +542,9 @@ const TeacherEvaluation = () => {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button type="button" style={btnGhost} onClick={() => { setSelectedFormId(String(f.id)); setTab('evaluate'); }}>Use</button>
                     <button type="button" style={btnGhost} onClick={() => startEditForm(f)}>Edit</button>
-                    <button type="button" style={btnDanger} onClick={() => deleteForm(f)}>Delete</button>
+                    {f.form_type !== 'teaching_quality' && (
+                      <button type="button" style={btnDanger} onClick={() => deleteForm(f)}>Delete</button>
+                    )}
                   </div>
                 </div>
               ))}

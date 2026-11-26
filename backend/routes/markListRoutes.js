@@ -1594,7 +1594,7 @@ router.get('/ranking/:className/:termNumber', async (req, res) => {
           if (!studentData[mark.student_name]) {
             studentData[mark.student_name] = { totalMarks: 0, subjectCount: 0 };
           }
-          studentData[mark.student_name].totalMarks += mark.total || 0;
+          studentData[mark.student_name].totalMarks += parseFloat(mark.total) || 0;
           studentData[mark.student_name].subjectCount++;
         }
       } catch (error) {

@@ -89,7 +89,7 @@ class AdminSettingsScreen extends StatelessWidget {
   }
 
   void _languageDialog(BuildContext context, AppProvider app) {
-    const langs = {'en': 'English', 'so': 'Soomaali', 'am': 'አማርኛ', 'ar': 'العربية'};
+    const langs = {'en': 'English', 'so': 'Soomaali', 'om': 'Afaan Oromoo', 'am': 'Amharic', 'ar': 'Arabic'};
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: Text(tr(context, 'select_language')),
       content: Column(mainAxisSize: MainAxisSize.min, children: langs.entries.map((e) => ListTile(

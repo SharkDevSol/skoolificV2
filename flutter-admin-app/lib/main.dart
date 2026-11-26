@@ -156,7 +156,7 @@ class MyApp extends StatelessWidget {
       child: Consumer<AppProvider>(
         builder: (context, appProvider, child) {
           final loc = appProvider.locale;
-          final materialLocale = loc.languageCode == 'so' ? const Locale('en') : loc;
+          final materialLocale = (loc.languageCode == 'so' || loc.languageCode == 'om') ? const Locale('en') : loc;
           AppLocalizations.currentLocale = loc;
 
           return MaterialApp(

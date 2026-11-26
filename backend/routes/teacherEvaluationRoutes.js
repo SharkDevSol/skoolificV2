@@ -253,6 +253,11 @@ router.put('/forms/:id', authenticateWithBranch, async (req, res) => {
 router.delete('/forms/:id', authenticateWithBranch, async (req, res) => {
   try {
     await ensureTables(req);
+    const current = await db(req).query('SELECT name, form_type FROM teacher_evaluation_forms WHERE id=$1', [req.params.id]);
+    if (!current.rows.length) return res.status(404).json({ error: 'Form not found' });
+    if (current.rows[0].form_type === 'teaching_quality') {
+      return res.status(403).json({ error: 'The Teaching Quality Monitoring form cannot be deleted. You can edit its indicators instead.' });
+    }
     await db(req).query('DELETE FROM teacher_evaluation_forms WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

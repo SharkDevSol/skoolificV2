@@ -138,9 +138,9 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                         value: '${f['rating_scale'] ?? 'numeric'}',
                         decoration: const InputDecoration(labelText: 'Rating scale', isDense: true),
                         items: const [
-                          DropdownMenuItem(value: 'numeric', child: Text('Numbers 1â€“N')),
-                          DropdownMenuItem(value: 'letter', child: Text('Letters Aâ€“F')),
-                          DropdownMenuItem(value: 'letter_plus', child: Text('Letters A+ â€¦ A- â€¦ F')),
+                          DropdownMenuItem(value: 'numeric', child: Text('Numbers 1-N')),
+                          DropdownMenuItem(value: 'letter', child: Text('Letters A-F')),
+                          DropdownMenuItem(value: 'letter_plus', child: Text('Letters A+ / A- / F')),
                         ],
                         onChanged: (v) => setSheet(() => f['rating_scale'] = v ?? 'numeric'),
                       )),
@@ -286,7 +286,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
             decoration: const InputDecoration(labelText: 'Subject / Class (from Create Mark List)'),
             items: subjects.asMap().entries.map((e) => DropdownMenuItem(
               value: e.key,
-              child: Text('${e.value['subject'] ?? ''} â€” ${e.value['className'] ?? e.value['subjectClass'] ?? ''}'),
+              child: Text('${e.value['subject'] ?? ''} - ${e.value['className'] ?? e.value['subjectClass'] ?? ''}'),
             )).toList(),
             onChanged: subjects.isEmpty ? null : (v) => setSheet(() => subjectIndex = v),
           ),
@@ -452,7 +452,7 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
     showInfoSheet(
       context,
       title: '${s['teacher_name'] ?? 'Evaluation'}',
-      subtitle: '${s['form_name'] ?? form?['name'] ?? ''} â€¢ ${s['evaluation_date'] ?? ''}',
+      subtitle: '${s['form_name'] ?? form?['name'] ?? ''} - ${s['evaluation_date'] ?? ''}',
       entries: entries,
     );
   }
@@ -480,7 +480,8 @@ class _TeacherEvaluationScreenState extends State<TeacherEvaluationScreen> with 
                         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                           IconButton(icon: const Icon(Icons.play_arrow), tooltip: 'Use form', onPressed: () => _useForm(f)),
                           IconButton(icon: const Icon(Icons.edit), tooltip: 'Edit', onPressed: () => _builder(f)),
-                          IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Delete', onPressed: () async { await ApiService().deleteEvaluationForm(int.tryParse('${f['id']}') ?? 0); await _load(); }),
+                          if ('${f['form_type'] ?? ''}' != 'teaching_quality')
+                            IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Delete', onPressed: () async { await ApiService().deleteEvaluationForm(int.tryParse('${f['id']}') ?? 0); await _load(); }),
                         ]),
                       ),
                     )),
