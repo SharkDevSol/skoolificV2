@@ -676,8 +676,8 @@ class _ReportCardWidget extends StatelessWidget {
                     decoration: const BoxDecoration(color: Color(0xFFE6F2FF)),
                     children: [
                       _buildCell(tr(context, 'rank'), isBold: true),
-                      _buildCell(ranking[1]?['rankDisplay']?.toString() ?? '—'),
-                      _buildCell(ranking[2]?['rankDisplay']?.toString() ?? '—'),
+                      _buildCell(_termRank(ranking, 1)),
+                      _buildCell(_termRank(ranking, 2)),
                       _buildCell(_overallRankLabel(ranking, rankTotal)),
                     ],
                   ),
@@ -755,14 +755,34 @@ class _ReportCardWidget extends StatelessWidget {
   }
 
   /// Overall rank label for the last cell: "2nd of 4" (best of available terms)
+  String _termRank(Map<int, Map<String, dynamic>> ranking, int term) {
+    final r = ranking[term];
+    final avg = double.tryParse('${r?['average'] ?? 0}') ?? 0;
+    if (r == null || avg <= 0) return '-';
+    return (r['rankDisplay'] ?? r['rank'] ?? '-').toString();
+  }
+
   String _overallRankLabel(Map<int, Map<String, dynamic>> ranking, int? rankTotal) {
-    final r1 = ranking[1]?['rank'];
-    final r2 = ranking[2]?['rank'];
-    if (r1 == null && r2 == null) return '—';
-    // use the term with marks; prefer the LATEST term that has a rank
-    final rank = r2 ?? r1;
-    final display = ranking[2]?['rankDisplay'] ?? ranking[1]?['rankDisplay'] ?? '$rank';
-    return rankTotal != null ? '$display of $rankTotal' : display.toString();
+    if (ranking.isEmpty) return '-';
+    final keys = ranking.keys.toList()..sort();
+    // Use the latest term that actually has marks (average > 0). A later
+    // empty term (e.g. Term 4) would otherwise show a misleading rank.
+    for (final k in keys.reversed) {
+      final r = ranking[k];
+      final avg = double.tryParse('${r?['average'] ?? 0}') ?? 0;
+      if (r != null && r['rank'] != null && avg > 0) {
+        final display = r['rankDisplay'] ?? r['rank'];
+        return rankTotal != null ? '$display of $rankTotal' : display.toString();
+      }
+    }
+    for (final k in keys.reversed) {
+      final r = ranking[k];
+      if (r != null && r['rank'] != null) {
+        final display = r['rankDisplay'] ?? r['rank'];
+        return rankTotal != null ? '$display of $rankTotal' : display.toString();
+      }
+    }
+    return '-';
   }
 
   String _termTotal(List<Mark> marks, String term) {

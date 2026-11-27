@@ -141,6 +141,23 @@ class PushService {
     }
   }
 
+  /// Called on logout: deactivate this device token for the current guardian.
+  static Future<void> unregister() async {
+    try {
+      final token = StorageService.fcmToken ?? await FirebaseMessaging.instance.getToken();
+      final branch = StorageService.branchCode ?? StorageService.savedBranchCode ?? '';
+      if (token == null || token.isEmpty) return;
+      await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/api/guardians/unregister-device'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (branch.isNotEmpty) 'x-branch-code': branch.toUpperCase(),
+        },
+        body: jsonEncode({'fcm_token': token}),
+      );
+    } catch (_) {}
+  }
+
   /// FIX: re-register on every app start (token may rotate / user may have
   /// logged in from another account). Safe to call repeatedly.
   static Future<void> ensureRegistered() async {

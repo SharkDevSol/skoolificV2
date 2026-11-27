@@ -208,7 +208,8 @@ const ReportCard = () => {
         const student = term.rankings?.find(s => norm(s.studentName) === norm(studentName));
         if (student) {
           termData[tn] = student;
-          studentRanks[tn] = student.rank || '-';
+          const hasMarks = (Number(student.average) || 0) > 0 || (Number(student.totalMarks) || 0) > 0;
+          studentRanks[tn] = hasMarks ? (student.rank || '-') : '-';
         }
       });
 

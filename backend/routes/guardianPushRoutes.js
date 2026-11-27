@@ -269,6 +269,14 @@ router.post('/register-device', async (req, res) => {
     return res.status(400).json({ error: 'username and fcm_token required' });
   }
   try {
+    // A phone belongs to one logged-in guardian at a time. When a new account
+    // logs in on the same device, deactivate the old account's rows for this
+    // token so the previous user no longer receives notifications here.
+    await db.query(
+      `UPDATE guardian_devices SET active = false
+        WHERE fcm_token = $2 AND LOWER(guardian_username) <> LOWER($1)`,
+      [username, fcm_token]
+    );
     await db.query(
       `INSERT INTO guardian_devices (guardian_username, fcm_token, platform, language)
        VALUES ($1, $2, $3, $4)
@@ -281,6 +289,22 @@ router.post('/register-device', async (req, res) => {
   } catch (err) {
     console.error('Error in /register-device:', err);
     res.status(500).json({ error: 'Failed to register device', details: err.message });
+  }
+});
+
+/**
+ * POST /api/guardians/unregister-device
+ * Body: { fcm_token }
+ * Called on logout so this device stops receiving the old account's pushes.
+ */
+router.post('/unregister-device', async (req, res) => {
+  const { fcm_token } = req.body || {};
+  if (!fcm_token) return res.status(400).json({ error: 'fcm_token required' });
+  try {
+    await db.query(`UPDATE guardian_devices SET active = false WHERE fcm_token = $1`, [fcm_token]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to unregister device', details: err.message });
   }
 });
 

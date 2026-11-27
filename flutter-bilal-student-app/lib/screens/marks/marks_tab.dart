@@ -707,7 +707,7 @@ class _ReportCardWidget extends StatelessWidget {
                     children: [
                       _buildCell(tr(context, 'rank'), isBold: true),
                       ...termNums.map((t) => _buildCell(
-                          ranking[t]?['rankDisplay']?.toString() ?? '—')),
+                          _termRank(ranking, t))),
                       _buildCell(_overallRankLabel(ranking, rankTotal)),
                     ],
                   ),
@@ -786,10 +786,26 @@ class _ReportCardWidget extends StatelessWidget {
   }
 
   /// Overall rank label for the last cell: "2nd of 4" (best/latest term with a rank)
+  String _termRank(Map<int, Map<String, dynamic>> ranking, int term) {
+    final r = ranking[term];
+    final avg = double.tryParse('${r?['average'] ?? 0}') ?? 0;
+    if (r == null || avg <= 0) return '-';
+    return (r['rankDisplay'] ?? r['rank'] ?? '-').toString();
+  }
+
   String _overallRankLabel(Map<int, Map<String, dynamic>> ranking, int? rankTotal) {
-    if (ranking.isEmpty) return '—';
-    // Prefer the latest term that has a rank
+    if (ranking.isEmpty) return '-';
     final keys = ranking.keys.toList()..sort();
+    // Use the latest term that actually has marks (average > 0). A later
+    // empty term (e.g. Term 4) would otherwise show a misleading rank.
+    for (final k in keys.reversed) {
+      final r = ranking[k];
+      final avg = double.tryParse('${r?['average'] ?? 0}') ?? 0;
+      if (r != null && r['rank'] != null && avg > 0) {
+        final display = r['rankDisplay'] ?? r['rank'];
+        return rankTotal != null ? '$display of $rankTotal' : display.toString();
+      }
+    }
     for (final k in keys.reversed) {
       final r = ranking[k];
       if (r != null && r['rank'] != null) {
@@ -797,7 +813,7 @@ class _ReportCardWidget extends StatelessWidget {
         return rankTotal != null ? '$display of $rankTotal' : display.toString();
       }
     }
-    return '—';
+    return '-';
   }
 
   String _termTotal(List<Mark> marks, String term) {

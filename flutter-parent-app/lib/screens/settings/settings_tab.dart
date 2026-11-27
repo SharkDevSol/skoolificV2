@@ -10,6 +10,7 @@ import '../../widgets/app_widgets.dart';
 import '../../models/models.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/push_service.dart';
 import '../../core/services/storage_service.dart' as storage;
 
 class SettingsTab extends StatelessWidget {
@@ -100,12 +101,13 @@ class SettingsTab extends StatelessWidget {
 
           PrimaryButton(
             label: AppLocalizations.tr(context, 'logout'),
-            onPressed: () {
+            onPressed: () async {
               // FIX: clear the session AND clear the navigation stack in one
               // step. provider.logout() alone left this page on the stack
               // (logout seemed to do nothing until BACK was pressed), and
               // pushAndRemoveUntil alone duplicated the login (blank card).
-              provider.logout();
+              await PushService.unregister();
+              await provider.logout();
               Navigator.of(context, rootNavigator: true)
                   .pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const LoginScreen()),

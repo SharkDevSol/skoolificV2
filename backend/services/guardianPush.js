@@ -21,26 +21,81 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000).unref();
 
+// Persistent dedupe so the same event is not sent again after a server restart
+// or on the next day (the old in-memory cache lasted only 15 seconds).
+async function ensurePushLog() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS guardian_push_log (
+      dedup_key TEXT PRIMARY KEY,
+      sent_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+}
+
+async function alreadySent(dedupKey, days = 7) {
+  try {
+    await ensurePushLog();
+    const r = await db.query(
+      `SELECT 1 FROM guardian_push_log
+        WHERE dedup_key = $1 AND sent_at > NOW() - ($2 || ' days')::interval
+        LIMIT 1`,
+      [dedupKey, String(days)]
+    );
+    return r.rows.length > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function markSent(dedupKey) {
+  try {
+    await ensurePushLog();
+    await db.query(
+      `INSERT INTO guardian_push_log (dedup_key) VALUES ($1) ON CONFLICT (dedup_key) DO NOTHING`,
+      [dedupKey]
+    );
+  } catch (_) {}
+}
+
+function normalizeDateKey(value) {
+  const s = String(value || '').trim();
+  const m = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) {
+    return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  }
+  return s.toLowerCase();
+}
+
 const notifyGuardianPush = async (guardianUsername, title, body, data = {}) => {
   if (!guardianUsername) return { sent: 0 };
   try {
-    // Deduplicate attendance notifications so guardians never get spammed
-    // with repeated "Absent" or "Late" pushes when class rosters are rapidly re-saved (<15 seconds)
-    if (data && String(data.type).toLowerCase() === 'attendance') {
+    // Deduplicate attendance and marks notifications. The same event must not
+    // be sent repeatedly during the day or again on the next day.
+    let persistentKey = null;
+    if (data && (String(data.type).toLowerCase() === 'attendance' || String(data.type).toLowerCase() === 'marks')) {
       const gUser = String(guardianUsername || '').toLowerCase().trim();
-      const statusKey = String(data.status || '').toLowerCase().trim();
+      const typeKey = String(data.type).toLowerCase();
       const studentKey = String(data.studentId || data.school_id || data.studentName || data.student_name || '').toLowerCase().trim();
-      const dateKey = String(data.date || data.time || 'today').toLowerCase().trim();
-
-      const dedupKey = `attendance:${gUser}:${studentKey}:${dateKey}:${statusKey}`;
-      const lastSent = attendancePushCache.get(dedupKey);
-      if (lastSent && (Date.now() - lastSent < 15 * 1000)) {
-        console.log(`[guardianPush] Suppressed rapid duplicate attendance notification (<15s): ${dedupKey}`);
-        return { sent: 0, suppressed: true, reason: 'duplicate_attendance' };
+      if (typeKey === 'attendance') {
+        const statusKey = String(data.status || '').toLowerCase().trim();
+        const dateKey = normalizeDateKey(data.date || data.time || 'today');
+        persistentKey = `attendance:${gUser}:${studentKey}:${dateKey}:${statusKey}`;
+      } else {
+        const subjectKey = String(data.subject || '').toLowerCase().trim();
+        const termKey = String(data.term || '1').toLowerCase().trim();
+        const scoreKey = String(data.score ?? '').toLowerCase().trim();
+        persistentKey = `marks:${gUser}:${studentKey}:${subjectKey}:${termKey}:${scoreKey}`;
       }
 
-      // Dedup marker is stored only AFTER a successful delivery (below), so a
-      // failed attempt (wrong project, no device) never blocks later sends.
+      const lastSent = attendancePushCache.get(persistentKey);
+      if (lastSent && (Date.now() - lastSent < 15 * 1000)) {
+        console.log(`[guardianPush] Suppressed rapid duplicate notification (<15s): ${persistentKey}`);
+        return { sent: 0, suppressed: true, reason: 'duplicate_recent' };
+      }
+      if (await alreadySent(persistentKey, 7)) {
+        console.log(`[guardianPush] Suppressed duplicate notification (already sent in last 7 days): ${persistentKey}`);
+        return { sent: 0, suppressed: true, reason: 'duplicate_persistent' };
+      }
     }
 
     let finalTitle = title;
@@ -175,14 +230,11 @@ const notifyGuardianPush = async (guardianUsername, title, body, data = {}) => {
 
     const res = await pushToGuardian(guardianUsername, finalTitle, finalBody, data);
 
-    // Remember the attendance alert only when it was actually delivered.
+    // Remember the alert only when it was actually delivered.
     try {
-      if (data && String(data.type).toLowerCase() === 'attendance' && res && res.sent > 0) {
-        const gUser = String(guardianUsername || '').toLowerCase().trim();
-        const statusKey = String(data.status || '').toLowerCase().trim();
-        const studentKey = String(data.studentId || data.school_id || data.studentName || data.student_name || '').toLowerCase().trim();
-        const dateKey = String(data.date || data.time || 'today').toLowerCase().trim();
-        attendancePushCache.set('attendance:' + gUser + ':' + studentKey + ':' + dateKey + ':' + statusKey, Date.now());
+      if (persistentKey && res && res.sent > 0) {
+        attendancePushCache.set(persistentKey, Date.now());
+        await markSent(persistentKey);
       }
     } catch (_) {}
 
