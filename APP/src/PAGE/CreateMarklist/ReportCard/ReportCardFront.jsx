@@ -21,7 +21,7 @@ const ReportCardFront = ({ data, schoolInfo }) => {
   const subjects = data.subjects || [];
   const branch = String(getBranchCode() || '').toUpperCase();
   const isBilal = branch.includes('BILAL') || (typeof window !== 'undefined' && window.location.hostname.toLowerCase().includes('bilal'));
-  const schoolNameMain = isBilal ? 'BILAL ACADEMY' : 'SCHOOL ACADEMY';
+  const schoolNameMain = isBilal ? 'BILAL SCHOOL' : 'SCHOOL ACADEMY';
   const schoolNameAmharic = isBilal
     ? 'ቢላል አካዳሚ የመጀመሪያና ሁለተኛ ደረጃ ት/ቤት'
     : 'ኢቅራ የስላም መዋለ ናት ት/ቤት';

@@ -428,7 +428,7 @@ class _ReceiptWidget extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 32),
-          const Center(child: Text('Bilal Academy - Dire Dawa, Ethiopia - 0254119494', style: TextStyle(fontSize: 10, color: Color(0xFF5A3A22)))),
+          const Center(child: Text('Bilal School - Dire Dawa, Ethiopia - 0254119494', style: TextStyle(fontSize: 10, color: Color(0xFF5A3A22)))),
         ],
       ),
     );

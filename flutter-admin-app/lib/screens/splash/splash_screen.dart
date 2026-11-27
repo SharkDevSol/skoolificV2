@@ -72,7 +72,7 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                AppVariant.isBilal ? 'Bilal Academy Administration' : 'Teacher & Staff Portal',
+                AppVariant.isBilal ? 'Bilal School Administration' : 'Teacher & Staff Portal',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,

@@ -576,7 +576,7 @@ class _ReportCardWidget extends StatelessWidget {
                     child: Column(
                       children: [
                         const SizedBox(height: 16),
-                        const Text('BILAL ACADEMY', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Color(0xFF8A6A0B), letterSpacing: 2)),
+                        const Text('BILAL SCHOOL', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Color(0xFF8A6A0B), letterSpacing: 2)),
                         const Text('مدرسة بلال الإسلامية دريوا', textDirection: TextDirection.rtl, style: TextStyle(fontSize: 13, color: Color(0xFF8A6A0B))),
                         const Text('MANA BARNOOTA BILAAL SADARKAA 1ffaa Fi 2ffaa', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Color(0xFF8A6A0B))),
                         const Text('DIRREE DAWAA', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF8A6A0B))),

@@ -1,7 +1,7 @@
 name: bilal_student
 description: "Bilal Student - student mobile app"
 publish_to: 'none'
-version: 1.0.2+3
+version: 1.0.3+4
 
 environment:
   sdk: ^3.4.0
