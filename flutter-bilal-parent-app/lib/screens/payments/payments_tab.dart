@@ -346,9 +346,10 @@ class _ReceiptWidget extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text('Dugsiga Barbaarinta Caruurta, Hoose, Dhexe & Sare Ee Iqra', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF5A3A22), fontFamily: 'serif')),
-                    Text('Iqra Kindergarten, Primary, Intermediate and Secondary School', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF5A3A22), fontFamily: 'serif')),
-                    Text('Jigjiga, Ethiopia', style: TextStyle(fontSize: 12, color: Color(0xFF5A3A22))),
+                    Text('مدرسة بلال الإسلامية دريوا', textDirection: TextDirection.rtl, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF5A3A22), fontFamily: 'serif')),
+                    Text('MANA BARNOOTA BILAAL SADARKAA 1ffaa Fi 2ffaa', textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF5A3A22), fontFamily: 'serif')),
+                    Text('ቢላል አካዳሚ የመጀመሪያና ሁለተኛ ደረጃ ት/ቤት', textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Color(0xFF5A3A22), fontFamily: 'serif')),
+                    Text('DIRREE DAWAA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF5A3A22))),
                   ],
                 ),
               ),
@@ -427,7 +428,7 @@ class _ReceiptWidget extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 32),
-          const Center(child: Text('Iqra Academy • Jigjiga, Ethiopia • 0705377079', style: TextStyle(fontSize: 10, color: Color(0xFF5A3A22)))),
+          const Center(child: Text('Bilal Academy - Dire Dawa, Ethiopia - 0254119494', style: TextStyle(fontSize: 10, color: Color(0xFF5A3A22)))),
         ],
       ),
     );

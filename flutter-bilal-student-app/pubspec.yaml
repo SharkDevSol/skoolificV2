@@ -1,7 +1,7 @@
 name: bilal_student
 description: "Bilal Student - student mobile app"
 publish_to: 'none'
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.4.0
@@ -45,3 +45,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+

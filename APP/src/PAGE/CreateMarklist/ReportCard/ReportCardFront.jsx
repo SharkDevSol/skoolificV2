@@ -1,5 +1,6 @@
 import React from 'react';
 import styles from './ReportCard.module.css';
+import { getBranchCode } from '../../../utils/branchCode';
 
 const subjectArabicMap = {
   'English': 'الانجليزية', 'Arabic': 'اللغة العربية', 'Arabic Language': 'اللغة العربية',
@@ -18,6 +19,22 @@ const ReportCardFront = ({ data, schoolInfo }) => {
   if (!data) return null;
   const terms = data.terms || [1, 2];
   const subjects = data.subjects || [];
+  const branch = String(getBranchCode() || '').toUpperCase();
+  const isBilal = branch.includes('BILAL') || (typeof window !== 'undefined' && window.location.hostname.toLowerCase().includes('bilal'));
+  const schoolNameMain = isBilal ? 'BILAL ACADEMY' : 'SCHOOL ACADEMY';
+  const schoolNameAmharic = isBilal
+    ? 'ቢላል አካዳሚ የመጀመሪያና ሁለተኛ ደረጃ ት/ቤት'
+    : 'ኢቅራ የስላም መዋለ ናት ት/ቤት';
+  const schoolNameArabic = isBilal
+    ? 'مدرسة بلال الإسلامية دريوا'
+    : 'اقرأ روضة الأطفال ومدرسة الإبتدائية والمتوسطة والثانويه';
+  const schoolNameEnglish = isBilal
+    ? 'MANA BARNOOTA BILAAL SADARKAA 1ffaa Fi 2ffaa'
+    : 'School Name Here';
+  const schoolLocation = isBilal ? 'DIRREE DAWAA' : 'Jigjiga-Ethiopia';
+  const logoSrc = isBilal
+    ? (schoolInfo.logo || schoolInfo.website_icon || '/bilal-logo.png')
+    : (schoolInfo.logo || schoolInfo.website_icon);
 
   const getTermLabel = (tn) => {
     const suffix = tn === 1 ? 'st' : tn === 2 ? 'nd' : tn === 3 ? 'rd' : 'th';
@@ -25,7 +42,7 @@ const ReportCardFront = ({ data, schoolInfo }) => {
   };
 
   return (
-    <div className={styles.reportCard}>
+    <div className={`${styles.reportCard} ${isBilal ? styles.bilalReport : ''}`}>
       <div className={styles.outerBorder}>
         <div className={styles.innerBorder}>
           <div className={styles.decorCornerTR}></div>
@@ -33,14 +50,14 @@ const ReportCardFront = ({ data, schoolInfo }) => {
           <div className={styles.frontContent}>
             <div className={styles.headerSection}>
               <div className={styles.logoContainer}>
-                <img src={schoolInfo.logo || schoolInfo.website_icon} alt="Logo" className={styles.mainLogo} />
+                <img src={logoSrc} alt="Logo" className={styles.mainLogo} />
               </div>
               <div className={styles.schoolInfo}>
-                <div className={styles.schoolNameMain}>SCHOOL ACADEMY</div>
-                <div className={styles.schoolNameAmharic}>ኢቅራ የስላም መዋለ ናት ት/ቤት</div>
-                <div className={styles.schoolNameArabic}>اقرأ روضة الأطفال ومدرسة الإبتدائية والمتوسطة والثانويه</div>
-                <div className={styles.schoolNameEnglish}>School Name Here</div>
-                <div className={styles.schoolLocation}>Jigjiga-Ethiopia</div>
+                <div className={styles.schoolNameMain}>{schoolNameMain}</div>
+                <div className={styles.schoolNameAmharic}>{schoolNameAmharic}</div>
+                <div className={styles.schoolNameArabic}>{schoolNameArabic}</div>
+                <div className={styles.schoolNameEnglish}>{schoolNameEnglish}</div>
+                <div className={styles.schoolLocation}>{schoolLocation}</div>
               </div>
             </div>
 

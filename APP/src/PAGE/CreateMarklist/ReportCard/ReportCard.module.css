@@ -693,3 +693,25 @@
   font-style: italic;
   font-size: 0.9rem;
 }
+
+/* Bilal branch report card palette (gold / bronze) */
+.bilalReport .outerBorder { border-color: #8A6A0B; }
+.bilalReport .innerBorder { border-color: #D4AF37; }
+.bilalReport .decorCornerTR { border-top-color: #E5C518; border-right-color: #E5C518; }
+.bilalReport .decorCornerBL { border-bottom-color: #E5C518; border-left-color: #E5C518; }
+.bilalReport .logoContainer { border-color: #8A6A0B; }
+.bilalReport .schoolNameMain,
+.bilalReport .schoolNameArabic,
+.bilalReport .schoolNameEnglish,
+.bilalReport .cardTitle { color: #8A6A0B; }
+.bilalReport .schoolNameAmharic,
+.bilalReport .schoolLocation { color: #5A3A22; }
+.bilalReport .titleLine { background: #E5C518; }
+.bilalReport .studentPhotoContainer { border-color: #8A6A0B; }
+.bilalReport .marksTable thead th { background: #8A6A0B; border-color: #6B5208; color: #FFFFFF; }
+.bilalReport .totalRow td { background: #FDF7E0; }
+.bilalReport .avgRow td { background: #FBF3D0; }
+.bilalReport .rankRow td { background: #FFF9E6; }
+.bilalReport .gradingTitle,
+.bilalReport .signatureLabel,
+.bilalReport .footerBrand { color: #8A6A0B; }
