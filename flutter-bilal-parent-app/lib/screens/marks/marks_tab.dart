@@ -63,20 +63,8 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
           _loading = _marks.isEmpty; // keep skeleton only if truly nothing
         });
       }
-      // FIX 3: fetch REAL rank from server ranking endpoint (never block UI)
-      final ward = app.selectedWard;
-      if (ward != null && (ward.className ?? '').isNotEmpty) {
-        try {
-          final ranking = await ApiService()
-              .studentRanking(ward.className!, ward.studentName);
-          if (mounted && ranking.isNotEmpty) {
-            setState(() {
-              _ranking = ranking;
-              _rankTotal = ranking[1]?['total'] ?? ranking[2]?['total'];
-            });
-          }
-        } catch (_) {/* rank stays hidden on failure */}
-      }
+      // Refresh the selected ward's rank as part of every reload.
+      await _fetchRanking(app.selectedWard);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -96,6 +84,25 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
     }
   }
 
+  String? _lastRankKey;
+  Future<void> _fetchRanking(Ward? ward) async {
+    final key = ward == null ? '' : '${ward.className ?? ''}|${ward.studentName}';
+    _lastRankKey = key;
+    if (ward == null || (ward.className ?? '').isEmpty) {
+      if (mounted) setState(() { _ranking = {}; _rankTotal = null; });
+      return;
+    }
+    if (mounted) setState(() { _ranking = {}; _rankTotal = null; });
+    try {
+      final ranking = await ApiService().studentRanking(ward.className!, ward.studentName);
+      if (!mounted || _lastRankKey != key) return;
+      setState(() {
+        _ranking = ranking;
+        _rankTotal = ranking[1]?['total'] ?? ranking[2]?['total'];
+      });
+    } catch (_) {/* rank stays hidden on failure */}
+  }
+
   // 2.3: marks for the SELECTED ward only — always current
   Map<String, List<Mark>> _getByTerm(Ward? selectedWard) {
     final map = <String, List<Mark>>{};
@@ -111,6 +118,14 @@ class _MarksTabState extends State<MarksTab> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     final app = Provider.of<AppProvider>(context);
     final theme = Theme.of(context);
+    final wardNow = app.selectedWard;
+    final wardKeyNow = wardNow == null ? '' : '${wardNow.className ?? ''}|${wardNow.studentName}';
+    if (wardKeyNow != _lastRankKey) {
+      _lastRankKey = wardKeyNow;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetchRanking(wardNow);
+      });
+    }
     final isDark = theme.brightness == Brightness.dark;
 
     return GradientBackground(
